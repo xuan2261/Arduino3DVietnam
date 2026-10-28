@@ -1,6 +1,7 @@
 // Mô hình hình học 3D độc lập của Arduino Uno và các mô-đun minh họa.
 // Mã hiển thị không quyết định hành vi điện tử; trạng thái đến từ simulator.js.
 import * as T from "../assets/vendor/three.module.min.js";
+import { labTerminalAnchor, validateLabLayout } from "./lab-layout.js";
 
 const palette = {
   board: 0x176b7a, solder: 0x166070, dark: 0x172f38, metal: 0xc4cfcd,
@@ -10,6 +11,9 @@ const palette = {
 const BASE_SCENE_ARIA = "Mô hình Arduino Uno 3D tương tác. Dùng phím mũi tên để xoay, +/− để thu phóng, Home để đặt lại và Enter để chọn bo mạch. Trên màn hình cảm ứng, vuốt ngang để xoay; vuốt dọc vẫn cuộn trang.";
 const CONCEPTUAL_WIRING_NOTICE = "SƠ ĐỒ NET KHÁI NIỆM · KHÔNG PHẢI VỊ TRÍ LỖ BREADBOARD";
 const CONCEPTUAL_WIRING_ARIA = "Lớp dây là sơ đồ net khái niệm từ netlist hiện tại, không phải vị trí lỗ breadboard hay mô phỏng dòng điện vật lý.";
+const LAB_LAYOUT_NOTICE = "LAYOUT KHÁI NIỆM · KHÔNG PHẢI TỌA ĐỘ LỖ BREADBOARD";
+const LAB_EDIT_ARIA = "Chế độ chỉnh bố trí 3D đang bật. Click hoặc chạm để chọn component; kéo component di động trên mặt phẳng bố trí. Các phím W A S D di chuyển component đã chọn theo lưới, Q/E xoay 90 độ, Escape bỏ chọn. Phím mũi tên vẫn điều khiển camera.";
+const LAB_WORLD_SCALE = .72;
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
   checked: 0x188b80,
@@ -63,7 +67,7 @@ function disposeTree(obj, keepMaterials = new Set()) {
   const materials = new Set();
   const textures = new Set();
   obj.traverse(child => {
-    if (!child.isMesh && !child.isSprite) return;
+    if (!child.isMesh && !child.isSprite && !child.isLine) return;
     if (child.geometry) geometries.add(child.geometry);
     const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
     for (const m of childMaterials) {
@@ -237,6 +241,152 @@ function makeConceptualWiringLayer(scene, model) {
   return layer;
 }
 
+function labWorldPoint(x, z, y = 0) {
+  return new T.Vector3(x * LAB_WORLD_SCALE, y, z * LAB_WORLD_SCALE);
+}
+
+function unrotateLabVector(x, z, quarterTurns) {
+  switch (((quarterTurns % 4) + 4) % 4) {
+    case 1: return { x: z, z: -x };
+    case 2: return { x: -x, z: -z };
+    case 3: return { x: -z, z: x };
+    default: return { x, z };
+  }
+}
+
+function labComponentHeight(kind) {
+  if (kind === "arduino-uno") return .46;
+  if (kind === "breadboard") return .34;
+  if (kind === "ultrasonic-sensor") return .68;
+  if (kind === "servo" || kind === "driver") return .62;
+  if (kind === "power-source") return .55;
+  return .48;
+}
+
+function labSelectionFrame(parent, width, depth, componentId) {
+  const frame = new T.LineSegments(
+    new T.EdgesGeometry(new T.BoxGeometry(width + .12, .08, depth + .12)),
+    new T.LineBasicMaterial({ color: palette.amber, transparent: true, opacity: .95 }),
+  );
+  frame.position.y = .08;
+  frame.visible = false;
+  frame.userData = { kind: "lab-selection-frame", componentId, physicalLocation: false };
+  parent.add(frame);
+  return frame;
+}
+
+function labHitProxy(parent, width, depth, height, componentId) {
+  const proxy = new T.Mesh(
+    new T.BoxGeometry(Math.max(.24, width), Math.max(.3, height + .35), Math.max(.24, depth)),
+    new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  );
+  proxy.position.y = Math.max(.2, height / 2);
+  proxy.userData = { kind: "lab-component-hit", componentId, physicalLocation: false };
+  parent.add(proxy);
+  return proxy;
+}
+
+function makeLabArduinoVisual(parent, width, depth, shared) {
+  const body = box(parent, [width, .18, depth], shared.bodyMat, [0,.15,0]);
+  body.castShadow = true;
+  box(parent,[width * .43,.16,depth * .22],shared.plasticMat,[width * .08,.32,.05]);
+  box(parent,[width * .16,.42,depth * .28],shared.metallicMat,[-width * .43,.38,-depth * .24]);
+  const topZ = depth * .39;
+  const bottomZ = -depth * .39;
+  box(parent,[width * .76,.22,.30],shared.plasticMat,[-width * .02,.35,topZ]);
+  box(parent,[width * .62,.22,.30],shared.plasticMat,[width * .12,.35,bottomZ]);
+  canvasLabel(parent,"ARDUINO UNO",0,.255,.02,Math.max(1.5,width*.56),34);
+  canvasLabel(parent,"DIGITAL D0–D13",0,.265,topZ - .25,Math.max(1.45,width*.52),25);
+  canvasLabel(parent,"ANALOG A0–A5",width*.05,.265,bottomZ + .25,Math.max(1.4,width*.48),25);
+  canvasLabel(parent,"5V · 3V3 · GND",width*.27,.265,depth*.16,Math.max(1.2,width*.38),24);
+}
+
+function makeLabBreadboardVisual(parent, width, depth) {
+  box(parent,[width,.26,depth],0xfdfefd,[0,.14,0]);
+  box(parent,[width*.90,.012,.025],0xd77b65,[0,.285,-depth*.37]);
+  box(parent,[width*.90,.012,.025],0x65a9d5,[0,.285,depth*.37]);
+  box(parent,[.12,.014,depth*.74],0xe0e6e3,[0,.292,0]);
+  canvasLabel(parent,"BREADBOARD · KHÁI NIỆM",0,.30,-depth*.43,Math.max(1.5,width*.70),25,"#607c74");
+}
+
+function makeLabGenericVisual(parent, component, shared) {
+  const width = component.width * LAB_WORLD_SCALE;
+  const depth = component.depth * LAB_WORLD_SCALE;
+  const height = labComponentHeight(component.visualKind);
+  const { metallicMat, plasticMat } = shared;
+  switch (component.visualKind) {
+    case "arduino-uno":
+      makeLabArduinoVisual(parent,width,depth,shared);
+      break;
+    case "breadboard":
+      makeLabBreadboardVisual(parent,width,depth);
+      break;
+    case "resistor": {
+      const body = new T.Group();
+      body.rotation.z = Math.PI / 2;
+      body.position.y = .34;
+      parent.add(body);
+      cylinder(body,.10,.10,Math.max(.56,width*.58),0xe7d2a6,[0,0,0],18);
+      box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,Math.max(.38,width*.48),0]);
+      box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,-Math.max(.38,width*.48),0]);
+      break;
+    }
+    case "led":
+    case "rgb-led": {
+      const color = component.visualKind === "rgb-led" ? 0xd86596 : palette.coral;
+      cylinder(parent,Math.min(.30,width*.24),Math.min(.30,width*.24),.42,color,[0,.37,0],24);
+      cylinder(parent,Math.min(.24,width*.19),Math.min(.24,width*.19),.05,metallicMat,[0,.14,0],20);
+      break;
+    }
+    case "button":
+      box(parent,[width*.72,.22,depth*.72],plasticMat,[0,.20,0]);
+      cylinder(parent,Math.min(.28,width*.24),Math.min(.28,width*.24),.24,palette.coral,[0,.43,0],22);
+      break;
+    case "potentiometer":
+      cylinder(parent,Math.min(.36,width*.27),Math.min(.36,width*.27),.22,0x32444b,[0,.22,0],24);
+      cylinder(parent,Math.min(.24,width*.18),Math.min(.24,width*.18),.28,0xe3e7e1,[0,.47,0],20);
+      break;
+    case "photoresistor":
+    case "force-sensor":
+    case "temperature-sensor":
+    case "soil-sensor":
+      box(parent,[width*.74,.14,depth*.70],component.visualKind === "soil-sensor" ? 0x6d8b70 : 0x7d918e,[0,.22,0]);
+      canvasLabel(parent,component.label,0,.30,0,Math.max(.75,width*.72),23,"#eef7f2");
+      break;
+    case "ultrasonic-sensor":
+      box(parent,[width*.80,.15,depth*.70],0x24909a,[0,.24,0]);
+      for (const x of [-width*.22,width*.22]) {
+        cylinder(parent,Math.min(.24,depth*.22),Math.min(.24,depth*.22),.19,metallicMat,[x,.39,0],22);
+      }
+      break;
+    case "buzzer":
+      cylinder(parent,Math.min(.34,width*.27),Math.min(.34,width*.27),.42,0x202c31,[0,.31,0],28);
+      cylinder(parent,Math.min(.18,width*.14),Math.min(.18,width*.14),.025,0x11191c,[0,.53,0],22);
+      break;
+    case "driver":
+      box(parent,[width*.82,.18,depth*.76],0x315f67,[0,.22,0]);
+      box(parent,[width*.34,.16,depth*.32],plasticMat,[0,.37,0]);
+      break;
+    case "servo": {
+      box(parent,[width*.72,.42,depth*.64],0x314654,[0,.30,0]);
+      cylinder(parent,Math.min(.22,width*.16),Math.min(.22,width*.16),.10,0xf4f0e4,[0,.57,0],20);
+      box(parent,[width*.72,.06,.12],0xe2dfd2,[0,.66,0]);
+      break;
+    }
+    case "power-source":
+      box(parent,[width*.78,.38,depth*.72],0x5d7278,[0,.28,0]);
+      canvasLabel(parent,"+   NGUỒN   −",0,.49,0,Math.max(.9,width*.68),25,"#f5f7f2");
+      break;
+    default:
+      box(parent,[width*.76,.26,depth*.70],0x78918d,[0,.24,0]);
+      break;
+  }
+  if (component.visualKind !== "arduino-uno" && component.visualKind !== "breadboard") {
+    canvasLabel(parent,component.label,0,height + .12,0,Math.max(.72,width*.84),24,"#355f58");
+  }
+  return { width, depth, height };
+}
+
 function makeBoard(scene, shared) {
   const { bodyMat, plasticMat, metallicMat, pinMat } = shared;
   const board = new T.Group();
@@ -282,6 +432,9 @@ function makeBoard(scene, shared) {
   canvasLabel(board,"UNO  R3",1.85,.468,.62,2.45,52);
   canvasLabel(board,"DIGITAL   D0–D13",-.9,.48,1.58,2.3,29);
   canvasLabel(board,"ANALOG    A0–A5",.7,.48,-1.53,2.0,32);
+  canvasLabel(board,"D0  D2  D4  D6  D8  D10  D12",-.95,.485,1.84,2.75,22);
+  canvasLabel(board,"A0   A1   A2   A3   A4   A5",.72,.485,-1.78,2.25,23);
+  canvasLabel(board,"5V · 3V3 · GND",2.54,.485,1.55,1.35,22);
   canvasLabel(board,"ARDUINO 3D",1.8,.468,-1.12,2.05,30);
   // Physical onboard LED L (material animated through state update).
   const ledMat = material(0x4b6d56, { emissive: 0x36cc80, emissiveIntensity: .04 });
@@ -431,6 +584,11 @@ export function mountScene(host, onSelect = () => {}) {
   const camera = new T.PerspectiveCamera(38,1,.1,100);
   let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
   let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
+  let activeLabLayer=null,activeLabLayout=null,lastWiringModel=null,selectedLabComponentId=null;
+  let labWireLayer=null;
+  const labComponents=new Map(),labTerminals=new Map(),labWireObjects=[];
+  let labEdit={enabled:false,onSelectComponent:null,onMoveComponent:null,onTerminalSelect:null};
+  const raycaster=new T.Raycaster(),pointerNdc=new T.Vector2(),dragPlane=new T.Plane(new T.Vector3(0,1,0),0);
   const minZoom=.42,maxZoom=2.25;
 
   try {
@@ -460,7 +618,9 @@ export function mountScene(host, onSelect = () => {}) {
       (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, camera.aspect)));
     const radius = Math.min(48, Math.max(8, fitted * zoom));
     camera.position.set(radius*Math.sin(phi)*Math.sin(theta),radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
-    camera.lookAt(1.15,.35,0);
+    const targetX=activeLabLayout ? ((activeLabLayout.bounds.minX+activeLabLayout.bounds.maxX)/2)*LAB_WORLD_SCALE : 1.15;
+    const targetZ=activeLabLayout ? ((activeLabLayout.bounds.minZ+activeLabLayout.bounds.maxZ)/2)*LAB_WORLD_SCALE : 0;
+    camera.lookAt(targetX,.35,targetZ);
   }
   function draw(){raf=0;if(disposed||contextLost||document.hidden)return;updateCamera();renderer.render(scene,camera);}
   function invalidate(){if(!raf && !disposed && !contextLost && !document.hidden) raf=requestAnimationFrame(draw);}
@@ -471,40 +631,492 @@ export function mountScene(host, onSelect = () => {}) {
   }
   const observer = new ResizeObserver(resize);observer.observe(host);
   const canvas=renderer.domElement;
+  const baseShortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home Enter Space";
+  function refreshCanvasAccessibility() {
+    const parts=[BASE_SCENE_ARIA];
+    if(canvas.dataset.wiringMode && canvas.dataset.wiringMode!=="none")parts.push(CONCEPTUAL_WIRING_ARIA);
+    if(activeLabLayout)parts.push("Bố trí component và terminal dùng tọa độ khái niệm, không phải vị trí lỗ breadboard được xác minh.");
+    if(labEdit.enabled)parts.push(LAB_EDIT_ARIA);
+    canvas.setAttribute("aria-label",parts.join(" "));
+    canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
+      ? baseShortcuts+" W A S D Q E Escape"
+      : baseShortcuts);
+  }
   function resetWiringMetadata() {
     canvas.dataset.wiringMode="none";
     canvas.dataset.wiringWireCount="0";
     canvas.dataset.wiringNetCount="0";
     canvas.dataset.wiringStatus="none";
     canvas.dataset.wiringPhysicalMap="none";
-    canvas.setAttribute("aria-label",BASE_SCENE_ARIA);
     canvas.removeAttribute("title");
+    refreshCanvasAccessibility();
   }
+  function resetLabMetadata(){
+    canvas.dataset.labLayoutMode="none";
+    canvas.dataset.labComponentCount="0";
+    canvas.dataset.labTerminalCount="0";
+    canvas.dataset.labWireCount="0";
+    canvas.dataset.labPhysicalVerified="false";
+    canvas.dataset.labBreadboardHoleMapping="false";
+    canvas.dataset.labElectricalPower="false";
+    canvas.dataset.labSelectedComponent="";
+    canvas.dataset.labEdit=labEdit.enabled?"on":"off";
+  }
+  resetLabMetadata();
   resetWiringMetadata();
+  function clearLabWireLayer(){
+    if(labWireLayer){
+      activeLabLayer?.remove(labWireLayer);
+      disposeTree(labWireLayer);
+      labWireLayer=null;
+    }
+    labWireObjects.length=0;
+    canvas.dataset.labWireCount="0";
+  }
+  function updateLabWireGeometry(){
+    if(!labWireObjects.length)return;
+    scene.updateMatrixWorld(true);
+    for(const item of labWireObjects){
+      const from=labTerminals.get(item.from)?.marker;
+      const to=labTerminals.get(item.to)?.marker;
+      if(!from||!to)continue;
+      const start=new T.Vector3(),end=new T.Vector3();
+      from.getWorldPosition(start);to.getWorldPosition(end);
+      const mid=start.clone().lerp(end,.5);
+      mid.y=Math.max(start.y,end.y)+.32;
+      const position=item.line.geometry.getAttribute("position");
+      position.setXYZ(0,start.x,start.y,start.z);
+      position.setXYZ(1,mid.x,mid.y,mid.z);
+      position.setXYZ(2,end.x,end.y,end.z);
+      position.needsUpdate=true;
+      item.line.geometry.computeBoundingSphere();
+    }
+  }
+  function refreshLabWireLayer(){
+    clearLabWireLayer();
+    if(!activeLabLayer||!activeLabLayout||!lastWiringModel?.wires?.length)return;
+    labWireLayer=new T.Group();
+    labWireLayer.userData={kind:"lab-conceptual-wires",physicalLocation:false,physicalVerified:false};
+    activeLabLayer.add(labWireLayer);
+    for(const wire of lastWiringModel.wires){
+      if(!labTerminals.has(wire.from)||!labTerminals.has(wire.to))continue;
+      const geometry=new T.BufferGeometry();
+      geometry.setAttribute("position",new T.Float32BufferAttribute(9,3));
+      const line=new T.Line(geometry,new T.LineBasicMaterial({
+        color:WIRING_COLORS[wire.status]??WIRING_COLORS.unverified,
+        transparent:true,opacity:.94
+      }));
+      line.userData={
+        kind:"lab-conceptual-wire",wireId:wire.id,from:wire.from,to:wire.to,
+        netId:wire.netId,status:wire.status,physicalLocation:false,physicalVerified:false,
+      };
+      labWireLayer.add(line);
+      labWireObjects.push({line,from:wire.from,to:wire.to});
+    }
+    updateLabWireGeometry();
+    canvas.dataset.labWireCount=String(labWireObjects.length);
+  }
+  function canonicalLabComponent(componentId){
+    return activeLabLayout?.components?.find(item=>item.id===componentId)||null;
+  }
+  function setLabVisualTransform(entry,x,z,quarterTurns){
+    entry.x=x;entry.z=z;entry.quarterTurns=((quarterTurns%4)+4)%4;
+    entry.root.position.set(x*LAB_WORLD_SCALE,0,z*LAB_WORLD_SCALE);
+    entry.root.rotation.y=-entry.quarterTurns*Math.PI/2;
+    updateLabWireGeometry();
+    invalidate();
+  }
+  function restoreLabComponent(componentId){
+    const entry=labComponents.get(componentId),component=canonicalLabComponent(componentId);
+    if(entry&&component)setLabVisualTransform(entry,component.x,component.z,component.quarterTurns);
+  }
+  function selectLabComponent(componentId,source="api",emit=false){
+    if(componentId!==null&&!labComponents.has(componentId))throw new RangeError("Không có component trong lab layout: "+componentId);
+    selectedLabComponentId=componentId;
+    for(const [id,entry] of labComponents)entry.selection.visible=id===componentId;
+    canvas.dataset.labSelectedComponent=componentId||"";
+    if(emit&&labEdit.onSelectComponent){
+      const component=componentId===null?null:canonicalLabComponent(componentId);
+      labEdit.onSelectComponent(componentId,Object.freeze({
+        component,
+        source,
+        action:componentId===null?"deselect":"select",
+        physicalVerified:false
+      }));
+    }
+    invalidate();
+  }
+  function clearLabLayout(redraw=true){
+    clearLabWireLayer();
+    if(activeLabLayer){
+      scene.remove(activeLabLayer);
+      disposeTree(activeLabLayer,sharedMaterialSet);
+      activeLabLayer=null;
+    }
+    activeLabLayout=null;
+    labComponents.clear();labTerminals.clear();selectedLabComponentId=null;
+    if(board?.board)board.board.visible=true;
+    if(breadboard)breadboard.visible=true;
+    if(activeModule?.module)activeModule.module.visible=true;
+    if(activeWiringLayer)activeWiringLayer.visible=true;
+    resetLabMetadata();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
+  }
+  function labBoundsSummary(layout){
+    return Object.freeze({
+      minX:layout.bounds.minX*LAB_WORLD_SCALE,
+      maxX:layout.bounds.maxX*LAB_WORLD_SCALE,
+      minZ:layout.bounds.minZ*LAB_WORLD_SCALE,
+      maxZ:layout.bounds.maxZ*LAB_WORLD_SCALE,
+    });
+  }
+  function setLabLayout(layout){
+    if(disposed)return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
+    if(layout==null)return clearLabLayout(true);
+    const validation=validateLabLayout(layout,layout?.terminals);
+    if(!validation.ok)throw new RangeError("Lab layout 3D không hợp lệ: "+validation.errors.join("; "));
+    if(currentLessonId!==null&&Number.isFinite(currentLessonId)&&layout.lessonId!==currentLessonId){
+      throw new RangeError("Lab layout 3D không thuộc bài học đang hiển thị");
+    }
+    const previousSelection=selectedLabComponentId;
+    clearLabLayout(false);
+    activeLabLayout=layout;
+    activeLabLayer=new T.Group();
+    activeLabLayer.userData={
+      kind:"conceptual-lab-layout",lessonId:layout.lessonId,units:layout.units,
+      physicalVerified:false,breadboardHoleMapping:false,electricalPower:false,
+    };
+    scene.add(activeLabLayer);
+    const boundaryWidth=(layout.bounds.maxX-layout.bounds.minX)*LAB_WORLD_SCALE;
+    const boundaryDepth=(layout.bounds.maxZ-layout.bounds.minZ)*LAB_WORLD_SCALE;
+    const boundary=box(
+      activeLabLayer,[boundaryWidth,.025,boundaryDepth],0xf4f8f4,[0,.005,0],
+      {transparent:true,opacity:.42}
+    );
+    boundary.userData={kind:"lab-logical-ground",physicalLocation:false,physicalVerified:false};
+    canvasLabel(
+      activeLabLayer,LAB_LAYOUT_NOTICE,0,.04,
+      layout.bounds.minZ*LAB_WORLD_SCALE+.26,5.6,25,"#496b64"
+    );
+    for(const component of layout.components){
+      const root=new T.Group();
+      root.userData={
+        kind:"lab-component",componentId:component.id,visualKind:component.visualKind,
+        fixed:component.fixed,physicalLocation:false,physicalVerified:false,
+      };
+      activeLabLayer.add(root);
+      const visual=makeLabGenericVisual(root,component,sharedMaterials);
+      const selection=labSelectionFrame(
+        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,component.id
+      );
+      const hit=labHitProxy(
+        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,visual.height,component.id
+      );
+      const entry={
+        component,root,selection,hit,
+        x:component.x,z:component.z,quarterTurns:component.quarterTurns
+      };
+      labComponents.set(component.id,entry);
+      for(const terminalId of component.terminalIds){
+        const anchor=labTerminalAnchor(layout,terminalId);
+        const localRotated={x:anchor.x-component.x,z:anchor.z-component.z};
+        const local=unrotateLabVector(
+          localRotated.x,localRotated.z,component.quarterTurns
+        );
+        const marker=new T.Mesh(
+          new T.CylinderGeometry(.065,.065,.11,12),
+          new T.MeshBasicMaterial({color:0x405a58}),
+        );
+        marker.position.set(
+          local.x*LAB_WORLD_SCALE,visual.height+.10,local.z*LAB_WORLD_SCALE
+        );
+        marker.userData={
+          kind:"lab-terminal-marker",terminalId,componentId:component.id,
+          terminalKind:anchor.kind,polarity:anchor.polarity,
+          physicalLocation:false,physicalVerified:false,
+        };
+        root.add(marker);
+        const terminalHit=new T.Mesh(
+          new T.SphereGeometry(.15,10,8),
+          new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),
+        );
+        terminalHit.position.copy(marker.position);
+        terminalHit.userData={
+          kind:"lab-terminal",terminalId,componentId:component.id,
+          terminalKind:anchor.kind,polarity:anchor.polarity,
+          physicalLocation:false,physicalVerified:false,
+        };
+        root.add(terminalHit);
+        canvasLabel(
+          root,terminalId.slice(0,22),
+          marker.position.x,visual.height+.12,marker.position.z+.09,.72,23,"#355f4b"
+        );
+        labTerminals.set(terminalId,{marker,hit:terminalHit,componentId:component.id,anchor});
+      }
+      setLabVisualTransform(entry,component.x,component.z,component.quarterTurns);
+    }
+    if(board?.board)board.board.visible=false;
+    if(breadboard)breadboard.visible=false;
+    if(activeModule?.module)activeModule.module.visible=false;
+    if(activeWiringLayer)activeWiringLayer.visible=false;
+    refreshLabWireLayer();
+    const nextSelection=previousSelection&&labComponents.has(previousSelection)
+      ? previousSelection : null;
+    selectLabComponent(nextSelection,"layout",false);
+    canvas.dataset.labLayoutMode="conceptual-layout";
+    canvas.dataset.labComponentCount=String(layout.components.length);
+    canvas.dataset.labTerminalCount=String(layout.terminals.length);
+    canvas.dataset.labPhysicalVerified="false";
+    canvas.dataset.labBreadboardHoleMapping="false";
+    canvas.dataset.labElectricalPower="false";
+    refreshCanvasAccessibility();
+    invalidate();
+    return Object.freeze({
+      mode:"conceptual-layout",lessonId:layout.lessonId,units:layout.units,
+      componentCount:layout.components.length,terminalCount:layout.terminals.length,
+      worldScale:LAB_WORLD_SCALE,worldBounds:labBoundsSummary(layout),
+      anchorModel:"conceptual-perimeter",physicalVerified:false,
+      breadboardHoleMapping:false,electricalPower:false,
+    });
+  }
+  function validateLabEditCallback(value,label){
+    if(value!==undefined&&value!==null&&typeof value!=="function"){
+      throw new TypeError(label+" phải là function hoặc null");
+    }
+  }
+  function setLabEdit(options={}){
+    if(disposed)return Object.freeze({enabled:false,selectedComponentId:null});
+    if(!options||typeof options!=="object"||Array.isArray(options)){
+      throw new TypeError("Lab edit options phải là object");
+    }
+    validateLabEditCallback(options.onSelectComponent,"onSelectComponent");
+    validateLabEditCallback(options.onMoveComponent,"onMoveComponent");
+    validateLabEditCallback(options.onTerminalSelect,"onTerminalSelect");
+    labEdit={
+      enabled:Boolean(options.enabled),
+      onSelectComponent:options.onSelectComponent===undefined
+        ? labEdit.onSelectComponent : options.onSelectComponent,
+      onMoveComponent:options.onMoveComponent===undefined
+        ? labEdit.onMoveComponent : options.onMoveComponent,
+      onTerminalSelect:options.onTerminalSelect===undefined
+        ? labEdit.onTerminalSelect : options.onTerminalSelect,
+    };
+    canvas.dataset.labEdit=labEdit.enabled?"on":"off";
+    canvas.style.touchAction=labEdit.enabled?"none":"";
+    canvas.style.cursor=labEdit.enabled?"grab":"";
+    if(Object.prototype.hasOwnProperty.call(options,"selectedComponentId")){
+      const id=options.selectedComponentId==null?null:String(options.selectedComponentId);
+      selectLabComponent(id,"api",false);
+    }else if(!labEdit.enabled){
+      if(selectedLabComponentId)restoreLabComponent(selectedLabComponentId);
+      selectLabComponent(null,"api",false);
+    }
+    refreshCanvasAccessibility();
+    return Object.freeze({
+      enabled:labEdit.enabled,
+      selectedComponentId:selectedLabComponentId,
+    });
+  }
+  function clampLabTarget(component,x,z,quarterTurns){
+    const rotated=quarterTurns%2!==0;
+    const width=rotated?component.depth:component.width;
+    const depth=rotated?component.width:component.depth;
+    const grid=activeLabLayout.grid;
+    const snappedX=Math.round(x/grid)*grid;
+    const snappedZ=Math.round(z/grid)*grid;
+    return {
+      x:Math.max(
+        activeLabLayout.bounds.minX+width/2,
+        Math.min(activeLabLayout.bounds.maxX-width/2,snappedX)
+      ),
+      z:Math.max(
+        activeLabLayout.bounds.minZ+depth/2,
+        Math.min(activeLabLayout.bounds.maxZ-depth/2,snappedZ)
+      ),
+    };
+  }
+  function emitLabMove(entry,kind,source,deltaQuarterTurns=0){
+    labEdit.onMoveComponent?.(
+      entry.component.id,entry.x,entry.z,Object.freeze({
+      kind,source,
+      x:entry.x,z:entry.z,quarterTurns:entry.quarterTurns,
+      deltaQuarterTurns,physicalVerified:false,
+    }));
+  }
+  function pointerRay(event){
+    const rect=canvas.getBoundingClientRect();
+    if(rect.width<=0||rect.height<=0)return null;
+    updateCamera();
+    camera.updateMatrixWorld();
+    pointerNdc.set(
+      ((event.clientX-rect.left)/rect.width)*2-1,
+      -((event.clientY-rect.top)/rect.height)*2+1
+    );
+    raycaster.setFromCamera(pointerNdc,camera);
+    return raycaster.ray;
+  }
+  function labHit(event){
+    if(!activeLabLayout)return null;
+    if(!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const pickables=[
+      ...[...labTerminals.values()].map(item=>item.hit),
+      ...[...labComponents.values()].map(item=>item.hit),
+    ];
+    const hits=raycaster.intersectObjects(pickables,false);
+    if(!hits.length)return null;
+    const terminal=hits.find(hit=>hit.object.userData.kind==="lab-terminal");
+    return terminal||hits[0];
+  }
+  function labGroundPoint(event){
+    const ray=pointerRay(event);
+    if(!ray)return null;
+    const result=new T.Vector3();
+    return ray.intersectPlane(dragPlane,result)?result:null;
+  }
+  function pointerTapThreshold(pointerType){
+    if(pointerType==="touch")return 10;
+    if(pointerType==="pen")return 6;
+    return 4;
+  }
+  function pointerDragBase(event,extra={}){
+    return {
+      x:event.clientX,
+      y:event.clientY,
+      startClientX:event.clientX,
+      startClientY:event.clientY,
+      pointerId:event.pointerId,
+      pointerType:event.pointerType||"mouse",
+      tapThreshold:pointerTapThreshold(event.pointerType||"mouse"),
+      ...extra,
+    };
+  }
+  function restorePointerSelection(pointerState){
+    const previous=pointerState?.previousSelectionId??null;
+    if(previous===null||labComponents.has(previous)){
+      selectLabComponent(previous,"pointer-cancel",false);
+    }
+  }
   function clearWiringLayer(redraw=true) {
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
+    lastWiringModel=null;
+    clearLabWireLayer();
     resetWiringMetadata();
     if(redraw)invalidate();
     return {mode:"none",shownWires:0,omittedWires:0,netCount:0,status:"none",analysisSupported:false,physicalMapping:"none"};
   }
   function down(event){
     if(event.button!==0||drag)return;
-    drag={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
     moved=false;
+    if(labEdit.enabled&&activeLabLayout){
+      const hit=labHit(event);
+      if(hit?.object?.userData?.kind==="lab-terminal"){
+        const terminalId=hit.object.userData.terminalId;
+        const componentId=hit.object.userData.componentId;
+        const previousSelectionId=selectedLabComponentId;
+        selectLabComponent(componentId,"pointer-preview",false);
+        drag=pointerDragBase(event,{
+          kind:"terminal",terminalId,componentId,previousSelectionId
+        });
+        try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+        return;
+      }
+      if(hit?.object?.userData?.kind==="lab-component-hit"){
+        const componentId=hit.object.userData.componentId;
+        const entry=labComponents.get(componentId);
+        const previousSelectionId=selectedLabComponentId;
+        selectLabComponent(componentId,"pointer-preview",false);
+        const point=!entry?.component.fixed?labGroundPoint(event):null;
+        drag=pointerDragBase(event,{
+          kind:entry?.component.fixed?"lab-fixed":"lab-component",
+          componentId,previousSelectionId,
+          startX:entry?.x,startZ:entry?.z,
+          grabDx:point&&entry?entry.x-point.x/LAB_WORLD_SCALE:0,
+          grabDz:point&&entry?entry.z-point.z/LAB_WORLD_SCALE:0,
+        });
+        try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+        return;
+      }
+    }
+    drag=pointerDragBase(event,{
+      kind:"camera",
+      legacySelect:!labEdit.enabled,
+      labBackground:labEdit.enabled&&Boolean(activeLabLayout),
+    });
     try{canvas.setPointerCapture?.(event.pointerId);}catch{}
   }
   function move(event){
     if(!drag||event.pointerId!==drag.pointerId)return;
     const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
-    if(Math.abs(dx)+Math.abs(dy)>.3)moved=true;
-    theta-=dx*.008;phi=Math.max(.27,Math.min(1.45,phi+dy*.008));
+    const totalDx=event.clientX-drag.startClientX;
+    const totalDy=event.clientY-drag.startClientY;
+    if(!moved&&Math.hypot(totalDx,totalDy)>drag.tapThreshold)moved=true;
+    if(drag.kind==="lab-component"){
+      if(moved){
+        event.preventDefault();
+        const entry=labComponents.get(drag.componentId),point=labGroundPoint(event);
+        if(entry&&point){
+          const target=clampLabTarget(
+            entry.component,
+            point.x/LAB_WORLD_SCALE+drag.grabDx,
+            point.z/LAB_WORLD_SCALE+drag.grabDz,
+            entry.quarterTurns
+          );
+          setLabVisualTransform(entry,target.x,target.z,entry.quarterTurns);
+        }
+      }
+    }else if(drag.kind==="camera"&&moved){
+      theta-=dx*.008;
+      phi=Math.max(.27,Math.min(1.45,phi+dy*.008));
+      invalidate();
+    }
     drag.x=event.clientX;drag.y=event.clientY;invalidate();
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    const finished=drag;
     drag=null;
     try{canvas.releasePointerCapture?.(event.pointerId);}catch{}
-    if(select&&!moved)onSelect("Arduino Uno R3");
+    if(finished.kind==="lab-component"){
+      const entry=labComponents.get(finished.componentId);
+      if(!select){
+        restoreLabComponent(finished.componentId);
+        restorePointerSelection(finished);
+      }else{
+        selectLabComponent(finished.componentId,"pointer",true);
+        if(moved&&entry)emitLabMove(entry,"move","drag");
+      }
+      return;
+    }
+    if(finished.kind==="terminal"){
+      if(select&&!moved){
+        selectLabComponent(finished.componentId,"pointer",true);
+        const terminal=activeLabLayout?.terminalMap?.[finished.terminalId]||null;
+        if(labEdit.onTerminalSelect){
+          labEdit.onTerminalSelect(finished.terminalId,Object.freeze({
+            componentId:finished.componentId,
+            terminal,
+            source:"pointer",
+            physicalVerified:false,
+          }));
+        }
+      }else{
+        restorePointerSelection(finished);
+      }
+      return;
+    }
+    if(finished.kind==="lab-fixed"){
+      if(select&&!moved)selectLabComponent(finished.componentId,"pointer",true);
+      else restorePointerSelection(finished);
+      return;
+    }
+    if(select&&!moved&&finished.labBackground){
+      selectLabComponent(null,"background",true);
+      return;
+    }
+    if(select&&!moved&&finished.legacySelect)onSelect("Arduino Uno R3");
   }
   const up=event=>finishPointer(event,true);
   const cancel=event=>finishPointer(event,false);
@@ -524,7 +1136,42 @@ export function mountScene(host, onSelect = () => {}) {
     else if(["+","=","Add"].includes(event.key))zoom=Math.max(minZoom,zoom-.10);
     else if(["-","_","Subtract"].includes(event.key))zoom=Math.min(maxZoom,zoom+.10);
     else if(event.key==="Home")defaultPosition();
-    else if(event.key==="Enter"||event.key===" ")onSelect("Arduino Uno R3");
+    else if(labEdit.enabled&&activeLabLayout&&["w","a","s","d"].includes(event.key.toLowerCase())){
+      const entry=labComponents.get(selectedLabComponentId);
+      if(!entry||entry.component.fixed){handled=false;}
+      else{
+        const grid=activeLabLayout.grid;
+        const key=event.key.toLowerCase();
+        const dx=key==="a"?-grid:key==="d"?grid:0;
+        const dz=key==="w"?-grid:key==="s"?grid:0;
+        const target=clampLabTarget(
+          entry.component,entry.x+dx,entry.z+dz,entry.quarterTurns
+        );
+        setLabVisualTransform(entry,target.x,target.z,entry.quarterTurns);
+        emitLabMove(entry,"move","keyboard");
+      }
+    }
+    else if(labEdit.enabled&&activeLabLayout&&["q","e"].includes(event.key.toLowerCase())){
+      const entry=labComponents.get(selectedLabComponentId);
+      if(!entry||entry.component.fixed){handled=false;}
+      else{
+        const delta=event.key.toLowerCase()==="q"?-1:1;
+        const next=((entry.quarterTurns+delta)%4+4)%4;
+        const target=clampLabTarget(entry.component,entry.x,entry.z,next);
+        setLabVisualTransform(entry,target.x,target.z,next);
+        emitLabMove(entry,"rotate","keyboard",delta);
+      }
+    }
+    else if(labEdit.enabled&&event.key==="Escape"){
+      selectLabComponent(null,"keyboard",true);
+    }
+    else if(event.key==="Enter"||event.key===" "){
+      if(labEdit.enabled&&selectedLabComponentId){
+        selectLabComponent(selectedLabComponentId,"keyboard",true);
+      }else{
+        onSelect("Arduino Uno R3");
+      }
+    }
     else handled=false;
     if(handled){event.preventDefault();invalidate();}
   };
@@ -559,6 +1206,7 @@ export function mountScene(host, onSelect = () => {}) {
 
   function setLesson(lesson) {
     if(disposed)return;
+    clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
     clearWiringLayer(false);
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
@@ -581,7 +1229,12 @@ export function mountScene(host, onSelect = () => {}) {
     }
     clearWiringLayer(false);
     const model=normalizeWiringModel(circuit,terminals,analysis);
+    lastWiringModel=model;
     activeWiringLayer=makeConceptualWiringLayer(scene,model);
+    if(activeLabLayout){
+      activeWiringLayer.visible=false;
+      refreshLabWireLayer();
+    }
     const summary={
       mode:"conceptual-netlist",
       shownWires:model.wires.length,
@@ -596,8 +1249,8 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.wiringNetCount=String(summary.netCount);
     canvas.dataset.wiringStatus=summary.status;
     canvas.dataset.wiringPhysicalMap="none";
-    canvas.setAttribute("aria-label",`${BASE_SCENE_ARIA} ${CONCEPTUAL_WIRING_ARIA}`);
     canvas.title=CONCEPTUAL_WIRING_NOTICE;
+    refreshCanvasAccessibility();
     invalidate();
     return summary;
   }
@@ -635,7 +1288,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -658,6 +1311,16 @@ export function mountScene(host, onSelect = () => {}) {
     // unit and prevents stale listeners from deleting handles in the new
     // context while CPU-side geometry/material disposal still runs normally.
     if(!wasContextLost)renderer.forceContextLoss?.();
+    if(activeLabLayer){
+      scene.remove(activeLabLayer);
+      disposeTree(activeLabLayer,sharedMaterialSet);
+      activeLabLayer=null;
+    }
+    labComponents.clear();
+    labTerminals.clear();
+    labWireObjects.length=0;
+    labWireLayer=null;
+    activeLabLayout=null;
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     if(board){scene.remove(board.board);disposeTree(board.board,sharedMaterialSet);}

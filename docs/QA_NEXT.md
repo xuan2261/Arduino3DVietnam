@@ -1,4 +1,4 @@
-# QA release/PWA — baseline v1.3.0 và mở rộng v1.4.0
+# QA release/PWA — v1.4.0 công khai và đợt kiểm chứng v1.5.0
 
 Tài liệu này bổ sung các gate phát hành có thể chạy hoàn toàn offline bằng Python. Trọng tâm là tính toàn vẹn của `dist/`, cache Service Worker theo nội dung, GitHub Pages project subpath và đường CI thực sự được deploy.
 
@@ -11,7 +11,7 @@ python -m unittest discover -s tests -v
 python scripts/build_site.py
 ```
 
-`tests/test_release.py` hiện kiểm tra **11 hợp đồng**, gồm:
+`tests/test_release.py` hiện kiểm tra **12 hợp đồng**, gồm:
 
 1. Danh sách precache của `sw.js` phải khớp chính xác các tệp release trong `scripts/build_site.py`, cộng route `./`, không có URL tuyệt đối hoặc mục trùng.
 2. Build cùng input phải tạo cùng cache ID; thay đổi một release asset phải đổi cache ID; `dist/` chỉ chứa allowlist release và marker của builder.
@@ -19,11 +19,17 @@ python scripts/build_site.py
 4. Workflow Pages phải chạy unit tests trước build, chuyển đúng artifact `dist` sang deploy job và dùng Pages deployment action.
 5. Máy chủ local phải trả MIME phù hợp cho JavaScript module, Web App Manifest và SVG.
 
-Các thử nghiệm bổ sung chặn đường dẫn ra ngoài workspace/symlink, nguồn avr8js hoặc giấy phép sai provenance/checksum, sai manifest/Sketch/HEX/flash và nguồn bài học không khớp, cùng việc thiếu những module AVR/solver và license trong release. Đóng gói không dựa vào giá trị hash tự công bố mà còn kiểm tra source, Sketch và Intel HEX thực. Allowlist v1.4 hiện có **61 file cố định và marker**; không đóng gói toàn bộ thư mục development. Mọi thay đổi danh sách phải giữ parity chính xác giữa `scripts/build_site.py` và precache `sw.js`.
+Các thử nghiệm bổ sung chặn đường dẫn ra ngoài workspace/symlink, nguồn avr8js hoặc giấy phép sai provenance/checksum, sai manifest/Sketch/HEX/flash và nguồn bài học không khớp, cùng việc thiếu những module AVR/solver và license trong release. Đóng gói không dựa vào giá trị hash tự công bố mà còn kiểm tra source, Sketch và Intel HEX thực. Allowlist v1.4 có **61 file cố định + marker**; source v1.5 dự kiến **70 file cố định + marker** gồm CSS/editor layout 3D, learning coach, Timer1 standalone và docs tương ứng. Builder bắt buộc parity chính xác với precache SW; không đóng gói thư mục development, tests, `sources/` hoặc Git histories.
 
 Kết quả cũ v1.2: `test_release.py` **5/5** và toàn suite ban đầu **22/22** là bằng chứng lịch sử. Kết quả ứng viên v1.3 ngày 28/10/2026: `test_release.py` **11/11**; toàn bộ `python -m unittest discover -s tests -q` **68/68 PASS**, `python scripts/build_site.py` PASS; 16 HEX trong `dist/assets/firmware/` cũng được xác minh trực tiếp với `export_firmware.py`. Bản CI ứng viên đầu đã phát hiện checkout Git đổi byte `CRLF` sang `LF`; `.gitattributes` mới đánh dấu `assets/firmware/*.hex binary`, có regression và đối chiếu byte trong Git index. **GitHub push check trên commit `b313b530` đã PASS** sau sửa lỗi này (run `40652449937`). Test content-addressed build dùng fixture trong thư mục tạm; bản build thật chỉ thay `dist/` có marker được cho phép.
 
 Bộ Chrome E2E trong `tests/e2e_browser.py` đã kiểm tra bản `dist/` được Service Worker điều khiển, sau đó ngắt mạng và reload thành công. Tại checkpoint local mã v1.4 ngày 28/10/2026, bộ E2E **167/167 PASS**, gồm tải SHA-verified firmware khi đã offline và ngoại vi AVR D13 có trạng thái thực từ thanh ghi CPU, cùng việc cô lập phép kiểm tra trợ năng khỏi state của trang chính. Kết quả này cần đối chiếu với GitHub Chromium trên **đúng commit phát hành**; không tự động thay thế CI. Không thêm `tests/offline-contracts.js` vì một test JavaScript riêng sẽ lặp lại bằng chứng E2E.
+
+**Cổng mới v1.5:** ba nguồn dữ liệu phải độc lập (layout khái niệm, topology điện, firmware AVR). Bộ kiểm thử mở rộng kiểm tra việc chọn/kéo/xoay linh kiện 3D không thay đổi netlist; chọn hai terminal 3D thực sự gọi circuit-router rồi xuất hiện trên bảng 2D; bài 10/14 tiếp tục chặn custom activation; điều khiển HTML/bàn phím/cảm ứng và lesson 01–16; cache offline tất cả module v1.5. Timer1 chỉ được chạy hợp đồng đơn vị **WGM0 Normal** (không attach firmware Arduino stock vì mode khởi tạo khác, không tuyên bố PWM/Servo parity). Giữ nguyên toàn bộ 167 phép kiểm thử đã có; **chưa nhận là PASS phát hành khi full CI exact SHA chưa chạy**.
+
+Đợt P1 29/10/2026: tách mạch mẫu tham khảo khỏi bản tự đấu, đồng bộ chọn/bỏ chọn linh kiện với HTML, đặt ngưỡng tap/drag phù hợp cảm ứng, giới hạn A0 0..5000 mV theo VREF mặc định và neo SHA vendor avr8js độc lập với manifest. Lượt local đầu của đợt này đạt Python **80/80**, Chromium **219/219**; sau đó đổi badge bản ứng viên thành 1.5 và nâng kiểm thử lên **220/220**. Kiểm toán tiếp phát hiện các tình huống thao tác 2D bị hủy hoặc pointerId chéo, cũng như kích hoạt mạch tự đấu sau khi topology đổi. Bản cập nhật source cùng E2E mới nhất đạt **230/230 Chromium PASS** (0 console error, 0 unexpected warning) và 16 HEX **PASS**; giữ nguyên gate cũ chặn restart mạch sai. Bộ hợp đồng scene 3D có 41 phép thử; negative case sửa đồng thời vendor JS + PROVENANCE.json vẫn bị chặn. Quy trình Pages artifact nay giữ marker bằng `include-hidden-files: true`; backup phải kiểm chứng trên SHA cuối cùng và không đưa upstream snapshots vào source ZIP.
+
+**Các số trên là bằng chứng local trước commit ứng viên**; chưa thay thế Python gate cuối, compiler/Chromium GitHub Actions và release gate trên cùng SHA. Tất cả thay đổi sau checkpoint, kể cả file tài liệu nằm trong allowlist, cần build/test lại trước khi chốt SHA và phát hành.
 
 ## Hợp đồng triển khai GitHub Pages
 

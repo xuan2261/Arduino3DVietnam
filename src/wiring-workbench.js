@@ -132,6 +132,13 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   }
   function notify() {
     analysis=analyzeCircuit(id,circuit);
+    if (active && (!analysis.ok || !analysis.functional)) {
+      // A previous activation is permission for that *validated* topology,
+      // not a persistent permission to run whatever graph is edited later.
+      // Invalidate it immediately, including while the JS simulation is idle.
+      active=false;
+      options.onDeactivate?.("invalid");
+    }
     options.onChange?.(circuit,analysis);
   }
   function render(message="") {
@@ -200,10 +207,10 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     if(e.button!==0)return;
     const button=e.target.closest("[data-terminal]");
     if(!button)return;
-    pointerStart={x:e.clientX,y:e.clientY,key:button.dataset.terminal};
+    pointerStart={x:e.clientX,y:e.clientY,key:button.dataset.terminal,pointerId:e.pointerId};
   };
   const move=e=>{
-    if(!pointerStart)return;
+    if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
     if(Math.abs(e.clientX-pointerStart.x)+Math.abs(e.clientY-pointerStart.y)<11)return;
     selected=pointerStart.key;
     const rect=workspace.getBoundingClientRect();
@@ -211,7 +218,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     requestDraw();
   };
   const up=e=>{
-    if(!pointerStart)return;
+    if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
     const from=pointerStart.key;
     const moved=Math.abs(e.clientX-pointerStart.x)+Math.abs(e.clientY-pointerStart.y)>=11;
     pointerStart=null;preview=null;
@@ -223,10 +230,20 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     skipClick=true;
     setTimeout(()=>skipClick=false,0);
   };
+  const cancel=e=>{
+    if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
+    // Touch cancellation or lost capture is never a completed wire gesture,
+    // even if the last pointer coordinates happen to overlap another terminal.
+    pointerStart=null;preview=null;selected=null;
+    skipClick=true;
+    render("Thao tác kéo dây đã bị hủy; netlist không thay đổi.");
+    setTimeout(()=>skipClick=false,0);
+  };
   workspace.addEventListener("pointerdown",down);
   window.addEventListener("pointermove",move);
   window.addEventListener("pointerup",up);
-  window.addEventListener("pointercancel",up);
+  window.addEventListener("pointercancel",cancel);
+  workspace.addEventListener("lostpointercapture",cancel);
   const removeClick=e=>{
     const button=e.target.closest("[data-remove-wire]");
     if(!button)return;
@@ -275,7 +292,8 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       workspace.removeEventListener("pointerdown",down);
       window.removeEventListener("pointermove",move);
       window.removeEventListener("pointerup",up);
-      window.removeEventListener("pointercancel",up);
+      window.removeEventListener("pointercancel",cancel);
+      workspace.removeEventListener("lostpointercapture",cancel);
       connectionsList.removeEventListener("click",removeClick);
       sampleBtn.removeEventListener("click",sample);
       clearBtn.removeEventListener("click",clear);

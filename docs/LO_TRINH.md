@@ -1,4 +1,4 @@
-# Lộ trình nâng cấp — v1.3.0 công khai, mã v1.4.0 và các giai đoạn tiếp theo
+# Lộ trình nâng cấp — v1.4.0 công khai, mã v1.5.0 và các giai đoạn tiếp theo
 
 Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm thử. Phần chưa có bằng chứng không được đánh dấu hoàn tất chỉ vì giao diện có nút cùng tên.
 
@@ -17,6 +17,9 @@ Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm th�
 | Đã triển khai ứng viên v1.3 | Kiểm tra evidence phần cứng offline | JSON schema/provenance/EXPECTED/OBSERVED reviewer; không tự thu thập hay xác thực nguồn gốc phép đo |
 | Đã triển khai trong mã v1.4; bằng chứng CI/Pages theo SHA riêng | Ngoại vi AVR tùy chọn có giới hạn | GPIO theo thanh ghi D13, Timer0 counter/overflow WGM0/3, ADC điện áp cố định nhập tay và USART0 TX; không suy đầu ra 3D, mạch điện hay phần cứng thật từ trạng thái CPU |
 | Đã triển khai trong mã v1.4; bằng chứng CI/Pages theo SHA riêng | Trợ năng desktop/mobile | ARIA tab/tabpanel, roving keyboard, tên dialog, sửa độ tương phản và hợp đồng Chrome; không thay thế screen-reader/AT và kiểm chứng thiết bị thật |
+| Source v1.5 đang nghiệm thu | Bố trí 3D và cùng netlist 2D | Linh kiện theo layout logic, chọn/kéo/đặt/xoay, nối terminal 3D với circuit-router, phản hồi topology và negative E2E; **không** mô phỏng lỗ breadboard vật lý |
+| Source v1.5 đang nghiệm thu | Hướng dẫn 16 bài theo từng bước | Checkpoint/hint từ lesson data + wiring issues, không giả số đo hoặc tự đánh dấu hoàn thành |
+| Source v1.5 standalone | Timer1 WGM0 Normal giới hạn | Test TCNT1/overflow/internal prescaler/interrupt, **không** gắn vào Arduino-core firmware stock vì khởi tạo WGM1 không được hỗ trợ |
 | P1 | Nâng solver điện tới đúng phạm vi phần cứng cụ thể | Thử nghiệm R/Vf thực, dòng/áp/công suất/nguồn/driver và xác minh với thiết bị tham chiếu; không dùng rating tối đa như mức vận hành an toàn |
 | P1 | Kiểm chứng toàn bộ Sketch và mạch với phần cứng tham chiếu | Test trên bo vật lý có môi trường an toàn, đối chiếu mã mẫu và mạch chuẩn |
 | P1 | Mở rộng ngoại vi theo parity có bằng chứng | Hoàn thiện Timer1/2, output compare/PWM, USART RX, interrupt và parity `delay/millis/micros`; chỉ nối scene/đầu ra khi kết quả từ firmware thật và từng phần có negative/regression tests |
@@ -30,4 +33,4 @@ Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm th�
 
 **Cổng v1.3 đã nghiệm thu:** Python/Chrome/offline và provenance artifact HEX, compile/E2E trên commit cuối `cc95d818…`; đã tạo tag và Draft release, Pages triển khai công khai qua workflow thủ công. **Không đăng công khai bản ZIP snapshot upstream từ Draft release** khi chưa tuyển chọn metadata/Git history và xác minh quyền phân phối.
 
-**Bước kỹ thuật ưu tiên sau v1.4:** tăng độ đầy đủ/đúng của ngoại vi AVR và đồng hồ qua parity tests riêng; bổ sung bằng chứng phần cứng do người hướng dẫn thu thập và kiểm chứng độc lập; hoàn thiện screen reader, zoom 200% và tăng độ chính xác sơ đồ điện. Không gọi 15 topology hiện có là solver cho mạch tùy ý.
+**Bước ưu tiên sau v1.5:** kiểm chứng tọa độ chân/breadboard vật lý bằng connectivity map và datasheet trước khi công bố; thực hiện các bài thực hành 3D có nguồn/tải motor-bơm riêng; mở rộng Timer1 WGM1/PWM và USART RX chỉ khi có real-HEX parity tests; kiểm thử screen reader/zoom 200% và phần cứng qua dữ liệu đo độc lập. Không gọi 15 topology hiện có là SPICE/solver mạch tùy ý.

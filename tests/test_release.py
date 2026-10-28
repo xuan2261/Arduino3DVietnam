@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import unittest
+from hashlib import sha256
 from pathlib import Path
 from unittest import mock
 
@@ -56,18 +57,27 @@ class ReleaseContractTests(unittest.TestCase):
     def test_release_allowlist_covers_optional_avr_runtime_and_provenance(self):
         expected = {
             "styles/avr-panel.css",
+            "styles/lab-editor.css",
             "src/avr-panel.js",
+            "src/lab-layout.js",
+            "src/lab-editor-ui.js",
+            "src/learning-coach.js",
             "src/firmware-integrity.js",
             "src/avr-runtime.js",
             "src/electrical-solver.js",
             "src/avr-gpio.js",
             "src/avr-timer0.js",
+            "src/avr-timer1.js",
             "src/avr-analog-serial.js",
             "src/avr-board-runner.js",
             "docs/GPIO_RUNTIME.md",
             "docs/TIMER0_RUNTIME.md",
             "docs/ANALOG_SERIAL_RUNTIME.md",
             "docs/AVR_BOARD_LAB.md",
+            "docs/LAB_LAYOUT.md",
+            "docs/SCENE3D_LAB.md",
+            "docs/LEARNING_COACH.md",
+            "docs/TIMER1_RUNTIME.md",
             "assets/vendor/avr/cpu.js",
             "assets/vendor/avr/instruction.js",
             "assets/vendor/avr/interrupt.js",
@@ -195,6 +205,34 @@ class ReleaseContractTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "avr8js"):
                         build_site.build()
 
+    def test_build_rejects_synchronized_avr_runtime_and_provenance_tampering(self):
+        with tempfile.TemporaryDirectory(prefix="arduino3d-avr-sync-tamper-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+
+            runtime_path = fixture_root / "assets/vendor/avr/cpu.js"
+            runtime_path.write_bytes(runtime_path.read_bytes() + b"\n// synchronized tamper\n")
+            tampered_hash = sha256(runtime_path.read_bytes()).hexdigest()
+
+            provenance_path = fixture_root / "assets/vendor/avr/PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            for row in provenance["derived_browser_esm"]:
+                if row.get("path") == "assets/vendor/avr/cpu.js":
+                    row["sha256"] = tampered_hash
+                    break
+            else:
+                self.fail("cpu.js provenance row missing from fixture")
+            provenance_path.write_text(json.dumps(provenance, ensure_ascii=False), encoding="utf-8")
+
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                with self.assertRaisesRegex(RuntimeError, "avr8js") as raised:
+                    build_site.build()
+                self.assertIn("pinned checksum", str(raised.exception.__cause__))
+
     def test_pwa_navigation_contract_is_project_subpath_safe(self):
         manifest = json.loads((ROOT / "site.webmanifest").read_text(encoding="utf-8"))
         self.assertEqual(manifest.get("start_url"), "./")
@@ -227,6 +265,13 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertLess(workflow.index(build_command), workflow.index(release_gate))
         self.assertLess(workflow.index(release_gate), workflow.index(upload_build),
                         "No deployable artifact may exist before firmware + exact-SHA release gates")
+        package_upload = workflow[
+            workflow.index(upload_build):workflow.index("\n\n  deploy:", workflow.index(upload_build))
+        ]
+        self.assertTrue(build_site.MARKER.startswith("."), "Release marker must remain a hidden file")
+        self.assertIn("path: dist", package_upload)
+        self.assertIn("include-hidden-files: true", package_upload,
+                      "Package artifact must retain the hidden release marker used by backup provenance checks")
         self.assertIn("needs: check", workflow)
         self.assertIn("if: github.event_name == 'workflow_dispatch'", workflow,
                       "GitHub Pages must never auto-deploy from a push")

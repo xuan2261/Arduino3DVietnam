@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="styles/app.css">
   <link rel="stylesheet" href="styles/wiring.css">
   <link rel="stylesheet" href="styles/avr-panel.css">
+  <link rel="stylesheet" href="styles/lab-editor.css">
   <script type="module" src="src/app.js"></script>
 </head>
 <body>
@@ -39,7 +40,7 @@
     <div class="main-column">
       <header class="topbar">
         <div class="topbar-left"><button id="openSidebar" class="icon-button hamburger" aria-label="Mở danh sách bài học" aria-expanded="false" aria-controls="sidebar">☰</button><span class="workspace-label">KHÔNG GIAN HỌC TẬP</span><span class="topbar-separator"></span><span class="topbar-path">Arduino Uno R3 <span>/</span> <span id="breadcrumb">Bài 01</span></span></div>
-        <div class="topbar-right"><span class="version-pill">PHÒNG THỰC HÀNH 1.4</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
+        <div class="topbar-right"><span class="version-pill">PHÒNG THỰC HÀNH 1.5</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
       </header>
 
       <main class="content" id="content">
@@ -50,6 +51,31 @@
             <div class="panel-heading"><div><span class="panel-index">01 / PHÒNG THỰC HÀNH</span><h2>Không gian mô phỏng</h2></div><div class="panel-actions"><span class="live-pill" id="runStatus"><i></i> Đang dừng</span></div></div>
             <div class="stage-tabs" role="tablist" aria-label="Chế độ quan sát"><button id="stageTab3d" data-stage="3d" role="tab" aria-controls="viewport" aria-selected="true" tabindex="0">◈ Mô hình 3D</button><button id="stageTabWiring" data-stage="wiring" role="tab" aria-controls="viewport" aria-selected="false" tabindex="-1">⌁ Sơ đồ kết nối</button><button id="stageTabOverview" data-stage="overview" role="tab" aria-controls="viewport" aria-selected="false" tabindex="-1">▤ Linh kiện</button></div>
             <div class="viewport" id="viewport" role="tabpanel" aria-labelledby="stageTab3d"><div id="sceneMount" class="scene-mount" aria-label="Mô hình Arduino Uno 3D có thể xoay và phóng to"><div class="scene-loading"><div class="loading-orbit" aria-hidden="true"></div><strong>Đang chuẩn bị bo mạch 3D</strong><small>Bạn vẫn có thể đọc nội dung và thực hành bằng các điều khiển bên dưới.</small></div></div><div class="viewport-corner viewport-top"><span class="scene-badge">ARDUINO UNO R3</span><span class="scene-coordinate" id="sceneLabel">MẠCH ĐIỆN · CHẾ ĐỘ HỌC</span></div><div class="viewport-corner viewport-bottom"><div class="view-toolbar" id="cameraToolbar"><button data-camera="left" aria-label="Xoay mô hình sang trái" title="Xoay trái">↶</button><button data-camera="right" aria-label="Xoay mô hình sang phải" title="Xoay phải">↷</button><span class="view-divider"></span><button data-camera="in" aria-label="Phóng to mô hình" title="Phóng to">+</button><button data-camera="out" aria-label="Thu nhỏ mô hình" title="Thu nhỏ">−</button><button data-camera="reset" aria-label="Khôi phục góc nhìn" title="Đặt lại">⌖</button></div><span class="stage-hint">Kéo để xoay · Cuộn để thu phóng</span></div></div>
+            <div class="lab-edit-entry" id="labEditEntry" hidden>
+              <button id="labEditToggle" type="button" class="button button-soft" aria-expanded="false" aria-controls="labEditor">✣ Bố trí và nối dây 3D</button>
+              <span>Chọn, đặt và xoay linh kiện · dây cùng netlist với sơ đồ 2D</span>
+            </div>
+            <section id="labEditor" class="lab-editor" aria-label="Chỉnh bố trí và đấu dây 3D" hidden>
+              <p class="lab-editor-boundary">Bàn thực hành 3D biểu diễn vị trí, chân và đường nối <strong>khái niệm</strong> của bài đang học; không xác định lỗ breadboard vật lý, điện áp, dòng hoặc an toàn phần cứng. Kéo linh kiện trên 3D hoặc dùng các điều khiển bàn phím phía dưới.</p>
+              <div class="lab-editor-grid">
+                <fieldset class="lab-editor-group"><legend>01 · Đặt và xoay linh kiện</legend>
+                  <label for="labComponent">Linh kiện đang chọn</label><select id="labComponent"></select>
+                  <div class="lab-coordinates"><label for="labPositionX">X (ô 0,5)</label><input id="labPositionX" type="number" step="0.5" inputmode="decimal"><label for="labPositionZ">Z (ô 0,5)</label><input id="labPositionZ" type="number" step="0.5" inputmode="decimal"><button id="labPlace" class="button button-soft" type="button">Đặt ở X/Z</button></div>
+                  <div class="lab-editor-actions" role="group" aria-label="Di chuyển linh kiện bằng nút">
+                    <button type="button" data-lab-nudge="-0.5,0" aria-label="Dịch sang trái">←</button><button type="button" data-lab-nudge="0,-0.5" aria-label="Dịch ra sau">↑</button><button type="button" data-lab-nudge="0,0.5" aria-label="Dịch ra trước">↓</button><button type="button" data-lab-nudge="0.5,0" aria-label="Dịch sang phải">→</button>
+                    <button type="button" id="labRotateLeft" aria-label="Xoay linh kiện 90 độ ngược chiều">↶ 90°</button><button type="button" id="labRotateRight" aria-label="Xoay linh kiện 90 độ xuôi chiều">↷ 90°</button><button type="button" id="labResetPositions">Đặt lại vị trí</button>
+                  </div>
+                </fieldset>
+                <fieldset class="lab-editor-group"><legend>02 · Nối chân theo netlist</legend>
+                  <div class="lab-wire-fields"><label for="labFromPin">Chân thứ nhất</label><select id="labFromPin"></select><label for="labToPin">Chân thứ hai</label><select id="labToPin"></select></div>
+                  <div class="lab-editor-actions"><button type="button" id="labConnect" class="button button-soft">+ Nối hai chân</button><button type="button" id="labRemoveLastWire">Gỡ dây cuối</button><button type="button" id="labSampleWires">Mạch mẫu</button><button type="button" id="labClearWires">Xóa dây</button></div>
+                  <p id="labSelectedTerminal">Chọn hai chân trên mô hình 3D hoặc qua danh sách để nối.</p>
+                  <p class="lab-pin-rule">Chỉ dùng chân có trong bài; mọi thay đổi cập nhật cả sơ đồ 2D và kiểm tra lỗi, không điều khiển thiết bị thật.</p>
+                </fieldset>
+              </div>
+              <div id="labStatus" role="status" aria-live="polite" class="lab-status">Sẵn sàng chỉnh bố trí.</div>
+              <div id="labAvrStatus" role="status" class="lab-avr-status">Firmware AVR là mô hình tách biệt; chọn chế độ ngoại vi trong bảng AVR bên dưới để xem thanh ghi đã thực thi.</div>
+            </section>
             <div class="visual-legend"><span><i class="legend-dot teal"></i> Đang nhận tín hiệu</span><span><i class="legend-dot amber"></i> Đầu ra</span><span><i class="legend-dot gray"></i> Nguồn / GND</span></div>
             <div class="experiment-bar"><div class="experiment-label"><span class="eyebrow">THỬ NGHIỆM</span><strong id="experimentTitle">Điều khiển bo mạch</strong><small id="experimentHint">Điều chỉnh thông số để quan sát.</small></div><div class="experiment-controls" id="experimentControls"><span>Đang tải...</span></div></div>
             <div class="sim-actions"><button class="button button-run" id="runButton">▶ <span>Chạy mô phỏng</span></button><button class="button button-soft" id="resetButton">↺ Đặt lại</button><div class="sim-output" id="simOutput" role="status" aria-live="polite">Sẵn sàng</div></div>

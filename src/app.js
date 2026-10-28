@@ -5,6 +5,8 @@ import { createCircuit, createSampleCircuit, analyzeCircuit, listTerminals } fro
 import { mountWiringWorkbench, supportedWiringLessons } from "./wiring-workbench.js";
 import { analyzeElectrical, SUPPORTED_ELECTRICAL_LESSONS } from "./electrical-solver.js";
 import { mountAvrPanel } from "./avr-panel.js";
+import { mountLabEditor } from "./lab-editor-ui.js";
+import { getLessonGuidance } from "./learning-coach.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -24,19 +26,31 @@ const state = {
   infoTab: "overview", stageTab: "3d", scene: null, code: "",
   serial: [], audio: null, audioTone: null,
   codeDrafts: new Map(), editingCode: false,
-  circuitModels: new Map(), activeCircuits: new Set(), wiringUI: null, avrPanel: null
+  circuitModels: new Map(), activeCircuits: new Set(),
+  invalidatedCircuitLessons: new Set(), wiringUI: null,
+  avrPanel: null, labEditorUI: null, avrEvidence: null,
+  learningSteps: new Map(), learningHints: new Set()
 };
 
 function currentLesson() { return lessonById(state.lessonId); }
+function learnerCircuit(lessonId = state.lessonId) {
+  if (!supportedWiringLessons().includes(lessonId)) return null;
+  // The learner's canonical 2D/3D draft is empty until they connect a wire
+  // or explicitly load the reference sample into the editable workbench.
+  return state.circuitModels.get(lessonId) ?? createCircuit(lessonId);
+}
 function displayedCircuit(lessonId = state.lessonId) {
   if (!supportedWiringLessons().includes(lessonId)) return null;
-  // The visual layer shows the learner's draft, if present. This is not
-  // necessarily the circuit driving the separate rule-based JS demonstration.
+  // Legacy lesson/reference displays retain the sample before a draft exists.
+  // NEVER feed this fallback to learner progress or editable wire operations.
   return state.circuitModels.get(lessonId) ?? createSampleCircuit(lessonId);
 }
 function refresh3DWiring() {
   if (!state.scene?.setWiring) return;
-  const circuit = displayedCircuit();
+  // When the conceptual 3D editor is active, show the EXACT learner draft
+  // used by the 2D workbench. Outside edit mode, retain the teaching sample.
+  const circuit = state.labEditorUI?.isEditingIn3D?.()
+    ? learnerCircuit() : displayedCircuit();
   if (!circuit) { state.scene.setWiring(null); return; }
   const analysis = analyzeCircuit(state.lessonId, circuit);
   state.scene.setWiring(circuit, listTerminals(state.lessonId), analysis);
@@ -77,6 +91,8 @@ function renderElectricalPanel() {
 function refreshCircuitViews() {
   renderElectricalPanel();
   refresh3DWiring();
+  state.labEditorUI?.update();
+  if (state.infoTab === "practice") renderInfo();
 }
 function updateCounter() {
   const count=state.progress.completed.length;
@@ -137,6 +153,47 @@ function renderInfo() {
     host.innerHTML=`<div class="goal-box"><small>THỰC HÀNH CÓ HƯỚNG DẪN</small><strong>${safe(lesson.goal)}</strong></div>
     <h3>Thực hiện theo thứ tự</h3><ol>${lesson.steps.map(x=>`<li>${safe(x)}</li>`).join("")}</ol>
     <h3>Lưu ý kỹ thuật</h3><p>${safe(lesson.caution)}</p>`;
+    const hasLearnerDraft=state.circuitModels.has(lesson.id);
+    const analysis=supportedWiringLessons().includes(lesson.id)
+      ? analyzeCircuit(lesson.id,learnerCircuit(lesson.id)) : null;
+    const guidance=getLessonGuidance(lesson,analysis);
+    const microsteps=guidance.microsteps;
+    if(microsteps.length){
+      const current=Math.max(0,Math.min(microsteps.length-1,state.learningSteps.get(lesson.id)??0));
+      state.learningSteps.set(lesson.id,current);
+      const step=microsteps[current];
+      const wrapper=el("section","learning-coach");
+      wrapper.id="learningCoach";
+      wrapper.setAttribute("aria-label","Học theo từng bước có kiểm chứng");
+      wrapper.append(el("h4","","Từng bước thực hành"),
+        el("p","coach-progress",`BƯỚC ${current+1}/${microsteps.length} · Nội dung tham khảo theo bài`),
+        el("p","",step.instruction),
+        el("p","coach-checkpoint","Cần kiểm tra: "+step.checkpoint));
+      const hint=el("p","coach-hint",step.hint);
+      hint.id="coachHintText";
+      hint.hidden=!state.learningHints.has(`${lesson.id}:${current}`);
+      wrapper.append(hint);
+      if(guidance.wiring){
+        wrapper.append(el("p","coach-circuit-source",hasLearnerDraft
+          ? "Nguồn kiểm tra: bản đấu dây đang chỉnh sửa (có thể đã nạp mạch mẫu)."
+          : "Nguồn kiểm tra: bản tự đấu chưa có dây. Mạch mẫu chỉ để tham khảo."),
+          el("p","coach-wiring","Bản tự đấu hiện tại: "+guidance.wiring.summary),
+          el("p","",guidance.wiring.nextAction));
+      }else wrapper.append(el("p","","Bài 01 dùng đèn L tích hợp, không yêu cầu dây ngoài."));
+      const actions=el("div","coach-actions");
+      const previous=el("button","","← Bước trước");
+      previous.id="coachPrevious";previous.type="button";previous.dataset.coachAction="previous";
+      previous.disabled=current===0;
+      const next=el("button","","Bước tiếp →");
+      next.id="coachNext";next.type="button";next.dataset.coachAction="next";
+      next.disabled=current===microsteps.length-1;
+      const showHint=el("button","",hint.hidden?"Gợi ý khi cần":"Ẩn gợi ý");
+      showHint.id="coachHint";showHint.type="button";showHint.dataset.coachAction="hint";
+      actions.append(previous,showHint,next);
+      wrapper.append(actions,
+        el("p","coach-boundary","Đây là hướng dẫn học tập theo nội dung bài. Tiến độ từng bước chỉ lưu trong phiên, không đo hay xác nhận phần cứng."));
+      host.append(wrapper);
+    }
   }
   $("safetyNote").textContent=lesson.caution;
 }
@@ -158,6 +215,7 @@ function renderStage() {
   viewport.classList.toggle("is-wiring",state.stageTab==="wiring");
   viewport.classList.toggle("is-not-3d",state.stageTab!=="3d");
   const lesson=currentLesson();
+  state.labEditorUI?.setStage(state.stageTab);
   if(state.stageTab==="wiring"){
     const panel=el("div","wiring-view");
     viewport.append(panel);
@@ -169,11 +227,14 @@ function renderStage() {
         onChange(model,analysis){
           state.circuitModels.set(lesson.id,model);
           if(state.activeCircuits.has(lesson.id)&&(!analysis.ok||!analysis.functional)){
+            state.activeCircuits.delete(lesson.id);
+            state.invalidatedCircuitLessons.add(lesson.id);
             if(state.running) {
               stopClock();
-              log("Đã dừng mô phỏng vì mạch tự đấu không còn hợp lệ.");
             }
+            log("Đã thu hồi kích hoạt mạch tự đấu vì netlist không hợp lệ; cần kích hoạt lại sau khi sửa.");
           }
+          if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lesson.id);
           refreshCircuitViews();
           updateSnapshot(true);
         },
@@ -181,14 +242,22 @@ function renderStage() {
           state.circuitModels.set(lesson.id,model);
           if(analysis.ok&&analysis.functional){
             state.activeCircuits.add(lesson.id);
+            state.invalidatedCircuitLessons.delete(lesson.id);
             log("Đang dùng mạch tự đấu của bài này (giới hạn kiểm tra topology).");
           }
           refreshCircuitViews();
           updateSnapshot(true);
         },
-        onDeactivate(){
-          state.activeCircuits.delete(lesson.id);
-          log("Đã trở lại mô phỏng mẫu của bài học.");
+        onDeactivate(reason){
+          const wasActive=state.activeCircuits.delete(lesson.id);
+          if(reason==="invalid"){
+            if(wasActive)state.invalidatedCircuitLessons.add(lesson.id);
+            if(state.running)stopClock();
+            if(wasActive) log("Đã thu hồi kích hoạt mạch tự đấu vì kết nối thay đổi; cần kích hoạt lại sau khi sửa.");
+          }else{
+            state.invalidatedCircuitLessons.delete(lesson.id);
+            log("Đã trở lại mô phỏng mẫu của bài học.");
+          }
           refreshCircuitViews();
           updateSnapshot(true);
         }
@@ -204,6 +273,7 @@ function renderStage() {
     <div class="part-chip-list parts-chips">${lesson.components.map(x=>`<span class="part-chip">${safe(x)}</span>`).join("")}</div>`;
     viewport.append(panel);
   }else state.scene?.resize();
+  refresh3DWiring();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -370,6 +440,16 @@ function startPause(){
   if(state.running) {
     stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
   }else {
+    if(state.invalidatedCircuitLessons.has(state.lessonId)){
+      const draft=state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId);
+      const analysis=analyzeCircuit(state.lessonId,draft);
+      if(!analysis.ok||!analysis.functional){
+        log("Mạch vừa kích hoạt đã bị thu hồi do kết nối sai; hãy sửa hoặc chọn dùng mô phỏng mẫu trước khi chạy.");
+        updateSnapshot(true);
+        return;
+      }
+      state.invalidatedCircuitLessons.delete(state.lessonId);
+    }
     if(state.activeCircuits.has(state.lessonId)){
       const analysis=analyzeCircuit(state.lessonId,state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId));
       if(!analysis.ok||!analysis.functional){
@@ -397,6 +477,7 @@ function setLesson(id,replaceHash=true){
   state.memory={};state.serial=[];state.previousSignature="";state.infoTab="overview";state.stageTab="3d";
   // Clear previous-lesson 3D wiring before workbench callbacks can update it.
   state.scene?.setLesson(lesson);
+  state.labEditorUI?.setLesson(lesson.id);
   renderHeading(lesson);renderLessonList();renderInfo();renderControls();renderStage();renderSketch();renderQuiz();
   state.avrPanel?.setLesson(lesson.id, state.codeDrafts.has(lesson.id));
   refreshCircuitViews();
@@ -539,6 +620,24 @@ function wireEvents(){
     const tab=event.target.closest("[data-info]");
     if(tab){state.infoTab=tab.dataset.info;renderInfo();}
   });
+  $("infoContent").addEventListener("click",event=>{
+    const control=event.target.closest("[data-coach-action]");
+    if(!control || state.infoTab!=="practice")return;
+    const lesson=currentLesson();
+    const current=state.learningSteps.get(lesson.id)??0;
+    const action=control.dataset.coachAction;
+    if(action==="hint"){
+      const key=`${lesson.id}:${current}`;
+      if(state.learningHints.has(key))state.learningHints.delete(key);
+      else state.learningHints.add(key);
+    }else if(action==="previous" || action==="next"){
+      const guide=getLessonGuidance(lesson);
+      const offset=action==="next"?1:-1;
+      state.learningSteps.set(lesson.id,Math.max(0,Math.min(guide.microsteps.length-1,current+offset)));
+    }else return;
+    renderInfo();
+    $("coach"+(action==="next"?"Next":action==="previous"?"Previous":"Hint"))?.focus({preventScroll:true});
+  });
   wireRovingTabs(".stage-tabs");
   wireRovingTabs(".info-tabs");
   $("experimentControls").addEventListener("input",onControlsInput);
@@ -634,13 +733,36 @@ function wireEvents(){
   $("helpGotIt").addEventListener("click",()=>help.close());
   window.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("sidebar").classList.contains("is-open"))closeSidebar();});
   document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.running)startPause();});
-  window.addEventListener("beforeunload",()=>{state.scene?.dispose();state.avrPanel?.dispose();});
+  window.addEventListener("beforeunload",()=>{
+    state.labEditorUI?.dispose();state.scene?.dispose();state.avrPanel?.dispose();
+  });
 }
 async function init(){
   validateLessons();
   wireEvents();
   syncSidebar(false,false);
-  state.avrPanel=mountAvrPanel($("avrPanelMount"));
+  state.labEditorUI=mountLabEditor({
+    getCircuit: lessonId => learnerCircuit(lessonId),
+    onEditModeChange: refresh3DWiring,
+    onCircuitChange(lessonId,model,analysis){
+      state.circuitModels.set(lessonId,model);
+      if(state.activeCircuits.has(lessonId)&&(!analysis.ok||!analysis.functional)){
+        state.activeCircuits.delete(lessonId);
+        state.invalidatedCircuitLessons.add(lessonId);
+        if(state.running)stopClock();
+        log("Đã thu hồi kích hoạt mạch tự đấu: netlist 3D/2D không còn hợp lệ; cần kích hoạt lại sau khi sửa.");
+      }
+      if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lessonId);
+      refreshCircuitViews();
+      updateSnapshot(true);
+    },
+  });
+  state.avrPanel=mountAvrPanel($("avrPanelMount"), {
+    onEvidence(evidence){
+      state.avrEvidence=evidence;
+      state.labEditorUI?.setAvrEvidence(evidence);
+    },
+  });
   // A new Service Worker can claim a previously uncontrolled page OR replace an
   // existing controller while that page retains an already-evaluated old
   // lessons.js module. Either transition can mix source revisions; block the
@@ -673,10 +795,12 @@ async function init(){
     const {mountScene}=await import("./scene3d.js");
     state.scene=mountScene($("sceneMount"),()=>{ $("simOutput").textContent="Arduino Uno R3 · chọn bài học để quan sát chân và linh kiện"; });
     state.scene.setLesson(currentLesson());
+    state.labEditorUI?.setScene(state.scene);
     refresh3DWiring();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){
+    state.labEditorUI?.setScene(null);
     $("sceneMount").replaceChildren();
     const div=el("div","scene-fallback");
     div.innerHTML=`<div><strong>Không thể tải mô hình 3D</strong><p>${safe(error?.message||"Trình duyệt không hỗ trợ WebGL.")}</p><p>Bạn vẫn có thể sử dụng sơ đồ kết nối, bài học, điều khiển và bài kiểm tra.</p></div>`;

@@ -48,7 +48,11 @@ FILES = [
     "styles/app.css",
     "styles/wiring.css",
     "styles/avr-panel.css",
+    "styles/lab-editor.css",
     "src/app.js",
+    "src/lab-layout.js",
+    "src/lab-editor-ui.js",
+    "src/learning-coach.js",
     "src/lessons.js",
     "src/simulator.js",
     "src/circuit.js",
@@ -63,6 +67,7 @@ FILES = [
     "src/avr-runtime.js",
     "src/avr-gpio.js",
     "src/avr-timer0.js",
+    "src/avr-timer1.js",
     "src/avr-analog-serial.js",
     "src/avr-board-runner.js",
     "assets/favicon.svg",
@@ -80,6 +85,10 @@ FILES = [
     "docs/TIMER0_RUNTIME.md",
     "docs/ANALOG_SERIAL_RUNTIME.md",
     "docs/AVR_BOARD_LAB.md",
+    "docs/LAB_LAYOUT.md",
+    "docs/SCENE3D_LAB.md",
+    "docs/LEARNING_COACH.md",
+    "docs/TIMER1_RUNTIME.md",
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)
@@ -89,6 +98,22 @@ _AVR_UPSTREAM = {
     "version": "0.21.1",
     "commit": "bee6f0a94e0e27786f6bc21aee3c775849fb50fd",
     "license": "MIT",
+}
+_AVR_PINNED_SHA256 = {
+    "assets/vendor/avr/avr8js-0.21.1-source/cpu.ts":
+        "6b947714ba67cd8d09acf90e012d7b15e720a6c7ac0a5478ccd86d07ef021002",
+    "assets/vendor/avr/avr8js-0.21.1-source/instruction.ts":
+        "fb5ab0837dee73be25609c937219236c96822974f4d2ef43d7d83e5fc1df5475",
+    "assets/vendor/avr/avr8js-0.21.1-source/interrupt.ts":
+        "3021a736c32b92e1ba06b3d160bfce7959780ff0aa16675ec3e7f069890e7b99",
+    "assets/vendor/avr/AVR8JS-LICENSE.txt":
+        "71d092fa8944eb36ce929756f620ee5bf31f119d5f78a6941dc04d48f504177b",
+    "assets/vendor/avr/cpu.js":
+        "d3caa3cbcd70319b45fbfc1c024d21f63f2e49a349543f305efbde51f07a1236",
+    "assets/vendor/avr/instruction.js":
+        "82664a05845ffb46ed78ea29a7f539e6152dd1626f2cf81df01597c16fef4415",
+    "assets/vendor/avr/interrupt.js":
+        "fdd767535daa0aba32d3627520e9753cdcb0d8203126a374d40659eddadc5508",
 }
 
 
@@ -139,7 +164,7 @@ def _verify_service_worker_assets(worker_text: str) -> None:
 
 
 def _verify_avr_vendor_assets() -> None:
-    """Pin avr8js provenance and verify every shipped upstream/derived byte."""
+    """Pin avr8js provenance and bytes against an independent checksum anchor."""
     try:
         provenance_path = _release_source("assets/vendor/avr/PROVENANCE.json")
         data = provenance_path.read_bytes()
@@ -174,11 +199,17 @@ def _verify_avr_vendor_assets() -> None:
             raise ValueError("Unexpected upstream AVR provenance file set")
         if len(derived_hashes) != len(derived_rows) or set(derived_hashes) != set(AVR_VENDOR_RUNTIME_FILES):
             raise ValueError("Unexpected derived AVR provenance file set")
-        for filename, expected_hash in {**exact_hashes, **derived_hashes}.items():
-            if not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+        declared_hashes = {**exact_hashes, **derived_hashes}
+        if set(declared_hashes) != set(_AVR_PINNED_SHA256):
+            raise ValueError("AVR provenance does not match the pinned checksum file set")
+        for filename, expected_hash in _AVR_PINNED_SHA256.items():
+            declared_hash = declared_hashes.get(filename)
+            if not isinstance(declared_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", declared_hash):
                 raise ValueError(f"Invalid AVR SHA-256 for {filename}")
+            if declared_hash != expected_hash:
+                raise ValueError(f"AVR provenance hash differs from pinned checksum: {filename}")
             if sha256(_release_source(filename).read_bytes()).hexdigest() != expected_hash:
-                raise ValueError(f"AVR asset hash mismatch: {filename}")
+                raise ValueError(f"AVR pinned asset hash mismatch: {filename}")
         license_text = _release_source("assets/vendor/avr/AVR8JS-LICENSE.txt").read_text(encoding="utf-8")
         if "The MIT License (MIT)" not in license_text or "Permission is hereby granted" not in license_text:
             raise ValueError("AVR MIT license text is missing")

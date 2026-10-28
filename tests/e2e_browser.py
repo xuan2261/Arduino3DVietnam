@@ -108,6 +108,87 @@ def main() -> None:
             {"modulePath": module_path, "exportName": export_name},
         )
 
+    def lab_scene_point(page, lesson_id: int, *, component_id: str | None = None,
+                        terminal_id: str | None = None):
+        """Project a canonical conceptual-layout point into the current canvas.
+
+        The production scene remains the source of pointer hit behavior; this
+        helper only computes a deterministic screen coordinate from the public
+        lab-layout/circuit data after camera reset, so Playwright can issue a
+        real pointer click/drag without reaching into private Three.js objects.
+        """
+        if bool(component_id) == bool(terminal_id):
+            raise ValueError("provide exactly one of component_id or terminal_id")
+        return page.evaluate(
+            """async ({lessonId, componentId, terminalId}) => {
+                const [T, layoutModule, router] = await Promise.all([
+                    import('./assets/vendor/three.module.min.js'),
+                    import('./src/lab-layout.js'),
+                    import('./src/circuit-router.js'),
+                ]);
+                const canvas = document.querySelector('#sceneMount canvas');
+                if (!canvas) throw new Error('lab scene canvas missing');
+                const layout = layoutModule.createLabLayout(lessonId, router.listTerminals(lessonId));
+                const componentHeight = kind => {
+                    if (kind === 'arduino-uno') return .46;
+                    if (kind === 'breadboard') return .34;
+                    if (kind === 'ultrasonic-sensor') return .68;
+                    if (kind === 'servo' || kind === 'driver') return .62;
+                    if (kind === 'power-source') return .55;
+                    return .48;
+                };
+                let point, targetId;
+                if (componentId) {
+                    const component = layout.components.find(item => item.id === componentId);
+                    if (!component) throw new Error('component not found: ' + componentId);
+                    point = new T.Vector3(
+                        component.x * .72,
+                        Math.max(.2, componentHeight(component.visualKind) / 2),
+                        component.z * .72,
+                    );
+                    targetId = component.id;
+                } else {
+                    const anchor = layoutModule.labTerminalAnchor(layout, terminalId);
+                    const component = layout.components.find(item => item.id === anchor.componentId);
+                    if (!component) throw new Error('terminal component missing: ' + terminalId);
+                    point = new T.Vector3(
+                        anchor.x * .72,
+                        componentHeight(component.visualKind) + .10,
+                        anchor.z * .72,
+                    );
+                    targetId = terminalId;
+                }
+                const rect = canvas.getBoundingClientRect();
+                const fov = 38;
+                const aspect = Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight);
+                const theta = .48, phi = .94, zoom = 1;
+                const fitted = Math.max(16.7, 18.5 /
+                    (2 * Math.tan(T.MathUtils.degToRad(fov / 2)) * Math.max(.45, aspect)));
+                const radius = Math.min(48, Math.max(8, fitted * zoom));
+                const camera = new T.PerspectiveCamera(fov, aspect, .1, 100);
+                camera.position.set(
+                    radius * Math.sin(phi) * Math.sin(theta),
+                    radius * Math.cos(phi) + 5,
+                    radius * Math.sin(phi) * Math.cos(theta),
+                );
+                const targetX = ((layout.bounds.minX + layout.bounds.maxX) / 2) * .72;
+                const targetZ = ((layout.bounds.minZ + layout.bounds.maxZ) / 2) * .72;
+                camera.lookAt(targetX, .35, targetZ);
+                camera.updateProjectionMatrix();
+                camera.updateMatrixWorld(true);
+                const projected = point.project(camera);
+                return {
+                    id: targetId,
+                    x: rect.left + (projected.x + 1) * rect.width / 2,
+                    y: rect.top + (1 - projected.y) * rect.height / 2,
+                    inViewport: projected.z >= -1 && projected.z <= 1,
+                    layoutComponents: layout.components.length,
+                    layoutTerminals: layout.terminals.length,
+                };
+            }""",
+            {"lessonId": lesson_id, "componentId": component_id, "terminalId": terminal_id},
+        )
+
     def capture_console(page) -> str:
         nonlocal page_sequence
         page_sequence += 1
@@ -397,6 +478,9 @@ def main() -> None:
                 page.screenshot(path=str(SCREENSHOTS / "qa-v1.1-desktop.png"), full_page=False)
                 check("desktop-3d", page.locator("#sceneMount canvas").count() == 1)
                 check("sidebar-16", page.locator(".lesson-link").count() == 16)
+                check("v15-version-badge-release-candidate",
+                      "PHÒNG THỰC HÀNH 1.5" in
+                      page.locator(".version-pill").inner_text())
                 check("desktop-no-overflow",
                       page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
@@ -420,6 +504,13 @@ def main() -> None:
                 )
                 check("scene-3d-lifecycle-contracts", scene_lifecycle["failed"] == 0,
                       f"{scene_lifecycle['passed']} passed")
+                scene_lab = run_page_contract(
+                    page, "./tests/scene3d-lab-contracts.js", "runScene3DLabContracts")
+                check("scene-3d-lab-edit-contracts",
+                      scene_lab["failed"] == 0
+                      and scene_lab["passed"] == scene_lab["total"]
+                      and scene_lab["total"] >= 34,
+                      f"{scene_lab['passed']}/{scene_lab['total']} passed")
 
                 # New bounded browser contracts. Imports and firmware fetches
                 # resolve from document.baseURI so the same checks remain valid
@@ -443,6 +534,14 @@ def main() -> None:
                       and avr_runtime["passed"] > 0
                       and avr_runtime["engine"].startswith("avr8js@"),
                       f"{avr_runtime['passed']} passed · {avr_runtime['engine']}")
+                avr_a0_panel = run_page_contract(
+                    page, "./tests/avr-panel-validation-contracts.js",
+                    "runAvrPanelValidationContracts",
+                )
+                check("v15-avr-a0-default-vref-validation-contract",
+                      avr_a0_panel["passed"] == len(avr_a0_panel["checks"])
+                      and avr_a0_panel["passed"] >= 3,
+                      f"{avr_a0_panel['passed']} passed")
                 avr_firmware = page.evaluate("""async () => {
                     const moduleUrl = new URL('./tests/avr-runtime-contracts.js', document.baseURI).href;
                     const firmwareBase = new URL('./assets/firmware/', document.baseURI)
@@ -505,6 +604,29 @@ def main() -> None:
                       board_contracts["total"] == board_contracts["passed"]
                       and board_contracts["passed"] >= 9,
                       f"{board_contracts['passed']}/{board_contracts['total']} passed")
+                lab_layout_contracts = run_page_contract(
+                    page, "./tests/lab-layout-contracts.js", "runLabLayoutContracts")
+                check("lab-layout-conceptual-contracts",
+                      lab_layout_contracts["failed"] == 0
+                      and lab_layout_contracts["passed"] == lab_layout_contracts["total"]
+                      and lab_layout_contracts["total"] >= 27,
+                      f"{lab_layout_contracts['passed']}/{lab_layout_contracts['total']} passed")
+                learning_contracts = run_page_contract(
+                    page, "./tests/learning-coach-contracts.js", "runLearningCoachContracts")
+                check("learning-coach-16-lesson-contracts",
+                      learning_contracts["passed"] == learning_contracts["total"]
+                      and learning_contracts["passed"] == len(learning_contracts["checks"])
+                      and learning_contracts["total"] > 0,
+                      f"{learning_contracts['passed']}/{learning_contracts['total']} passed")
+                # Timer1 is a strict direct peripheral model contract only.
+                # Do NOT attach it to stock bundled Arduino-core firmware: the
+                # current model intentionally fails closed outside Normal WGM0.
+                timer1_contracts = run_page_contract(
+                    page, "./tests/avr-timer1-contracts.js", "runAvrTimer1Contracts")
+                check("avr-timer1-direct-model-contracts",
+                      timer1_contracts["passed"] == 11
+                      and len(timer1_contracts["checks"]) == 11,
+                      f"{timer1_contracts['passed']}/11 direct-model checks; no stock-firmware parity claim")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -626,11 +748,17 @@ def main() -> None:
                 check("avr-peripheral-fixed-analog-manual-only",
                       "2500 mV do người học đặt" in page.locator("#avrPeripheralState").inner_text()
                       and "giả định thủ công" in page.locator("#avrStatus").inner_text())
+                page.locator("#avrA0Input").fill("5001")
+                page.locator("#avrApplyA0").click()
+                check("v15-avr-a0-above-5000mv-reference-rejected",
+                      page.locator("#avrStatus").get_attribute("data-kind") == "error"
+                      and "0 đến 5000 mV" in page.locator("#avrStatus").inner_text()
+                      and "2500 mV" in page.locator("#avrPeripheralState").inner_text())
                 page.locator("#avrA0Input").fill("5501")
                 page.locator("#avrApplyA0").click()
                 check("avr-peripheral-overrange-a0-rejected",
                       page.locator("#avrStatus").get_attribute("data-kind") == "error"
-                      and "0 đến 5500 mV" in page.locator("#avrStatus").inner_text()
+                      and "0 đến 5000 mV" in page.locator("#avrStatus").inner_text()
                       and "2500 mV" in page.locator("#avrPeripheralState").inner_text())
                 page.locator("#avrA0Input").fill("")
                 page.locator("#avrApplyA0").click()
@@ -672,6 +800,378 @@ def main() -> None:
                           page.locator("#sceneMount canvas").count() == 1
                           and page.locator("#quizChoices input").count() >= 3
                           and len(page.locator("#codeViewer").inner_text()) > 30)
+
+                # v1.5 editor/coach are lesson-scoped. Lesson 01 intentionally
+                # has no external wiring editor; all lessons still get local,
+                # non-persistent learning guidance in the Practice info tab.
+                for lesson_id in range(1, 17):
+                    page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    editor_visible = page.locator("#labEditEntry").is_visible()
+                    page.locator("#infoTabPractice").click()
+                    coach_text = page.locator("#learningCoach").inner_text()
+                    lesson_editor_ok = (not editor_visible) if lesson_id == 1 else editor_visible
+                    lesson_one_boundary = (
+                        "không yêu cầu dây ngoài" in coach_text if lesson_id == 1 else True
+                    )
+                    check(f"v15-lesson-{lesson_id:02d}-editor-coach-switch",
+                          lesson_editor_ok
+                          and page.locator("#learningCoach").is_visible()
+                          and "BƯỚC 1/" in coach_text
+                          and "không đo hay xác nhận phần cứng" in coach_text
+                          and lesson_one_boundary,
+                          json.dumps({
+                              "lesson": lesson_id,
+                              "editorVisible": editor_visible,
+                              "coach": coach_text[:280],
+                          }, ensure_ascii=False))
+
+                # Real lab editor integration on lesson 02: movement/rotation
+                # changes the conceptual layout only, while terminal wiring is
+                # delegated to the existing circuit-router and must appear in
+                # the existing 2D wiring workbench.
+                page.locator('.lesson-link[data-lesson="2"]').click()
+                page.locator("#infoTabPractice").click()
+                untouched_coach = page.locator("#learningCoach").inner_text()
+                page.locator("#stageTabWiring").click()
+                untouched_2d_wires = page.locator(".wire-connected").count()
+                page.locator("#stageTab3d").click()
+                check("v15-untouched-reference-not-learner-completion",
+                      untouched_2d_wires == 0
+                      and "bản tự đấu chưa có dây" in untouched_coach
+                      and "Topology đạt" not in untouched_coach,
+                      json.dumps({"twoD": untouched_2d_wires,
+                                  "coach": untouched_coach[:400]}, ensure_ascii=False))
+                check("v15-lab-editor-entry-lesson02",
+                      page.locator("#labEditEntry").is_visible()
+                      and page.locator("#labEditor").is_hidden()
+                      and page.locator("#labEditToggle").get_attribute("aria-expanded") == "false")
+                page.locator("#labEditToggle").click()
+                check("v15-editor-opens-with-empty-canonical-draft",
+                      page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0"
+                      and "0 dây" in page.locator("#labStatus").inner_text()
+                      and "Topology đạt" not in page.locator("#learningCoach").inner_text(),
+                      page.locator("#labStatus").inner_text())
+                check("v15-lab-editor-toggle-controls",
+                      page.locator("#labEditor").is_visible()
+                      and page.locator("#labEditToggle").get_attribute("aria-expanded") == "true"
+                      and page.locator("#labComponent option").count() >= 1
+                      and page.locator("#labFromPin option").count() >= 2
+                      and page.locator("#labToPin option").count() >= 2)
+                lab_before = {
+                    "component": page.locator("#labComponent").input_value(),
+                    "x": float(page.locator("#labPositionX").input_value()),
+                    "z": float(page.locator("#labPositionZ").input_value()),
+                }
+                page.locator('[data-lab-nudge="0.5,0"]').click()
+                lab_after_nudge = {
+                    "component": page.locator("#labComponent").input_value(),
+                    "x": float(page.locator("#labPositionX").input_value()),
+                    "z": float(page.locator("#labPositionZ").input_value()),
+                    "status": page.locator("#labStatus").inner_text(),
+                }
+                check("v15-lab-editor-xz-nudge",
+                      lab_after_nudge["component"] == lab_before["component"]
+                      and (lab_after_nudge["x"] != lab_before["x"]
+                           or lab_after_nudge["z"] != lab_before["z"])
+                      and abs(lab_after_nudge["x"] * 2 - round(lab_after_nudge["x"] * 2)) < 1e-9
+                      and abs(lab_after_nudge["z"] * 2 - round(lab_after_nudge["z"] * 2)) < 1e-9
+                      and "Netlist điện không thay đổi" in lab_after_nudge["status"],
+                      json.dumps({"before": lab_before, "after": lab_after_nudge}, ensure_ascii=False))
+                page.locator("#labPositionX").fill(str(lab_before["x"]))
+                page.locator("#labPositionZ").fill(str(lab_before["z"]))
+                page.locator("#labPlace").click()
+                check("v15-lab-editor-direct-xz-input",
+                      float(page.locator("#labPositionX").input_value()) == lab_before["x"]
+                      and float(page.locator("#labPositionZ").input_value()) == lab_before["z"]
+                      and "Đã cập nhật vị trí minh họa" in page.locator("#labStatus").inner_text())
+                page.locator("#labRotateRight").click()
+                check("v15-lab-editor-rotate-90",
+                      "Đã xoay" in page.locator("#labStatus").inner_text()
+                      and "90°" in page.locator("#labStatus").inner_text())
+
+                # displayedCircuit(2) initially resolves to the complete sample.
+                # Clear the canonical shared graph first; otherwise connecting a
+                # sample edge would correctly fail as a duplicate and the test
+                # could accidentally reward a false-positive UI message.
+                page.locator("#labClearWires").click()
+                check("v15-lab-editor-clear-canonical-before-connect",
+                      "Đã xóa" in page.locator("#labStatus").inner_text()
+                      and page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0")
+                page.locator('#stageTabWiring').click()
+                check("v15-lab-editor-clear-syncs-2d",
+                      page.locator(".wire-connected").count() == 0)
+                page.locator('#stageTab3d').click()
+
+                first_sample_wire = page.evaluate("""() => import('./src/circuit-router.js').then(m => {
+                    const sample = m.createSampleCircuit(2);
+                    const wire = sample.wires[0];
+                    return {from: wire.from, to: wire.to};
+                })""")
+                page.locator("#labFromPin").select_option(first_sample_wire["from"])
+                page.locator("#labToPin").select_option(first_sample_wire["to"])
+                page.locator("#labConnect").click()
+                check("v15-lab-editor-terminal-connect-router",
+                      "Đã nối" in page.locator("#labStatus").inner_text()
+                      and first_sample_wire["from"] in page.locator("#labStatus").inner_text()
+                      and first_sample_wire["to"] in page.locator("#labStatus").inner_text(),
+                      json.dumps(first_sample_wire, ensure_ascii=False))
+                page.locator('#stageTabWiring').click()
+                wiring_rows = page.locator(".wire-connected").all_inner_texts()
+                check("v15-lab-editor-connect-syncs-2d",
+                      len(wiring_rows) == 1
+                      and first_sample_wire["from"] in wiring_rows[0]
+                      and first_sample_wire["to"] in wiring_rows[0],
+                      json.dumps(wiring_rows, ensure_ascii=False))
+                partial_coach = page.locator("#learningCoach").inner_text()
+                check("v15-coach-partial-learner-draft-incomplete",
+                      "bản đấu dây đang chỉnh sửa" in partial_coach
+                      and "Topology đạt" not in partial_coach,
+                      partial_coach[:500])
+                page.locator('#stageTab3d').click()
+                check("v15-lab-editor-return-3d-preserves-editing",
+                      page.locator("#labEditor").is_visible()
+                      and page.locator("#labEditToggle").get_attribute("aria-expanded") == "true")
+                lesson2_sample_count = page.evaluate(
+                    "() => import('./src/circuit-router.js').then(m => m.createSampleCircuit(2).wires.length)"
+                )
+                page.locator("#labSampleWires").click()
+                restored_lab_status = page.locator("#labStatus").inner_text()
+                restored_scene_count = page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")
+                page.locator('#stageTabWiring').click()
+                restored_2d_valid = (
+                    page.locator(".wire-status").get_attribute("data-valid") == "true"
+                    and not page.locator(".wire-activate").is_disabled()
+                )
+                page.locator('#stageTab3d').click()
+                check("v15-lab-editor-restore-sample-after-sync",
+                      "mẫu" in restored_lab_status.lower()
+                      and "Topology đáp ứng" in restored_lab_status
+                      and restored_scene_count == str(lesson2_sample_count)
+                      and restored_2d_valid,
+                      json.dumps({
+                          "sampleWires": lesson2_sample_count,
+                          "sceneWireCount": restored_scene_count,
+                          "twoDimensionalValid": restored_2d_valid,
+                          "status": restored_lab_status,
+                      }, ensure_ascii=False))
+                check("v15-coach-updates-to-complete-draft-only",
+                      "bản đấu dây đang chỉnh sửa" in page.locator("#learningCoach").inner_text()
+                      and "Bản tự đấu hiện tại: Topology đạt" in
+                          page.locator("#learningCoach").inner_text())
+                page.locator("#labRemoveLastWire").click()
+                check("v15-coach-invalidated-when-required-wire-removed",
+                      "Bản tự đấu hiện tại: Topology đạt" not in
+                          page.locator("#learningCoach").inner_text()
+                      and page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") ==
+                          str(lesson2_sample_count - 1))
+                page.locator("#labSampleWires").click()
+                page.locator("#stageTabWiring").click()
+                page.locator(".wire-activate").click()
+                check("v15-valid-learner-draft-must-be-activated-explicitly",
+                      page.locator(".wire-activate").get_attribute("aria-pressed") == "true")
+                page.locator("#stageTab3d").click()
+                page.locator("#labRemoveLastWire").click()
+                check("v15-3d-invalid-edit-revokes-custom-activation",
+                      "chưa kích hoạt" in page.locator("#electricalResult").inner_text()
+                      and "Bản tự đấu hiện tại: Topology đạt" not in page.locator("#learningCoach").inner_text())
+                page.locator("#labSampleWires").click()
+                page.locator("#stageTabWiring").click()
+                check("v15-3d-repair-does-not-silently-reactivate",
+                      page.locator(".wire-activate").get_attribute("aria-pressed") == "false"
+                      and page.locator(".wire-inactive").is_hidden()
+                      and not page.locator(".wire-activate").is_disabled())
+                page.locator("#stageTab3d").click()
+
+                # Motor/pump lessons remain signal-only even when their sample
+                # wires are applied through the new 3D editor. The editor may
+                # visualize/synchronize them but must not promote activation.
+                for lesson_id in (10, 14):
+                    page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    page.locator("#labEditToggle").click()
+                    page.locator("#labSampleWires").click()
+                    lab_signal_status = page.locator("#labStatus").inner_text()
+                    page.locator('#stageTabWiring').click()
+                    wiring_signal_status = page.locator(".wire-status").inner_text()
+                    check(f"v15-lab-editor-{lesson_id:02d}-signal-only-fail-closed",
+                          "chỉ kiểm tra dây tín hiệu" in lab_signal_status
+                          and "nguồn/tải chưa có mô hình" in lab_signal_status
+                          and page.locator(".wire-activate").is_disabled()
+                          and page.locator(".wire-activate").get_attribute("aria-pressed") == "false"
+                          and "không phải mạch hoàn chỉnh" in wiring_signal_status,
+                          json.dumps({
+                              "lab": lab_signal_status,
+                              "wiring": wiring_signal_status,
+                          }, ensure_ascii=False))
+                    page.locator('#stageTab3d').click()
+
+                # Worker1 scene API supports real pointer picking/dragging for
+                # conceptual layouts. Stress lesson 16 (largest component set):
+                # pick a movable component through the rendered canvas, drag it
+                # through the scene callback, then select two rendered terminal
+                # markers so the same circuit-router wire appears in 2D.
+                page.locator('.lesson-link[data-lesson="16"]').click()
+                page.locator("#labEditToggle").click()
+                page.locator('#cameraToolbar [data-camera="reset"]').click()
+                page.wait_for_timeout(60)
+                canvas = page.locator("#sceneMount canvas")
+                scene16_meta = {
+                    "mode": canvas.get_attribute("data-lab-layout-mode"),
+                    "components": canvas.get_attribute("data-lab-component-count"),
+                    "terminals": canvas.get_attribute("data-lab-terminal-count"),
+                    "edit": canvas.get_attribute("data-lab-edit"),
+                    "physical": canvas.get_attribute("data-lab-physical-verified"),
+                    "holes": canvas.get_attribute("data-lab-breadboard-hole-mapping"),
+                    "power": canvas.get_attribute("data-lab-electrical-power"),
+                }
+                check("v15-scene-lesson16-conceptual-layout-stress",
+                      scene16_meta["mode"] == "conceptual-layout"
+                      and scene16_meta["components"] == "9"
+                      and int(scene16_meta["terminals"] or "0") >= 12
+                      and scene16_meta["edit"] == "on"
+                      and scene16_meta["physical"] == "false"
+                      and scene16_meta["holes"] == "false"
+                      and scene16_meta["power"] == "false",
+                      json.dumps(scene16_meta, ensure_ascii=False))
+                scene_target = page.evaluate("""() => Promise.all([
+                    import('./src/lab-layout.js'), import('./src/circuit-router.js')
+                ]).then(([layoutModule, router]) => {
+                    const layout = layoutModule.createLabLayout(16, router.listTerminals(16));
+                    return layout.components
+                      .filter(item => !item.fixed && item.visualKind !== 'breadboard')
+                      .sort((a,b) => (Math.abs(a.x)+Math.abs(a.z))-(Math.abs(b.x)+Math.abs(b.z)))[0].id;
+                })""")
+                component_point = lab_scene_point(page, 16, component_id=scene_target)
+                check("v15-scene-lesson16-pick-target-visible",
+                      component_point["inViewport"], json.dumps(component_point))
+                page.mouse.click(component_point["x"], component_point["y"])
+                page.wait_for_timeout(40)
+                check("v15-scene-pointer-select-component",
+                      canvas.get_attribute("data-lab-selected-component") == scene_target
+                      and page.locator("#labComponent").input_value() == scene_target
+                      and "từ 3D" in page.locator("#labStatus").inner_text(),
+                      json.dumps({
+                          "target": scene_target,
+                          "selected": canvas.get_attribute("data-lab-selected-component"),
+                          "ui": page.locator("#labComponent").input_value(),
+                          "status": page.locator("#labStatus").inner_text(),
+                      }, ensure_ascii=False))
+                drag_before = (
+                    float(page.locator("#labPositionX").input_value()),
+                    float(page.locator("#labPositionZ").input_value()),
+                )
+                page.mouse.move(component_point["x"], component_point["y"])
+                page.mouse.down()
+                page.mouse.move(component_point["x"] + 44, component_point["y"] + 10, steps=8)
+                page.mouse.up()
+                page.wait_for_timeout(60)
+                drag_after = (
+                    float(page.locator("#labPositionX").input_value()),
+                    float(page.locator("#labPositionZ").input_value()),
+                )
+                check("v15-scene-pointer-drag-component",
+                      drag_after != drag_before
+                      and abs(drag_after[0] * 2 - round(drag_after[0] * 2)) < 1e-9
+                      and abs(drag_after[1] * 2 - round(drag_after[1] * 2)) < 1e-9
+                      and "Netlist điện không thay đổi" in page.locator("#labStatus").inner_text(),
+                      json.dumps({"before": drag_before, "after": drag_after}, ensure_ascii=False))
+                # Canvas Escape must clear the same component selection exposed
+                # by the accessible HTML inspector; no stale move buttons.
+                canvas.focus()
+                page.keyboard.press("Escape")
+                check("v15-scene-escape-deselect-syncs-inspector",
+                      canvas.get_attribute("data-lab-selected-component") == ""
+                      and page.locator("#labComponent").input_value() == ""
+                      and page.locator("#labPlace").is_disabled()
+                      and page.locator("#labRotateRight").is_disabled()
+                      and page.locator('[data-lab-nudge="0.5,0"]').is_disabled())
+
+                # The fixed Uno can be selected as a reference, but no input
+                # may continue to control the previously selected movable part.
+                arduino_pick = lab_scene_point(page, 16, component_id="arduino")
+                selected_fixed = False
+                for dx, dy in ((0, 0), (-7, 0), (7, 0), (0, -7), (0, 7)):
+                    page.mouse.click(arduino_pick["x"] + dx, arduino_pick["y"] + dy)
+                    if canvas.get_attribute("data-lab-selected-component") == "arduino":
+                        selected_fixed = True
+                        break
+                check("v15-scene-fixed-arduino-inspector-disables-movement",
+                      selected_fixed
+                      and page.locator("#labComponent").input_value() == "arduino"
+                      and page.locator("#labPlace").is_disabled()
+                      and page.locator("#labRotateLeft").is_disabled()
+                      and page.locator("#labPositionX").is_disabled(),
+                      json.dumps({"pick": arduino_pick,
+                                  "selected": canvas.get_attribute("data-lab-selected-component"),
+                                  "inspector": page.locator("#labComponent").input_value()}))
+                bounds = canvas.bounding_box()
+                page.mouse.click(bounds["x"] + 7, bounds["y"] + 7)
+                check("v15-scene-background-deselect-syncs-inspector",
+                      canvas.get_attribute("data-lab-selected-component") == ""
+                      and page.locator("#labComponent").input_value() == ""
+                      and page.locator("#labPlace").is_disabled())
+
+                page.locator("#labResetPositions").click()
+                page.locator("#labClearWires").click()
+                page.locator('#cameraToolbar [data-camera="reset"]').click()
+                page.wait_for_timeout(60)
+                scene_wire = page.evaluate("""() => import('./src/circuit-router.js').then(m => {
+                    const wire = m.createSampleCircuit(16).wires[0];
+                    return {from: wire.from, to: wire.to};
+                })""")
+                from_point = lab_scene_point(page, 16, terminal_id=scene_wire["from"])
+                to_point = lab_scene_point(page, 16, terminal_id=scene_wire["to"])
+                first_scene_terminal = False
+                for dy in range(-16, 17, 4):
+                    for dx in range(-16, 17, 4):
+                        page.mouse.click(from_point["x"] + dx, from_point["y"] + dy)
+                        page.wait_for_timeout(15)
+                        if f"Đã chọn {scene_wire['from']}" in page.locator("#labSelectedTerminal").inner_text():
+                            first_scene_terminal = True
+                            break
+                    if first_scene_terminal:
+                        break
+                second_scene_terminal = False
+                if first_scene_terminal:
+                    for dy in range(-16, 17, 4):
+                        for dx in range(-16, 17, 4):
+                            page.mouse.click(to_point["x"] + dx, to_point["y"] + dy)
+                            page.wait_for_timeout(15)
+                            terminal_note = page.locator("#labSelectedTerminal").inner_text()
+                            if ("Nối" in terminal_note and scene_wire["from"] in terminal_note
+                                    and scene_wire["to"] in terminal_note):
+                                second_scene_terminal = True
+                                break
+                        if second_scene_terminal:
+                            break
+                check("v15-scene-terminal-pair-creates-router-wire",
+                      first_scene_terminal and second_scene_terminal
+                      and canvas.get_attribute("data-lab-wire-count") == "1"
+                      and "Đã nối" in page.locator("#labStatus").inner_text(),
+                      json.dumps({
+                          "wire": scene_wire,
+                          "fromPoint": from_point,
+                          "toPoint": to_point,
+                          "firstSelected": first_scene_terminal,
+                          "secondSelected": second_scene_terminal,
+                          "wireCount": canvas.get_attribute("data-lab-wire-count"),
+                          "note": page.locator("#labSelectedTerminal").inner_text(),
+                          "status": page.locator("#labStatus").inner_text(),
+                      }, ensure_ascii=False))
+                page.locator('#stageTabWiring').click()
+                scene_wire_rows = page.locator(".wire-connected").all_inner_texts()
+                check("v15-scene-terminal-wire-syncs-2d",
+                      any(scene_wire["from"] in row and scene_wire["to"] in row
+                          for row in scene_wire_rows),
+                      json.dumps(scene_wire_rows, ensure_ascii=False))
+                page.locator('#stageTab3d').click()
+
+                # The v1.5 editor tests deliberately mutate lesson-local circuit
+                # drafts for 02/10/14/16. Reload the same source page before the
+                # untouched v1.4 regression block so those legacy assertions run
+                # against their original clean in-memory baseline. This is test
+                # isolation only; no app storage/account state is written here.
+                page.reload(wait_until="domcontentloaded", timeout=20000)
+                ready(page)
 
                 # Electrical UI is intentionally limited to lessons 02/03/05.
                 expected_currents = {
@@ -726,6 +1226,65 @@ def main() -> None:
                 check("wiring-terminal-controls", page.locator("[data-terminal]").count() == 12)
                 check("wiring-missing-disabled",
                       page.locator(".wire-activate").is_disabled())
+                # OS/browser pointer cancellation must never finalize a wire,
+                # even when the cancellation coordinates overlap a valid pin.
+                canceled_touch = page.evaluate("""() => {
+                    const from=document.querySelector('[data-terminal="D13"]');
+                    const to=document.querySelector('[data-terminal="R_LED:A"]');
+                    const rect=node=>node.getBoundingClientRect();
+                    const center=r=>({x:r.left+r.width/2,y:r.top+r.height/2});
+                    const first=center(rect(from)),second=center(rect(to));
+                    const opts=(type,point,pointerId)=>new PointerEvent(type,{
+                      bubbles:true,cancelable:true,pointerId,pointerType:'touch',
+                      button:0,clientX:point.x,clientY:point.y
+                    });
+                    const target=document.elementFromPoint(second.x,second.y)?.closest('[data-terminal]')?.dataset.terminal;
+                    from.dispatchEvent(opts('pointerdown',first,1881));
+                    window.dispatchEvent(opts('pointermove',second,1881));
+                    window.dispatchEvent(opts('pointercancel',second,1881));
+                    return {from:'D13',to:'R_LED:A',target};
+                }""")
+                check("v15-2d-pointercancel-never-commits-a-wire",
+                      canceled_touch["target"] == "R_LED:A"
+                      and page.locator(".wire-connected").count() == 0
+                      and page.locator(".wire-activate").is_disabled(),
+                      json.dumps(canceled_touch,ensure_ascii=False))
+                page.wait_for_timeout(20)
+                page.evaluate("""() => {
+                    const from=document.querySelector('[data-terminal="D13"]');
+                    const to=document.querySelector('[data-terminal="R_LED:A"]');
+                    const center=node=>{const r=node.getBoundingClientRect();
+                      return {x:r.left+r.width/2,y:r.top+r.height/2};};
+                    const first=center(from),second=center(to);
+                    const event=(type,point,id)=>new PointerEvent(type,{
+                      bubbles:true,cancelable:true,pointerId:id,pointerType:'touch',
+                      button:0,clientX:point.x,clientY:point.y
+                    });
+                    from.dispatchEvent(event('pointerdown',first,1891));
+                    window.dispatchEvent(event('pointermove',second,1892));
+                    window.dispatchEvent(event('pointerup',second,1892));
+                    window.dispatchEvent(event('pointercancel',second,1891));
+                }""")
+                check("v15-2d-other-pointer-cannot-complete-wire",
+                      page.locator(".wire-connected").count() == 0)
+                page.wait_for_timeout(20)
+                page.evaluate("""() => {
+                    const from=document.querySelector('[data-terminal="D13"]');
+                    const to=document.querySelector('[data-terminal="R_LED:A"]');
+                    const center=node=>{const r=node.getBoundingClientRect();
+                      return {x:r.left+r.width/2,y:r.top+r.height/2};};
+                    const first=center(from),second=center(to);
+                    const event=(type,point)=>new PointerEvent(type,{
+                      bubbles:true,cancelable:true,pointerId:1882,pointerType:'touch',
+                      button:0,clientX:point.x,clientY:point.y
+                    });
+                    from.dispatchEvent(event('pointerdown',first));
+                    window.dispatchEvent(event('pointermove',second));
+                    window.dispatchEvent(event('pointerup',second));
+                }""")
+                check("v15-2d-valid-pointerup-commits-exactly-one-wire",
+                      page.locator(".wire-connected").count() == 1)
+                page.locator(".wire-actions .wire-action").nth(1).click()
                 # Real pointer and keyboard-driven terminal interactions
                 # exercise the UI path rather than only the pure circuit model.
                 page.locator('[data-terminal="5V"]').click()
@@ -774,12 +1333,27 @@ def main() -> None:
                 check("custom-circuit-runs", "Đang chạy" in page.locator("#runStatus").inner_text())
                 page.locator(".wire-remove").first.click()
                 check("invalid-wire-stops", "Đang dừng" in page.locator("#runStatus").inner_text())
+                check("v15-2d-invalid-wire-revokes-activation",
+                      page.locator(".wire-activate").get_attribute("aria-pressed") == "false"
+                      and page.locator(".wire-inactive").is_hidden()
+                      and "chưa kích hoạt" in page.locator("#electricalResult").inner_text())
                 page.locator("#runButton").click()
                 check("invalid-wire-blocks-restart",
                       "Đang dừng" in page.locator("#runStatus").inner_text())
                 page.locator(".wire-actions .wire-action").first.click()
+                check("v15-2d-repair-does-not-reenable-active-circuit",
+                      page.locator(".wire-activate").get_attribute("aria-pressed") == "false"
+                      and not page.locator(".wire-activate").is_disabled())
                 page.locator("#runButton").click()
                 check("repaired-wire-can-run", "Đang chạy" in page.locator("#runStatus").inner_text())
+                check("v15-reference-until-explicit-learner-reactivation",
+                      "mạch tự đấu hợp lệ" not in page.locator("#simOutput").inner_text())
+                page.locator("#runButton").click()
+                page.locator(".wire-activate").click()
+                page.locator("#runButton").click()
+                check("v15-learner-reactivation-restores-checked-mode",
+                      page.locator(".wire-activate").get_attribute("aria-pressed") == "true"
+                      and "mạch tự đấu hợp lệ" in page.locator("#simOutput").inner_text())
                 page.locator("#runButton").click()
                 page.locator('.stage-tabs [data-stage="3d"]').click()
                 check("return-3d", page.locator("#sceneMount canvas").count() == 1)
@@ -874,6 +1448,44 @@ def main() -> None:
                               small.evaluate(
                                   "document.activeElement.id==='openSidebar' && document.querySelector('#sidebar').inert"
                               ))
+                    if width == 375:
+                        small.evaluate("location.hash='#bai-02'")
+                        small.wait_for_function(
+                            "document.querySelector('.lesson-link[data-lesson=\"2\"]')?.getAttribute('aria-current') === 'page'"
+                        )
+                        small.locator("#labEditToggle").click()
+                        check("v15-mobile-lab-editor-no-horizontal-overflow-375",
+                              small.locator("#labEditor").is_visible()
+                              and small.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+                        small.locator("#infoTabPractice").click()
+                        touch_targets = small.evaluate("""() => {
+                            const selectors = [
+                              '#labEditToggle', '#labEditor button', '#labEditor select', '#labEditor input',
+                              '#learningCoach button'
+                            ];
+                            const nodes = [...new Set(selectors.flatMap(s => [...document.querySelectorAll(s)]))]
+                              .filter(node => node.getClientRects().length && !node.disabled);
+                            const rows = nodes.map(node => {
+                              const rect = node.getBoundingClientRect();
+                              return {
+                                id: node.id || node.getAttribute('aria-label') || node.textContent.trim().slice(0, 32),
+                                width: Number(rect.width.toFixed(1)),
+                                height: Number(rect.height.toFixed(1)),
+                              };
+                            });
+                            return {
+                              count: rows.length,
+                              minimumWidth: Math.min(...rows.map(row => row.width)),
+                              minimumHeight: Math.min(...rows.map(row => row.height)),
+                              tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
+                            };
+                        }""")
+                        check("v15-mobile-lab-coach-touch-targets-375",
+                              touch_targets["count"] >= 15
+                              and touch_targets["minimumWidth"] >= 24
+                              and touch_targets["minimumHeight"] >= 40
+                              and not touch_targets["tooSmall"],
+                              json.dumps(touch_targets, ensure_ascii=False))
                     context.close()
 
                 # Published dist: offline after service worker installation.
@@ -1073,6 +1685,32 @@ def main() -> None:
                       and offline_firmware["hexOk"]
                       and offline_firmware["hexLooksIntel"],
                       json.dumps(offline_firmware, ensure_ascii=False))
+                offline_v15_modules = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [layout, editor, coach, timer1, css] = await Promise.all([
+                        import(new URL('./src/lab-layout.js', baseUrl).href),
+                        import(new URL('./src/lab-editor-ui.js', baseUrl).href),
+                        import(new URL('./src/learning-coach.js', baseUrl).href),
+                        import(new URL('./src/avr-timer1.js', baseUrl).href),
+                        fetch(new URL('./styles/lab-editor.css', baseUrl), { cache: 'no-store' }),
+                    ]);
+                    return {
+                        layout: typeof layout.createLabLayout === 'function'
+                            && typeof layout.moveLabComponent === 'function'
+                            && typeof layout.rotateLabComponent === 'function',
+                        editor: typeof editor.mountLabEditor === 'function',
+                        coach: typeof coach.getLessonGuidance === 'function'
+                            && coach.LEARNING_COACH_BOUNDARIES?.physicalValidation === false,
+                        timer1: typeof timer1.createAvrTimer1 === 'function'
+                            && timer1.AVR_TIMER1_CAPABILITIES?.normalMode === true
+                            && timer1.AVR_TIMER1_CAPABILITIES?.pwm === false
+                            && timer1.AVR_TIMER1_CAPABILITIES?.servoParity === false,
+                        cssOk: css.ok && (await css.text()).includes('.lab-editor'),
+                    };
+                }""")
+                check("offline-v15-lab-coach-timer1-modules-cached",
+                      all(offline_v15_modules.values()),
+                      json.dumps(offline_v15_modules, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.
@@ -1112,6 +1750,10 @@ def main() -> None:
         server.server_close()
         server_thread.join(timeout=5)
 
+    # The default Windows console codec may be cp1252 even for Vietnamese
+    # course text. Do not turn a fully passing browser run into a print error.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({
         "total": len(report), "passed": sum(item["passed"] for item in report),
         "failed": sum(not item["passed"] for item in report),

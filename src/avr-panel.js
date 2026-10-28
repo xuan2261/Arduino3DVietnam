@@ -18,9 +18,26 @@ const element = (tag, className, message) => {
 
 const hexadecimal = value => "0x" + Number(value).toString(16).toUpperCase().padStart(4, "0");
 const CYCLE_STEP = 25000;
+export const AVR_PANEL_A0_MAX_MILLIVOLTS = 5000;
 
-export function mountAvrPanel(host) {
+export function validateAvrPanelA0Millivolts(rawValue) {
+  const raw = String(rawValue ?? "").trim();
+  if (raw === "") return null;
+  const voltage = Number(raw);
+  if (!Number.isInteger(voltage) || voltage < 0 || voltage > AVR_PANEL_A0_MAX_MILLIVOLTS) {
+    throw new RangeError(
+      `A0 phải là số nguyên từ 0 đến ${AVR_PANEL_A0_MAX_MILLIVOLTS} mV (không vượt quá VREF/AVCC mặc định 5000 mV), hoặc bỏ trống để giữ chưa xác định.`,
+    );
+  }
+  return voltage;
+}
+
+export function mountAvrPanel(host, options = {}) {
   if (!host?.isConnected) throw new Error("Vùng trình diễn AVR chưa được gắn vào trang.");
+  if (options === null || typeof options !== "object" || Array.isArray(options) ||
+      (options.onEvidence !== undefined && typeof options.onEvidence !== "function")) {
+    throw new TypeError("AVR panel evidence observer must be a function.");
+  }
   const container = element("div", "avr-panel-inner");
   const heading = element("div", "avr-panel-heading");
   const title = element("h3", "", "Thực thi mã AVR đã biên dịch");
@@ -59,7 +76,7 @@ export function mountAvrPanel(host) {
   analogInput.id = "avrA0Input";
   analogInput.type = "number";
   analogInput.min = "0";
-  analogInput.max = "5500";
+  analogInput.max = String(AVR_PANEL_A0_MAX_MILLIVOLTS);
   analogInput.step = "1";
   analogInput.placeholder = "Không khai báo";
   const applyAnalogButton = element("button", "button avr-button-secondary", "Áp dụng A0");
@@ -132,6 +149,7 @@ export function mountAvrPanel(host) {
   function disposeRunner() {
     runner?.dispose?.();
     runner = null;
+    options.onEvidence?.(null);
   }
 
   function updatePeripheralState() {
@@ -169,6 +187,18 @@ export function mountAvrPanel(host) {
     ddrbMetric.querySelector("strong").textContent = hexadecimal(runner.readData(0x24));
     portbMetric.querySelector("strong").textContent = hexadecimal(runner.readData(0x25));
     updatePeripheralState();
+    // Register-state evidence for the conceptual lab view is text-only.
+    // Never feed it into the JS simulator, the physical LED mesh, or wiring.
+    options.onEvidence?.(loadedMode === "peripheral" ? Object.freeze({
+      mode: "peripheral",
+      cycles: current.cycles,
+      d13: Object.freeze({
+        mode: current.boardD13.mode,
+        level: current.boardD13.level,
+      }),
+      txCount: runner.getTxBytes().length,
+      origin: "verified-avr-register-model",
+    }) : null);
   }
 
   function setDraftChanged(hasDraft) {
@@ -404,13 +434,10 @@ export function mountAvrPanel(host) {
     if (!runner || loadedMode !== "peripheral" || disposed || requiresReload) return;
     try {
       const raw = analogInput.value.trim();
-      if (raw === "") {
+      const voltage = validateAvrPanelA0Millivolts(raw);
+      if (voltage === null) {
         runner.clearAnalogInput(0);
       } else {
-        const voltage = Number(raw);
-        if (!Number.isInteger(voltage) || voltage < 0 || voltage > 5500) {
-          throw new RangeError("A0 phải là số nguyên từ 0 đến 5500 mV, hoặc bỏ trống để giữ chưa xác định.");
-        }
         runner.setAnalogInputMillivolts(0, voltage);
       }
       updatePeripheralState();

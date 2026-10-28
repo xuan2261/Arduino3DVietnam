@@ -2,13 +2,14 @@
 const CACHE = "arduino3d-viet-static-v2-20261028";
 const ASSETS = [
   "./", "./index.html", "./site.webmanifest", "./styles/app.css",
-  "./styles/wiring.css", "./styles/avr-panel.css",
-  "./src/app.js", "./src/lessons.js", "./src/simulator.js",
+  "./styles/wiring.css", "./styles/avr-panel.css", "./styles/lab-editor.css",
+  "./src/app.js", "./src/lab-layout.js", "./src/lab-editor-ui.js", "./src/learning-coach.js",
+  "./src/lessons.js", "./src/simulator.js",
   "./src/circuit.js", "./src/circuit-extended.js",
   "./src/circuit-router.js", "./src/electrical-solver.js",
   "./src/wiring-workbench.js", "./src/storage.js", "./src/scene3d.js",
   "./src/firmware-integrity.js", "./src/avr-panel.js", "./src/avr-runtime.js",
-  "./src/avr-gpio.js", "./src/avr-timer0.js",
+  "./src/avr-gpio.js", "./src/avr-timer0.js", "./src/avr-timer1.js",
   "./src/avr-analog-serial.js", "./src/avr-board-runner.js",
   "./assets/favicon.svg", "./assets/vendor/three.module.min.js",
   "./assets/vendor/three.core.min.js", "./assets/vendor/THREE-LICENSE.txt",
@@ -31,7 +32,9 @@ const ASSETS = [
   "./docs/HUONG_DAN.md", "./docs/CIRCUIT_ENGINE.md",
   "./docs/CIRCUIT_EXTENDED.md", "./docs/ARDUINO_CODE.md",
   "./docs/GPIO_RUNTIME.md", "./docs/TIMER0_RUNTIME.md",
-  "./docs/ANALOG_SERIAL_RUNTIME.md", "./docs/AVR_BOARD_LAB.md"
+  "./docs/ANALOG_SERIAL_RUNTIME.md", "./docs/AVR_BOARD_LAB.md",
+  "./docs/LAB_LAYOUT.md", "./docs/SCENE3D_LAB.md",
+  "./docs/LEARNING_COACH.md", "./docs/TIMER1_RUNTIME.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

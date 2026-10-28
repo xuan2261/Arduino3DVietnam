@@ -23,13 +23,22 @@ Bài 03 có **Giữ nút** (LED chỉ sáng khi giữ) và **Bật/tắt** (mỗ
 2. Nhấp **hai chân** liên tiếp để tạo dây, hoặc kéo chuột từ một chân sang chân khác.
 3. Nhấn **Mạch mẫu** để xem một mạch đúng, **Gỡ** để tháo một dây, **Xóa dây** để xóa toàn bộ.
 4. Theo dõi cảnh báo: đấu trực tiếp sai chân, nối tắt nguồn, đảo cực LED, thiếu điện trở hoặc sai đường tín hiệu sẽ bị kiểm tra theo topology được định nghĩa cho từng bài.
-5. Với **13 bài có mô hình mạch đủ phạm vi topology**, chỉ khi bộ kiểm tra báo hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ tự dừng mô phỏng. **Bài 10 (motor) và 14 (bơm)** chỉ có sơ đồ dây tín hiệu/GND tham khảo: không thể kích hoạt mạch tự đấu vì chưa mô hình nguồn cấp, đường tải và phần công suất. Nút Chạy mô phỏng của bài vẫn là **minh họa JavaScript độc lập**, không phải chứng minh động cơ/bơm chạy qua dây đã nối.
+5. Với **13 bài có mô hình mạch đủ phạm vi topology**, chỉ khi bộ kiểm tra báo hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ dừng và **thu hồi kích hoạt mạch tự đấu**; sau khi sửa đúng, người học phải nhấn **Thử mạch vừa đấu** lần nữa để dùng lại mạch đó. Hệ thống không coi thao tác cảm ứng bị hủy hoặc từ ngón tay khác là một dây đã nối. **Bài 10 (motor) và 14 (bơm)** chỉ có sơ đồ dây tín hiệu/GND tham khảo: không thể kích hoạt mạch tự đấu vì chưa mô hình nguồn cấp, đường tải và phần công suất. Nút Chạy mô phỏng của bài vẫn là **minh họa JavaScript độc lập**, không phải chứng minh động cơ/bơm chạy qua dây đã nối.
 
 Phạm vi là **15 mô hình netlist hữu hạn**, không phải một bộ giải điện học hoặc SPICE. Đặc biệt các bài động cơ/bơm chỉ xác minh phần đường tín hiệu/nguồn đã định nghĩa, **không xác minh dòng tải, bộ điều khiển công suất hoặc tính an toàn toàn mạch thực**. Bài servo minh họa nguồn riêng phù hợp và GND chung, không mặc định chân Arduino 5V có thể cấp dòng cho servo.
 
 ### Kết nối khái niệm trên mô hình 3D
 
 Sau khi nhấn **Mạch mẫu** hoặc tự nối dây trong tab **Sơ đồ kết nối**, quay lại **Mô hình 3D** để xem lớp đường nối dựa trên netlist thực sự của bài. Đây là đồ họa giải thích **những terminal nối với nhau**, không phải vị trí lỗ cắm breadboard, bản vẽ lắp ráp mạch thật hay kết quả dòng/áp. Nếu một số terminal không thể ánh xạ rõ ràng, mô hình bỏ qua thay vì vẽ dây giả và báo số kết nối bị lược bỏ.
+
+### Bố trí, xoay và đấu dây 3D (source v1.5)
+
+1. Chọn bài 02–16, mở **Mô hình 3D** và bấm **Bố trí và nối dây 3D**. Bài 01 chỉ có LED onboard nên không hiển thị bàn đấu dây ngoài. Chế độ chỉnh được bật riêng để không nhầm thao tác xoay camera với kéo linh kiện.
+2. Chọn linh kiện trên mô hình hoặc ở danh sách **Linh kiện đang chọn**. Có thể kéo linh kiện bằng chuột/chạm, dùng tọa độ **X/Z**, bốn nút mũi tên hoặc phím `W/A/S/D` khi canvas có focus. Dùng **↶/↷ 90°** hoặc `Q/E` trên canvas để xoay. Arduino Uno cố định; các vị trí nằm trong lưới logic và được giới hạn để tránh chồng lấn.
+3. Chọn hai chân trên mô hình hoặc dùng danh sách **Chân thứ nhất/Chân thứ hai** và **Nối hai chân**. Dây sẽ đi qua cùng bộ phân tích topology của **Sơ đồ kết nối**: nối sai/chập/thiếu đường chức năng được thông báo, không được “vẽ cho đúng” bất chấp bộ phân tích. **Mạch mẫu**, **Gỡ dây cuối**, **Xóa dây** hoạt động trên cùng bản mạch đang chỉnh.
+4. Chuyển sang **Sơ đồ kết nối** để xem các dây đã chỉnh trong 3D, rồi quay lại 3D. Chọn tab **Thực hành** để xem các checkpoint/hint nhỏ dựa trên dữ liệu bài học và nhận phản hồi topology hiện tại. Bước hướng dẫn không thay việc làm quiz và **Xác nhận hoàn thành**.
+
+Mô hình hiển thị chân trên **chu vi khái niệm của nhóm linh kiện**, không có tương quan chính xác tới vị trí chân IC hay lỗ breadboard. Không dùng trạng thái 3D làm hướng dẫn lắp mạch thật nếu chưa đối chiếu pinout/datasheet. Bài 10 motor và 14 bơm vẫn chỉ có đường tín hiệu tham khảo, không thể coi nguồn/tải đã được kiểm chứng. Đây là chức năng bổ sung của v1.5; phiên bản công khai chỉ được xác nhận sau các cổng CI và kiểm tra thực tế trên GitHub Pages.
 
 ### Ước tính dòng LED với mô hình có giới hạn
 
@@ -47,11 +56,13 @@ Quan trọng: **sửa mã không thay đổi mô phỏng**. Máy Windows thử n
 2. Nhấn **Thực thi 1 lệnh** để quan sát một opcode AVR (PC và chu kỳ thay đổi), hoặc nhấn **Thực thi 25.000 chu kỳ** để chạy một đợt có giới hạn; xem PC, tổng chu kỳ và các thanh ghi thô DDRB/PORTB. Nhấn **Khởi tạo CPU mới** để khởi tạo lại chương trình và SRAM.
 3. Khi chuyển sang bài khác, CPU cũ bị bỏ và phải nạp lại HEX đúng bài. Nếu đã sửa Sketch trong tab, thông báo nhắc rằng HEX mẫu **không được biên dịch lại từ văn bản đã sửa**.
 
-Website **v1.3 đang công khai** dùng baseline CPU-only: `src/avr-runtime.js` thực thi opcode của HEX thật nhưng không gắn peripheral. DDRB/PORTB ở chế độ này vẫn chỉ là dữ liệu thanh ghi; không suy ra LED, nút, cảm biến, servo hoặc Serial ngoài bo đã hoạt động.
+Baseline **v1.3** dùng CPU-only: `src/avr-runtime.js` thực thi opcode của HEX thật nhưng không gắn peripheral. DDRB/PORTB ở chế độ này vẫn chỉ là dữ liệu thanh ghi; không suy ra LED, nút, cảm biến, servo hoặc Serial ngoài bo đã hoạt động.
 
 Trong source **v1.4.0**, panel có lựa chọn **“Bật mô hình ngoại vi AVR thử nghiệm”**. Đây là opt-in; bỏ chọn thì vẫn dùng baseline CPU-only. Nhánh thử nghiệm được giới hạn bởi `src/avr-board-runner.js::AVR_BOARD_LAB_CAPABILITIES`: nó cho firmware thật tác động lên trạng thái GPIO theo thanh ghi (gồm D13/PB5), bộ đếm/overflow Timer0, ADC single-conversion từ điện áp cố định do người học nhập và USART0 async 8-bit TX capture. Các module chi tiết và negative contract nằm tại `src/avr-gpio.js`, `src/avr-timer0.js`, `src/avr-analog-serial.js` cùng các test `tests/avr-*-contracts.js` tương ứng.
 
 Peripheral lab **không phải Arduino Uno hoàn chỉnh**: chưa có Timer1/2, waveform PWM/output compare đầy đủ, USART RX, cảm biến ngoài, mô hình điện, motor/servo physics hoặc parity `delay()/millis()/micros()`. ADC nhận đầu vào giả định cố định, không phải số đo. USART chỉ capture byte TX mà firmware thực sự hoàn tất, không phải Serial Monitor của simulator. Nút **Chạy mô phỏng** và phần mô phỏng JS vẫn là hệ thống độc lập; scene 3D không được coi là đầu ra phần cứng của peripheral lab.
+
+Source v1.5 có thêm **mô hình Timer1 độc lập WGM0 Normal** để học tập và chạy fixture đã được kiểm thử. Nó **không được gắn vào runner chung** vì Arduino core thật có thể khởi tạo WGM1 (ngoài khả năng đã kiểm chứng). Không gọi đây là Servo PWM hoặc `delay/millis` parity. Xem [Timer1](TIMER1_RUNTIME.md).
 
 Không dùng CPU baseline hoặc peripheral lab làm chứng cứ bo Arduino vật lý, tải điện hay độ chính xác thời gian thực. Nguồn máy là cycle count mô phỏng 16 MHz, không phải đồng hồ tường và không thay thế phép đo trên thiết bị.
 

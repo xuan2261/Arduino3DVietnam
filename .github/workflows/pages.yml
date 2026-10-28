@@ -70,6 +70,7 @@ jobs:
         with:
           name: arduino-3d-viet-site
           path: dist
+          include-hidden-files: true
 
   deploy:
     # No push event can reach this job. The package job itself cannot run until

@@ -231,6 +231,8 @@ export async function runAccessibilityContracts() {
     ["#codeEditStatus", "status", null],
     ["#avrStatus", "status", "polite"],
     ["#avrPeripheralState", "status", "polite"],
+    ["#labStatus", "status", "polite"],
+    ["#labAvrStatus", "status", null],
     ["#serialConsole", "log", "off"],
   ];
   const liveProblems = liveExpectations.flatMap(([selector, role, live]) => {
@@ -307,6 +309,15 @@ export async function runAccessibilityContracts() {
       `checked=${Boolean(peripheralCheckbox?.checked)}, inputsHidden=${peripheralInputs?.hidden}, stateHidden=${peripheralState?.hidden}`,
       "Peripheral mode cần có production path làm controls/state hiển thị sau verified firmware load.", "P1");
   }
+  // Capture the readout contrast while the production peripheral state is
+  // actually rendered. The v1.5 lab/coach probe below switches to lesson 02,
+  // whose AVR setLesson() intentionally clears this lesson-01 readout.
+  const peripheralStateSmall = [...document.querySelectorAll(".avr-peripheral-state small")].find(visible) || null;
+  const peripheralStateContrastSample = {
+    selector: ".avr-peripheral-state small",
+    ratio: peripheralStateSmall ? contrastRatio(peripheralStateSmall) : null,
+    text: peripheralStateSmall?.textContent?.trim().slice(0, 80) || "",
+  };
 
   const stageAssociations = tabPanelAssociation(".stage-tabs");
   const infoAssociations = tabPanelAssociation(".info-tabs");
@@ -338,6 +349,61 @@ export async function runAccessibilityContracts() {
     Boolean(help && helpName),
     `aria-label=${helpAriaLabel || "(missing)"}; aria-labelledby=${helpLabelledBy || "(missing)"}; resolved=${helpName || "(missing)"}`,
     "Đặt id cho tiêu đề dialog và thêm aria-labelledby (hoặc aria-label) trên #helpDialog.", "P1");
+
+  // v1.5 conceptual lab editor and learning coach controls are hidden on
+  // lesson 01, so exercise their real production rendering in this isolated
+  // accessibility page rather than treating hidden markup as sufficient.
+  document.querySelector('.lesson-link[data-lesson="2"]')?.click();
+  await nextTask();
+  const labToggle = document.querySelector("#labEditToggle");
+  labToggle?.click();
+  await nextTask();
+  const labPanel = document.querySelector("#labEditor");
+  const labCanvas = document.querySelector("#sceneMount canvas");
+  const labControls = [
+    "#labEditToggle", "#labComponent", "#labPositionX", "#labPositionZ", "#labPlace",
+    '[data-lab-nudge="-0.5,0"]', '[data-lab-nudge="0,-0.5"]',
+    '[data-lab-nudge="0,0.5"]', '[data-lab-nudge="0.5,0"]',
+    "#labRotateLeft", "#labRotateRight", "#labResetPositions",
+    "#labFromPin", "#labToPin", "#labConnect", "#labRemoveLastWire",
+    "#labSampleWires", "#labClearWires",
+  ].map(selector => document.querySelector(selector));
+  const labUnnamed = labControls.filter(control => !control || !accessibleName(control))
+    .map(control => control?.id || "missing-control");
+  record("lab-editor-controls-accessible",
+    Boolean(labPanel && !labPanel.hidden) && labToggle?.getAttribute("aria-controls") === "labEditor" &&
+    labToggle?.getAttribute("aria-expanded") === "true" && labUnnamed.length === 0 &&
+    document.querySelector("#labStatus")?.getAttribute("role") === "status" &&
+    document.querySelector("#labStatus")?.getAttribute("aria-live") === "polite" &&
+    document.querySelector("#labAvrStatus")?.getAttribute("role") === "status" &&
+    labCanvas?.dataset.labEdit === "on" &&
+    /Chế độ chỉnh bố trí 3D/i.test(labCanvas?.getAttribute("aria-label") || "") &&
+    /khái niệm/i.test(document.querySelector(".lab-editor-boundary")?.textContent || "") &&
+    /không xác định.*điện áp|không.*dòng|không.*an toàn/i.test(document.querySelector(".lab-editor-boundary")?.textContent || ""),
+    JSON.stringify({
+      editorVisible: Boolean(labPanel && !labPanel.hidden),
+      expanded: labToggle?.getAttribute("aria-expanded") || "",
+      unnamed: labUnnamed,
+      labStatusRole: document.querySelector("#labStatus")?.getAttribute("role") || "",
+      labAvrStatusRole: document.querySelector("#labAvrStatus")?.getAttribute("role") || "",
+      canvasLabEdit: labCanvas?.dataset.labEdit || "",
+      canvasAria: labCanvas?.getAttribute("aria-label") || "",
+    }),
+    "Bàn chỉnh 3D cần control có tên, toggle aria-controls/expanded, live status và boundary khái niệm/không vật lý đọc được.", "P1");
+
+  document.querySelector("#infoTabPractice")?.click();
+  await nextTask();
+  const coach = document.querySelector("#learningCoach");
+  const coachControls = ["#coachPrevious", "#coachHint", "#coachNext"].map(selector => document.querySelector(selector));
+  record("learning-coach-controls-accessible",
+    Boolean(coach && accessibleName(coach)) && coachControls.every(control => control && accessibleName(control)) &&
+    /không đo|không xác nhận phần cứng/i.test(document.querySelector(".coach-boundary")?.textContent || ""),
+    JSON.stringify({
+      coachName: accessibleName(coach),
+      controlNames: coachControls.map(control => accessibleName(control)),
+      boundary: document.querySelector(".coach-boundary")?.textContent?.trim() || "",
+    }),
+    "Learning coach cần accessible name/buttons và disclosure rằng tiến độ/hướng dẫn không đo hay xác nhận phần cứng.", "P1");
 
   const cssText = allCssText();
   record("visible-focus-indicator-css",
@@ -387,8 +453,19 @@ export async function runAccessibilityContracts() {
     ".avr-experiment-caveat",
     ".avr-input-field",
     ".avr-peripheral-state small",
+    ".lab-editor-boundary",
+    ".lab-status",
+    ".lab-avr-status",
+    ".learning-coach p",
   ];
   const contrastSamples = contrastSelectors.map(selector => {
+    if (selector === ".avr-peripheral-state small") {
+      return {
+        ...peripheralStateContrastSample,
+        ratio: peripheralStateContrastSample.ratio === null
+          ? null : Number(peripheralStateContrastSample.ratio.toFixed(2)),
+      };
+    }
     // Include temporarily hidden readouts (e.g., AVR metrics before firmware
     // load) so low-contrast text is caught before the user makes it visible.
     const node = [...document.querySelectorAll(selector)].find(visible)
