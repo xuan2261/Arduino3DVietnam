@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.pyc
+node_modules/
+dist/
+coverage/
+screenshots/
+releases/
+# The frozen upstream Git repositories remain physically present for recovery,
+# but are not accidentally bundled into this application's own source control.
+sources/

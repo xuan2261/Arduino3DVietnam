@@ -1,0 +1,12 @@
+{
+  "name": "Arduino 3D Việt Nam — Phòng thực hành điện tử",
+  "short_name": "Arduino 3D Việt",
+  "description": "16 bài học Arduino Uno 3D tương tác bằng tiếng Việt",
+  "lang": "vi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f0",
+  "theme_color": "#123c43",
+  "icons": [{"src": "assets/favicon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}
