@@ -23,7 +23,7 @@ Bài 03 có **Giữ nút** (LED chỉ sáng khi giữ) và **Bật/tắt** (mỗ
 2. Nhấp **hai chân** liên tiếp để tạo dây, hoặc kéo chuột từ một chân sang chân khác.
 3. Nhấn **Mạch mẫu** để xem một mạch đúng, **Gỡ** để tháo một dây, **Xóa dây** để xóa toàn bộ.
 4. Theo dõi cảnh báo: đấu trực tiếp sai chân, nối tắt nguồn, đảo cực LED, thiếu điện trở hoặc sai đường tín hiệu sẽ bị kiểm tra theo topology được định nghĩa cho từng bài.
-5. Chỉ khi bộ kiểm tra báo mạch hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ tự dừng mô phỏng.
+5. Với **13 bài có mô hình mạch đủ phạm vi topology**, chỉ khi bộ kiểm tra báo hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ tự dừng mô phỏng. **Bài 10 (motor) và 14 (bơm)** chỉ có sơ đồ dây tín hiệu/GND tham khảo: không thể kích hoạt mạch tự đấu vì chưa mô hình nguồn cấp, đường tải và phần công suất. Nút Chạy mô phỏng của bài vẫn là **minh họa JavaScript độc lập**, không phải chứng minh động cơ/bơm chạy qua dây đã nối.
 
 Phạm vi là **15 mô hình netlist hữu hạn**, không phải một bộ giải điện học hoặc SPICE. Đặc biệt các bài động cơ/bơm chỉ xác minh phần đường tín hiệu/nguồn đã định nghĩa, **không xác minh dòng tải, bộ điều khiển công suất hoặc tính an toàn toàn mạch thực**. Bài servo minh họa nguồn riêng phù hợp và GND chung, không mặc định chân Arduino 5V có thể cấp dòng cho servo.
 
@@ -39,15 +39,21 @@ Sau khi nhấn **Mạch mẫu** hoặc tự nối dây trong tab **Sơ đồ k�
 
 Mở khu vực **Arduino Sketch**, nhấn **Sửa mã** để chỉnh văn bản, **Xem mã** để xem bản được tô sáng, **Tải .ino** để lưu mã ra tệp hoặc **Khôi phục mã mẫu** để quay lại bản gốc. Mã sửa chỉ lưu trong tab trình duyệt đang mở, nên hãy tải .ino để giữ lâu dài.
 
-Quan trọng: **sửa mã không thay đổi mô phỏng**. Máy Windows thử nghiệm chưa có Arduino CLI, nhưng GitHub Actions trong repository Private đã **biên dịch thành công cả 16 Sketch mẫu** trên Ubuntu với Arduino CLI 1.5.1, AVR core 1.8.6 và Servo 1.3.0. Bạn có thể dùng lệnh `python scripts/verify_sketches.py --compile` ở máy có toolchain tương ứng, hoặc chạy workflow thủ công cho commit hiện hành. Chức năng nạp firmware qua USB không hỗ trợ.
+Quan trọng: **sửa mã không thay đổi mô phỏng**. Máy Windows thử nghiệm chưa có Arduino CLI, nhưng GitHub Actions trong repository Public đã **biên dịch thành công cả 16 Sketch mẫu** trên Ubuntu với Arduino CLI 1.5.1, AVR core 1.8.6 và Servo 1.3.0. Bạn có thể dùng lệnh `python scripts/verify_sketches.py --compile` ở máy có toolchain tương ứng, hoặc chạy workflow thủ công cho commit hiện hành. Chức năng nạp firmware qua USB không hỗ trợ.
 
-### Xem CPU AVR thực thi HEX đã biên dịch (chỉ phạm vi CPU)
+### Xem firmware AVR đã biên dịch: baseline v1.3 và peripheral lab v1.4.0
 
 1. Mở mục **Thực thi mã AVR đã biên dịch** phía dưới phần bài tập và nhấn **Nạp firmware mẫu**. Trình duyệt đối chiếu mã `src/lessons.js`, manifest và SHA-256 của HEX bài học trước khi khởi tạo bộ nhớ ảo.
 2. Nhấn **Thực thi 1 lệnh** để quan sát một opcode AVR (PC và chu kỳ thay đổi), hoặc nhấn **Thực thi 25.000 chu kỳ** để chạy một đợt có giới hạn; xem PC, tổng chu kỳ và các thanh ghi thô DDRB/PORTB. Nhấn **Khởi tạo CPU mới** để khởi tạo lại chương trình và SRAM.
 3. Khi chuyển sang bài khác, CPU cũ bị bỏ và phải nạp lại HEX đúng bài. Nếu đã sửa Sketch trong tab, thông báo nhắc rằng HEX mẫu **không được biên dịch lại từ văn bản đã sửa**.
 
-**Quan trọng:** đây là lõi AVR8 thực thi opcode của HEX thật, **chưa có mô hình ngoại vi GPIO/timer/ADC/Serial**. DDRB/PORTB chỉ là số trong bộ nhớ của CPU ảo; không kết luận rằng LED, nút, cảm biến, servo hay Serial đã chạy theo firmware. Nút **Chạy mô phỏng** và bảng Serial mang nhãn **GIẢ LẬP** vẫn là hệ thống JS độc lập. Không dùng bảng CPU làm chứng cứ phần cứng hoạt động đúng.
+Website **v1.3 đang công khai** dùng baseline CPU-only: `src/avr-runtime.js` thực thi opcode của HEX thật nhưng không gắn peripheral. DDRB/PORTB ở chế độ này vẫn chỉ là dữ liệu thanh ghi; không suy ra LED, nút, cảm biến, servo hoặc Serial ngoài bo đã hoạt động.
+
+Trong source **v1.4.0**, panel có lựa chọn **“Bật mô hình ngoại vi AVR thử nghiệm”**. Đây là opt-in; bỏ chọn thì vẫn dùng baseline CPU-only. Nhánh thử nghiệm được giới hạn bởi `src/avr-board-runner.js::AVR_BOARD_LAB_CAPABILITIES`: nó cho firmware thật tác động lên trạng thái GPIO theo thanh ghi (gồm D13/PB5), bộ đếm/overflow Timer0, ADC single-conversion từ điện áp cố định do người học nhập và USART0 async 8-bit TX capture. Các module chi tiết và negative contract nằm tại `src/avr-gpio.js`, `src/avr-timer0.js`, `src/avr-analog-serial.js` cùng các test `tests/avr-*-contracts.js` tương ứng.
+
+Peripheral lab **không phải Arduino Uno hoàn chỉnh**: chưa có Timer1/2, waveform PWM/output compare đầy đủ, USART RX, cảm biến ngoài, mô hình điện, motor/servo physics hoặc parity `delay()/millis()/micros()`. ADC nhận đầu vào giả định cố định, không phải số đo. USART chỉ capture byte TX mà firmware thực sự hoàn tất, không phải Serial Monitor của simulator. Nút **Chạy mô phỏng** và phần mô phỏng JS vẫn là hệ thống độc lập; scene 3D không được coi là đầu ra phần cứng của peripheral lab.
+
+Không dùng CPU baseline hoặc peripheral lab làm chứng cứ bo Arduino vật lý, tải điện hay độ chính xác thời gian thực. Nguồn máy là cycle count mô phỏng 16 MHz, không phải đồng hồ tường và không thay thế phép đo trên thiết bị.
 
 Nếu trang đang mở lần đầu được Service Worker điều khiển hoặc nhận phiên bản Service Worker mới, ứng dụng hiện thông báo và khóa điều khiển AVR cho tới khi tải lại. Hãy tải `.ino` đang sửa về máy trước khi bấm **Tải lại phiên bản mới**; thao tác này ngăn mã bài học cũ dùng lẫn tệp firmware/manifest mới trong một tab còn mở.
 

@@ -9,6 +9,11 @@ export const EXTENDED_CIRCUIT_LIMITS = Object.freeze({
   maxFunctionalPaths: 12,
 });
 
+const SIGNAL_ONLY_LESSON_MESSAGES = Object.freeze({
+  10: "Bài 10 chỉ xác minh tín hiệu/GND Arduino → driver cầu H; nguồn động cơ, đầu ra công suất và tải motor chưa được mô hình nên không thể xác nhận mạch chức năng hoàn chỉnh.",
+  14: "Bài 14 chỉ xác minh tín hiệu cảm biến, tín hiệu điều khiển bơm và GND logic; nguồn/công suất của sensor, relay/driver và tải bơm chưa được mô hình nên không thể xác nhận mạch chức năng hoàn chỉnh.",
+});
+
 const terminal = (id, label, kind, component, polarity = null) =>
   Object.freeze({ id, label, kind, component, polarity });
 
@@ -831,17 +836,23 @@ export function analyzeExtendedCircuit(lessonId, state = undefined) {
   };
   const analysis = analyzers[id](config, nets);
   if (analysis.paths.length > EXTENDED_CIRCUIT_LIMITS.maxFunctionalPaths) throw new RangeError("Cấu hình bài học vượt giới hạn functional path");
-  const functional = analysis.paths.length > 0 && analysis.paths.every(item => item.complete);
+  const signalPathsComplete = analysis.paths.length > 0 && analysis.paths.every(item => item.complete);
+  const signalOnlyMessage = SIGNAL_ONLY_LESSON_MESSAGES[id] ?? null;
+  const functional = signalOnlyMessage ? false : signalPathsComplete;
   const allIssues = [
     ...analysis.issues,
     ...boardPinConflicts(config, nets),
     ...unexpectedNetMerges(config, circuit, SAMPLE_WIRES[id]),
+    ...(signalOnlyMessage
+      ? [issue("SIGNAL_ONLY_POWER_LOAD_UNMODELED", "warning", signalOnlyMessage)]
+      : []),
   ];
   const hasError = allIssues.some(item => item.severity === "error");
   return {
     lessonId: id,
     supported: true,
-    ok: functional && !hasError,
+    ...(signalOnlyMessage ? { scope: "signal-only", signalPathsComplete } : {}),
+    ok: signalOnlyMessage ? false : functional && !hasError,
     functional,
     issues: allIssues,
     paths: analysis.paths,

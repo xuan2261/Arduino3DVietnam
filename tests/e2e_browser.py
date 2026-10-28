@@ -479,6 +479,62 @@ def main() -> None:
                       and scene_wiring["passed"] == scene_wiring["total"],
                       f"{scene_wiring['passed']}/{scene_wiring['total']} passed")
 
+                # Peripheral adapters are not complete Arduino Uno models.
+                # Exercise each bounded CPU-hook implementation and one real
+                # SHA-verified compiled HEX via their browser contracts.
+                gpio_contracts = run_page_contract(
+                    page, "./tests/avr-gpio-contracts.js", "runAvrGpioContracts")
+                check("avr-gpio-real-register-contracts",
+                      gpio_contracts["failed"] == 0 and gpio_contracts["passed"] >= 20,
+                      f"{gpio_contracts['passed']}/{gpio_contracts['total']} passed")
+                timer_contracts = run_page_contract(
+                    page, "./tests/avr-timer0-contracts.js", "runAvrTimer0Contracts")
+                check("avr-timer0-overflow-clock-contracts",
+                      timer_contracts["passed"] == len(timer_contracts["checks"])
+                      and timer_contracts["passed"] >= 8,
+                      f"{timer_contracts['passed']} passed")
+                analog_contracts = run_page_contract(
+                    page, "./tests/avr-analog-serial-contracts.js", "runAvrAnalogSerialContracts")
+                check("avr-adc-and-usart-tx-contracts",
+                      analog_contracts["passed"] == len(analog_contracts["checks"])
+                      and analog_contracts["passed"] >= 18,
+                      f"{analog_contracts['passed']} passed")
+                board_contracts = run_page_contract(
+                    page, "./tests/avr-board-contracts.js", "runAvrBoardContracts")
+                check("avr-opt-in-board-real-hex-contracts",
+                      board_contracts["total"] == board_contracts["passed"]
+                      and board_contracts["passed"] >= 9,
+                      f"{board_contracts['passed']}/{board_contracts['total']} passed")
+
+                # Bounded accessibility regression includes tab semantics and
+                # computed contrast, not a claim of full WCAG/screen-reader QA.
+                # The a11y contract now exercises the real opt-in firmware UI,
+                # so run it in an isolated page/context: its input toggles must
+                # never change the initial-state assertions on the main page.
+                a11y_context = browser.new_context(viewport={"width": 1440, "height": 900})
+                try:
+                    a11y_page = a11y_context.new_page()
+                    capture_console(a11y_page)
+                    a11y_page.goto(base, wait_until="domcontentloaded", timeout=15000)
+                    ready(a11y_page)
+                    accessibility = run_page_contract(
+                        a11y_page, "./tests/accessibility-contracts.js", "runAccessibilityContracts")
+                finally:
+                    a11y_context.close()
+                check("accessibility-desktop-no-p1-or-failed-contracts",
+                      accessibility["failed"] == 0 and not accessibility["blockers"],
+                      json.dumps({
+                          "passed": accessibility["passed"],
+                          "failed": accessibility["failed"],
+                          "skipped": accessibility["skipped"],
+                          "blockers": accessibility["blockers"],
+                          "failedChecks": [row for row in accessibility["results"] if row["status"] == "FAIL"],
+                      }, ensure_ascii=False))
+                check("accessibility-probe-isolated-from-avr-runner",
+                      not page.locator("#avrPeripheralMode").is_checked()
+                      and "Chưa nạp" in page.locator("#avrStatus").inner_text()
+                      and page.locator("#avrStep").is_disabled())
+
                 # The optional AVR panel publishes stable DOM IDs in
                 # src/avr-panel.js. Exercise real UI actions, including verified
                 # firmware load, genuine CPU cycles, and a clean runner reset.
@@ -530,6 +586,77 @@ def main() -> None:
                       "Đã khởi tạo CPU/flash/SRAM" in page.locator("#avrStatus").inner_text()
                       and not page.locator("#avrStep").is_disabled()
                       and not page.locator("#avrCycle").is_disabled())
+
+                # CPU-only remains the default, the bounded peripheral adapter
+                # is opt-in and must never create synthetic lesson Serial/LED.
+                check("avr-peripheral-opt-in-default-off",
+                      not page.locator("#avrPeripheralMode").is_checked()
+                      and page.locator("#avrPeripheralInputs").is_hidden()
+                      and page.locator("#avrPeripheralState").is_hidden())
+                page.locator("#avrPeripheralMode").check()
+                check("avr-peripheral-mode-change-invalidates-cpu",
+                      page.locator("#avrStep").is_disabled()
+                      and page.locator("#avrCycle").is_disabled()
+                      and page.locator("#avrReset").is_disabled()
+                      and page.locator("#avrMetrics").is_hidden()
+                      and page.locator("#avrProvenance").inner_text() == ""
+                      and "Hãy nạp lại firmware mẫu" in page.locator("#avrStatus").inner_text()
+                      and not page.locator("#avrLoad").is_disabled(),
+                      page.locator("#avrStatus").inner_text())
+                page.locator("#avrLoad").click()
+                page.wait_for_function(
+                    "document.querySelector('#avrStatus')?.dataset.kind === 'success'",
+                    timeout=20000,
+                )
+                check("avr-peripheral-sha-verified-load",
+                      "Đã xác minh SHA-256" in page.locator("#avrStatus").inner_text()
+                      and "ngoại vi có giới hạn" in page.locator("#avrStatus").inner_text()
+                      and page.locator("#avrPeripheralInputs").is_visible()
+                      and page.locator("#avrPeripheralState").is_visible()
+                      and "Timer0" in page.locator("#avrPeripheralState").inner_text())
+                check("avr-peripheral-unknown-inputs-not-faked",
+                      "chưa nhập điện áp" in page.locator("#avrPeripheralState").inner_text()
+                      and "chưa phát byte" in page.locator("#avrPeripheralState").inner_text())
+                page.locator("#avrD2Input").select_option("high")
+                check("avr-peripheral-external-digital-manual-only",
+                      "Đã khai báo D2: high" in page.locator("#avrStatus").inner_text()
+                      and "không phải tín hiệu đo" in page.locator("#avrStatus").inner_text())
+                page.locator("#avrA0Input").fill("2500")
+                page.locator("#avrApplyA0").click()
+                check("avr-peripheral-fixed-analog-manual-only",
+                      "2500 mV do người học đặt" in page.locator("#avrPeripheralState").inner_text()
+                      and "giả định thủ công" in page.locator("#avrStatus").inner_text())
+                page.locator("#avrA0Input").fill("5501")
+                page.locator("#avrApplyA0").click()
+                check("avr-peripheral-overrange-a0-rejected",
+                      page.locator("#avrStatus").get_attribute("data-kind") == "error"
+                      and "0 đến 5500 mV" in page.locator("#avrStatus").inner_text()
+                      and "2500 mV" in page.locator("#avrPeripheralState").inner_text())
+                page.locator("#avrA0Input").fill("")
+                page.locator("#avrApplyA0").click()
+                check("avr-peripheral-cleared-a0-unknown",
+                      "chưa nhập điện áp" in page.locator("#avrPeripheralState").inner_text())
+                for _ in range(4):
+                    page.locator("#avrCycle").click()
+                check("avr-peripheral-compiled-d13-gpio",
+                      "GPIO PB5 / Arduino D13: output · HIGH" in
+                      page.locator("#avrPeripheralState").inner_text()
+                      and "Timer0: TCNT0" in page.locator("#avrPeripheralState").inner_text()
+                      and "USART0 TX: 0 byte" in page.locator("#avrPeripheralState").inner_text())
+                page.locator("#avrReset").click()
+                page.wait_for_function(
+                    "document.querySelector('#avrStatus')?.textContent.includes('khởi tạo CPU/flash/SRAM')",
+                    timeout=10000,
+                )
+                check("avr-peripheral-reset-clears-assumed-inputs",
+                      page.locator("#avrD2Input").input_value() == "floating"
+                      and page.locator("#avrA0Input").input_value() == ""
+                      and "chưa nhập điện áp" in page.locator("#avrPeripheralState").inner_text())
+                page.locator("#avrPeripheralMode").uncheck()
+                check("avr-peripheral-opt-out-restores-cpu-only",
+                      page.locator("#avrStep").is_disabled()
+                      and page.locator("#avrPeripheralInputs").is_hidden()
+                      and page.locator("#avrPeripheralState").is_hidden())
                 page.locator('.lesson-link[data-lesson="2"]').click()
                 check("avr-panel-step-resets-on-lesson-switch",
                       page.locator("#avrStep").is_disabled()
@@ -666,9 +793,9 @@ def main() -> None:
                           not page.locator(".wire-activate").is_disabled())
                     page.locator('.stage-tabs [data-stage="3d"]').click()
 
-                # All supported lesson circuits are usable in the actual UI:
-                # pure engine tests are insufficient when data/sample routing
-                # or hidden panel lifecycle can regress.
+                # All 15 lesson netlists are browseable. Motor/pump lessons
+                # 10/14 intentionally expose reference SIGNAL topology only,
+                # and must not activate an unmodeled power/load circuit.
                 wiring_ids = page.evaluate(
                     "() => import('./src/circuit-router.js').then(m => m.supportedWiringLessons())"
                 )
@@ -681,14 +808,29 @@ def main() -> None:
                     check(f"wiring-{lesson_id:02d}-terminal-ui",
                           page.locator("[data-terminal]").count() >= 4)
                     page.locator(".wire-actions .wire-action").first.click()
-                    check(f"wiring-{lesson_id:02d}-valid-sample",
-                          not page.locator(".wire-activate").is_disabled()
-                          and page.locator(".wire-connected").count() >= 2)
-                    page.locator(".wire-activate").click()
-                    page.locator("#runButton").click()
-                    check(f"wiring-{lesson_id:02d}-active-run",
-                          "Đang chạy" in page.locator("#runStatus").inner_text())
-                    page.locator("#runButton").click()
+                    if lesson_id in (10, 14):
+                        check(f"wiring-{lesson_id:02d}-signal-only-reference",
+                              page.locator(".wire-activate").is_disabled()
+                              and page.locator(".wire-connected").count() >= 4
+                              and "dây tín hiệu tham khảo" in page.locator(".wire-status").inner_text()
+                              and "không phải mạch hoàn chỉnh" in page.locator(".wire-status").inner_text())
+                        check(f"wiring-{lesson_id:02d}-motor-pump-custom-activation-blocked",
+                              page.locator(".wire-activate").is_disabled()
+                              and page.locator(".wire-activate").get_attribute("aria-pressed") == "false")
+                        page.locator("#runButton").click()
+                        check(f"wiring-{lesson_id:02d}-javascript-demo-independent",
+                              "Đang chạy" in page.locator("#runStatus").inner_text()
+                              and "không phải mạch hoàn chỉnh" in page.locator(".wire-status").inner_text())
+                        page.locator("#runButton").click()
+                    else:
+                        check(f"wiring-{lesson_id:02d}-valid-sample",
+                              not page.locator(".wire-activate").is_disabled()
+                              and page.locator(".wire-connected").count() >= 2)
+                        page.locator(".wire-activate").click()
+                        page.locator("#runButton").click()
+                        check(f"wiring-{lesson_id:02d}-active-run",
+                              "Đang chạy" in page.locator("#runStatus").inner_text())
+                        page.locator("#runButton").click()
                     page.locator('.stage-tabs [data-stage="3d"]').click()
                 page.locator('.lesson-link[data-lesson="1"]').click()
                 page.locator('.stage-tabs [data-stage="wiring"]').click()
@@ -931,6 +1073,26 @@ def main() -> None:
                       and offline_firmware["hexOk"]
                       and offline_firmware["hexLooksIntel"],
                       json.dumps(offline_firmware, ensure_ascii=False))
+                # Requiring the peripheral adapter to load while the browser
+                # is actually offline guards its lazy ES-module imports and
+                # SHA-verified firmware fetches, not just cached file names.
+                app.locator("#avrPeripheralMode").check()
+                app.locator("#avrLoad").click()
+                app.wait_for_function(
+                    "document.querySelector('#avrStatus')?.dataset.kind === 'success'",
+                    timeout=20000,
+                )
+                check("offline-avr-peripheral-sha-verified-load",
+                      "Đã xác minh SHA-256" in app.locator("#avrStatus").inner_text()
+                      and "ngoại vi có giới hạn" in app.locator("#avrStatus").inner_text()
+                      and app.locator("#avrPeripheralState").is_visible()
+                      and "chưa nhập điện áp" in app.locator("#avrPeripheralState").inner_text())
+                for _ in range(4):
+                    app.locator("#avrCycle").click()
+                check("offline-compiled-firmware-peripheral-d13",
+                      "GPIO PB5 / Arduino D13: output · HIGH" in
+                      app.locator("#avrPeripheralState").inner_text()
+                      and "USART0 TX: 0 byte" in app.locator("#avrPeripheralState").inner_text())
                 offline.set_offline(False)
                 offline.close()
 

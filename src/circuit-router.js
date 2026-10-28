@@ -109,7 +109,14 @@ export function createSampleCircuit(lessonId) {
   if (!pairs.length) return createCircuit(id);
   const sample = pairs.reduce((state, pair) => connectCircuit(state, pair[0], pair[1]), createCircuit(id));
   const analysis = analyzeCircuit(id, sample);
-  if (!analysis.supported || !analysis.ok || !analysis.functional) {
+  // Lessons 10/14 deliberately contain logic-side reference wiring only.
+  // Their presets may be shown for learning, but must NEVER be eligible for
+  // activating a custom motor/pump circuit without a modeled power/load path.
+  const signalReference = analysis.scope === "signal-only" &&
+    analysis.signalPathsComplete === true &&
+    analysis.functional === false && analysis.ok === false &&
+    !analysis.issues.some(item => item.severity === "error");
+  if (!analysis.supported || !(analysis.ok && analysis.functional) && !signalReference) {
     throw new Error(`Mạch mẫu bài ${id} không đạt bộ kiểm tra topology`);
   }
   return sample;

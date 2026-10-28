@@ -119,8 +119,12 @@ export async function runSceneWiringContracts() {
       const lessonTerminals = listTerminals(lessonId);
       const lessonAnalysis = analyzeCircuit(lessonId, state);
       const lessonSummary = mounted.setWiring(state, lessonTerminals, lessonAnalysis);
+      const signalReference = lessonId === 10 || lessonId === 14;
       check(`lesson-${lessonId}-sample-wiring`,
-        lessonSummary.status === "checked" &&
+        lessonSummary.status === (signalReference ? "warning" : "checked") &&
+        (signalReference
+          ? lessonAnalysis.scope === "signal-only" && !lessonAnalysis.ok && !lessonAnalysis.functional
+          : lessonAnalysis.ok && lessonAnalysis.functional) &&
         lessonSummary.shownWires === state.wires.length &&
         lessonSummary.omittedWires === 0 &&
         lessonSummary.physicalMapping === "none");

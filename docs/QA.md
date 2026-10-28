@@ -1,8 +1,16 @@
 # QA — Bản Arduino 3D Việt Nam
 
-## Ứng viên v1.3.0 — bằng chứng mới (28/10/2026)
+## Trạng thái phát hành hiện tại
 
-Phần tích hợp được kiểm chứng trên **workspace `C:\Work\Arduino3DVietnam`**, chưa được gắn nhãn phát hành v1.3.0. Không dùng những kết quả riêng lẻ dưới đây để suy luận rằng toàn bộ UI, firmware, phần cứng hoặc release gate đã nghiệm thu.
+**v1.3.0 đã được triển khai công khai** trên GitHub Pages; mã nguồn v1.4.0 có kiểm thử local bổ sung. Muốn biết bản nào đang chạy ở URL thật, đối chiếu SHA tại GitHub Pages workflow, không suy ra chỉ từ commit nhánh chính. Bảng v1.3 bên dưới được giữ như **bằng chứng lịch sử của giai đoạn ứng viên**, không chỉnh lại số liệu theo trạng thái hiện tại.
+
+Mã nguồn **v1.4.0** bổ sung *AVR peripheral lab* tùy chọn. Capability boundary ở `src/avr-board-runner.js::AVR_BOARD_LAB_CAPABILITIES`; panel chỉ bật khi người học chủ động chọn. Hợp đồng riêng tại `tests/avr-board-contracts.js`, `tests/avr-gpio-contracts.js`, `tests/avr-timer0-contracts.js`, `tests/avr-analog-serial-contracts.js`. Kiểm thử thực tế **Chrome Windows** ngày 28/10/2026 sau khi siết ranh giới bài 10/14: **167/167 E2E PASS** tại checkpoint, 68/68 Python PASS, 16/16 HEX SHA ở nguồn và dist PASS, build PASS, không có pageerror/console warning/error. GPIO 29/29, Timer0 10/10, ADC/USART 18/18, AVR Board **12/12** (có 2 test HEX thực bài 15 ADC/USART/D13 high/low), extended netlist 77/77, wiring 3D 39/39, trợ năng desktop 20 PASS/0 FAIL/2 SKIP; mobile 24 PASS/0 FAIL trên Chrome 375px/reduced motion. **Đây là bằng chứng local trước phát hành, không suy ra GitHub Actions/Pages đã chạy cùng SHA.**
+
+Các capability v1.4 vẫn tuyên bố rõ `completeArduinoUno=false`, `physicalHardware=false`, không có PWM waveform, Timer1/2, USART RX, external sensors, motor/servo physics hoặc parity `delay/millis/micros`. Không dùng trạng thái thanh ghi/pin của peripheral lab làm bằng chứng mạch vật lý hoạt động đúng.
+
+## Bằng chứng ứng viên v1.3.0 — lưu giữ lịch sử (28/10/2026)
+
+Phần dưới là snapshot kiểm chứng trước khi v1.3.0 được xuất bản. Không dùng những kết quả riêng lẻ này để suy luận rằng phần v1.4 mới, phần cứng vật lý hoặc một commit khác đã nghiệm thu.
 
 | Gate | Quan sát trực tiếp / giới hạn |
 | --- | --- |

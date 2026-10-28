@@ -90,6 +90,9 @@ export async function verifyFirmwareBytes(manifest, lessonId, hexBytes, sourceBy
     sourceCommit: manifest.git_sha,
     sourceSha256: manifest.source_sha256,
     firmwareSha256: entry.hex_sha256,
+    // This is the manifest's declared parsed-flash digest. Browser verification
+    // here covers the RAW downloaded HEX bytes and lesson source, not an
+    // independently parsed flash image; the release builder validates all 3.
     flashSha256: entry.flash_sha256,
     toolchain: Object.freeze({ ...manifest.toolchain }),
     verification: "sha256-match",

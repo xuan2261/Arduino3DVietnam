@@ -61,6 +61,10 @@ FILES = [
     "src/firmware-integrity.js",
     "src/avr-panel.js",
     "src/avr-runtime.js",
+    "src/avr-gpio.js",
+    "src/avr-timer0.js",
+    "src/avr-analog-serial.js",
+    "src/avr-board-runner.js",
     "assets/favicon.svg",
     "assets/vendor/three.module.min.js",
     "assets/vendor/three.core.min.js",
@@ -72,6 +76,10 @@ FILES = [
     "docs/CIRCUIT_ENGINE.md",
     "docs/CIRCUIT_EXTENDED.md",
     "docs/ARDUINO_CODE.md",
+    "docs/GPIO_RUNTIME.md",
+    "docs/TIMER0_RUNTIME.md",
+    "docs/ANALOG_SERIAL_RUNTIME.md",
+    "docs/AVR_BOARD_LAB.md",
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

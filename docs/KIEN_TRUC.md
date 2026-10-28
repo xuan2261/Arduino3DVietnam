@@ -16,8 +16,15 @@ index.html + styles/*.css
        |    |                          |                  |
        |    |                     16 Intel HEX      src/lessons.js
        |    |                          |
-       |    |                     avr-runtime.js --> avr8js CPU 0.21.1
-       |    |                     (chỉ CPU, không có GPIO/timer/Serial)
+       |    |             +------------+-------------+
+       |    |             |                          |
+       |    |        avr-runtime.js          avr-board-runner.js
+       |    |        (CPU-only v1.3)         (opt-in, v1.4.0)
+       |    |             |                    |   |   |
+       |    |             |              avr-gpio  timer0  analog-serial
+       |    |             +--------------------+---+---+
+       |    |                                  |
+       |    |                            avr8js CPU 0.21.1
        |    |
        |    +--> circuit-router.js --> circuit.js / circuit-extended.js
        |               |       \
@@ -29,7 +36,7 @@ index.html + styles/*.css
                              |
                              +--> snapshot --> scene3d.js --> Three.js r180
 
-Lõi AVR KHÔNG nối đầu ra điều khiển ngoại vi vào snapshot của JS simulator.
+Hai nhánh AVR đều tách khỏi snapshot của JS simulator; peripheral lab không tự biến trạng thái pin/thanh ghi thành điện áp, dòng hoặc chuyển động trong scene.
 ```
 
 **Phân tách quan trọng:**
@@ -39,7 +46,7 @@ Lõi AVR KHÔNG nối đầu ra điều khiển ngoại vi vào snapshot của J
 - `circuit.js` kiểm tra bài 02/03/05; `circuit-extended.js` xử lý 12 bài 04,06–16; `circuit-router.js` định tuyến hai engine theo lesson ID và xác minh mạch mẫu. UI SVG, chọn/kéo/tháo dây thuộc `wiring-workbench.js`. Toàn bộ là topology theo **15 sơ đồ có terminal cố định**, không phải bộ giải điện học/SPICE.
 - `electrical-solver.js` chỉ tính dòng LED trong 3 bài 02/03/05 sau khi kiểm tra topology đạt; giả định HIGH 5 V, Vf không đổi và điện trở lý tưởng, không tính điện học cho 12 bài còn lại.
 - Màu LED, vị trí servo, hình học mô-đun là biểu diễn của snapshot JS ở `scene3d.js`. Dây 3D lấy từ netlist và terminal metadata đã kiểm tra, nhưng được gắn nhãn **khái niệm**: không thể suy ra vị trí lỗ breadboard, dây thực, dòng hoặc áp từ hình minh họa.
-- `firmware-integrity.js` tải gói từ cùng origin và so SHA source/HEX; `avr-panel.js` chỉ nạp sau khi xác minh và gọi lõi avr8js đã lưu tại `assets/vendor/avr/`. `src/avr-runtime.js` thực thi opcode và truy xuất SRAM/thanh ghi thô nhưng chưa khởi tạo mô hình ngoại vi ATmega328P.
+- `firmware-integrity.js` tải gói từ cùng origin và so SHA source/HEX; `avr-panel.js` chỉ nạp sau khi xác minh. Baseline `src/avr-runtime.js` là CPU-only như v1.3. Source v1.4 thêm nhánh opt-in `src/avr-board-runner.js`, ghép CPU với `avr-gpio.js`, `avr-timer0.js` và `avr-analog-serial.js`; capability object của board runner là nguồn chính cho ranh giới hỗ trợ và các trường `false` phải được giữ như giới hạn bắt buộc.
 - `scripts/export_firmware.py` tạo/kiểm tra 16 HEX bằng toolchain Arduino CLI được pin trên GitHub Actions, không có trình biên dịch Arduino C++ trong trang. `scripts/validate_hardware_evidence.py` kiểm tra JSON báo cáo ngoại tuyến, không tự đo thiết bị.
 - Giao diện, tương tác, quiz và serial log thuộc `app.js`.
 - Tiến độ thuộc `storage.js`, không được suy ra từ việc người dùng xem bài hay bấm Chạy.
@@ -61,6 +68,7 @@ Trình chỉnh sửa Sketch giữ draft trong bộ nhớ của tab, cung cấp b
 | --- | --- | --- |
 | Minh họa JS | `simulate()` | Tính đúng các quy tắc sư phạm đã viết; không phải chạy firmware |
 | CPU AVR thực | HEX đã biên dịch, xác minh SHA-256, avr8js CPU | Lệnh AVR, PC, chu kỳ và dữ liệu bộ nhớ; **không** suy diễn LED ngoài, millis/delay/PWM/timer/Serial |
+| AVR peripheral lab (v1.4.0 opt-in) | `createAvrBoardRunner()` + peripheral hooks có contract riêng | Quan sát có giới hạn GPIO register/pin state, Timer0 counter/overflow, ADC fixed-input và USART0 TX; **không** phải Uno đầy đủ hay parity phần cứng |
 | Mạch/bằng chứng | topology + solver 5 V giới hạn + JSON reviewer | Chặn các lỗi topology định nghĩa sẵn, dòng LED *ước tính*, dữ liệu khai báo nhất quán; **không** phải phép đo hay chứng nhận thiết bị |
 
 Mọi kết quả hiển thị phải nhận diện rõ nguồn. Lớp dây 3D nhận trực tiếp netlist hiện đang soạn; khi mạch chưa kích hoạt, nó là bản nháp và không điều khiển mô phỏng JS. Không cho phép phần mềm tự suy luận rằng thanh ghi DDRB/PORTB thô đồng nghĩa mô hình LED 3D đã mô phỏng tín hiệu điện tử thật.
@@ -82,7 +90,7 @@ Register: Product. Scene: học sinh/sinh viên và người mới bắt đầu 
 ## Chất lượng và giới hạn
 
 - Renderer Three.js được tạo trễ, xử lý mất/khôi phục WebGL context, giải phóng geometry/material, ngắt observers/listeners sau dispose; chỉ yêu cầu frame khi cần vẽ. Bộ contract scene3d kiểm tra lifecycle bằng `WEBGL_lose_context`.
-- Mô phỏng JS giới hạn trong quy tắc bài; netlist hữu hạn cho 15 bài, tính dòng LED lý tưởng cho 3 bài, không có bộ giải SPICE tổng quát hoặc kết nối USB. AVR CPU vận hành opcode thật nhưng chưa có ngoại vi, nên việc nạp HEX 16 bài không đồng nghĩa tái hiện đầy đủ 16 chương trình Arduino.
+- Mô phỏng JS giới hạn trong quy tắc bài; netlist hữu hạn cho 15 bài, tính dòng LED lý tưởng cho 3 bài, không có bộ giải SPICE tổng quát hoặc kết nối USB. Baseline AVR CPU không có peripheral; peripheral lab v1.4 chỉ thêm một tập register-visible có giới hạn và vẫn tuyên bố `completeArduinoUno=false`, nên nạp HEX 16 bài không đồng nghĩa tái hiện đầy đủ 16 chương trình Arduino.
 - Các Sketch là tham khảo cho bo thực; trước khi đưa vào môi trường học thực tế, cần đối chiếu sơ đồ điện và thông số từng thiết bị.
 - Không dùng mật khẩu lưu localStorage. Tiến độ JSON phải qua kiểm tra phiên bản, danh sách ID, giới hạn số lượng.
 
@@ -91,5 +99,5 @@ Register: Product. Scene: học sinh/sinh viên và người mới bắt đầu 
 1. Chuyển qua TypeScript + Vite khi Node được cài và có nhu cầu quản lý package.
 2. Tách data lessons thành các tệp `vi/*.json` có schema và kiểm tra ngữ nghĩa.
 3. Thay mô hình linh kiện hình học bằng mô hình chi tiết có provenance, LOD và asset budget.
-4. Mở rộng runtime AVR CPU hiện có bằng ngoại vi có kiểm thử độc lập (GPIO, clock/timer, ADC, Serial, sau đó Servo/PWM), ghép trạng thái vật lý vào scene **chỉ sau parity tests**. Việc biên dịch C++ trong browser là phạm vi riêng và chưa được triển khai.
+4. Tiếp tục kiểm chứng peripheral lab trước khi phát hành v1.4; chỉ mở rộng Timer1/2, PWM/output compare, USART RX hoặc ghép trạng thái vào scene khi từng phần có contract/parity riêng. Việc biên dịch C++ trong browser là phạm vi riêng và chưa được triển khai.
 5. Nếu cần mô phỏng mạch bất kỳ, xây solver điện học với netlist, định luật điện, SPICE-like validation, dữ liệu thực và bảo vệ an toàn; không mở rộng giả định từ 15 topology hiện tại rồi gọi đó là solver.

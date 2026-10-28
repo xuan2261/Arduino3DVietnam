@@ -49,9 +49,20 @@ export function runExtendedCircuitContracts() {
   try { connectExtendedCircuit({ ...empty, engine: "other" }, "5V", "POT:A"); } catch (error) { wrongEngineRejected = error instanceof RangeError; }
   check("wrong-engine-state-rejected", wrongEngineRejected);
 
-  for (const id of SUPPORTED_EXTENDED_LESSONS) {
+  for (const id of SUPPORTED_EXTENDED_LESSONS.filter(id => id !== 10 && id !== 14)) {
     const analysis = analyzeExtendedCircuit(id, sampleCircuit(id));
     check("lesson-" + id + "-sample-functional", analysis.supported && analysis.ok && analysis.functional && analysis.paths.every(item => item.complete));
+  }
+  for (const id of [10, 14]) {
+    const analysis = analyzeExtendedCircuit(id, sampleCircuit(id));
+    check("lesson-" + id + "-sample-signal-only",
+      analysis.supported &&
+      analysis.scope === "signal-only" &&
+      analysis.signalPathsComplete === true &&
+      analysis.ok === false &&
+      analysis.functional === false &&
+      analysis.paths.every(item => item.complete) &&
+      codes(analysis).has("SIGNAL_ONLY_POWER_LOAD_UNMODELED"));
   }
 
   const l4NoLedResistor = analyzeExtendedCircuit(4, wireMany(4, [
@@ -106,6 +117,13 @@ export function runExtendedCircuitContracts() {
   check("lesson-10-driver-mismatch", codes(l10Mismatch).has("DRIVER_SIGNAL_MISMATCH"));
   const l10OutputsShort = analyzeExtendedCircuit(10, wireMany(10, [["D7","D8"]]));
   check("lesson-10-output-short", codes(l10OutputsShort).has("OUTPUT_PINS_SHORTED"));
+  const l10ExtraWire = analyzeExtendedCircuit(10, connectExtendedCircuit(sampleCircuit(10), "D9", "D7"));
+  check("lesson-10-signal-only-boundary-cannot-bypass",
+    l10ExtraWire.scope === "signal-only" &&
+    l10ExtraWire.signalPathsComplete === true &&
+    l10ExtraWire.ok === false &&
+    l10ExtraWire.functional === false &&
+    codes(l10ExtraWire).has("SIGNAL_ONLY_POWER_LOAD_UNMODELED"));
 
   const l11ReversePower = analyzeExtendedCircuit(11, wireMany(11, [["5V","LM35:GND"],["GND","LM35:VS"]]));
   check("lesson-11-lm35-polarity", codes(l11ReversePower).has("LM35_POWER_REVERSED"));
@@ -158,6 +176,14 @@ export function runExtendedCircuitContracts() {
   check("lesson-14-input-output-short", !l14WrongAnalysis.ok && codes(l14WrongAnalysis).has("SOIL_INPUT_PUMP_OUTPUT_SHORTED"));
   const l14GroundTie = analyzeExtendedCircuit(14, connectExtendedCircuit(sampleCircuit(14), "A0", "GND"));
   check("lesson-14-input-ground-invalidates", !l14GroundTie.ok && codes(l14GroundTie).has("SOIL_INPUT_STUCK_GND"));
+  const l14ExtraWire = analyzeExtendedCircuit(14,
+    connectExtendedCircuit(sampleCircuit(14), "SOIL:GND", "PUMP:GND"));
+  check("lesson-14-signal-only-boundary-cannot-bypass",
+    l14ExtraWire.scope === "signal-only" &&
+    l14ExtraWire.signalPathsComplete === true &&
+    l14ExtraWire.ok === false &&
+    l14ExtraWire.functional === false &&
+    codes(l14ExtraWire).has("SIGNAL_ONLY_POWER_LOAD_UNMODELED"));
 
   const l15DividerReverse = analyzeExtendedCircuit(15, wireMany(15, [
     ["5V","R_DIV:A"],["R_DIV:B","A0"],["A0","FSR:A"],["FSR:B","GND"],

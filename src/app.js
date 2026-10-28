@@ -117,7 +117,10 @@ function renderHeading(lesson) {
 function renderInfo() {
   const lesson=currentLesson();
   for(const tab of document.querySelectorAll("[data-info]")){
-    tab.setAttribute("aria-selected",String(tab.dataset.info===state.infoTab));
+    const active=tab.dataset.info===state.infoTab;
+    tab.setAttribute("aria-selected",String(active));
+    tab.tabIndex=active?0:-1;
+    if(active) $("infoContent").setAttribute("aria-labelledby",tab.id);
   }
   const host=$("infoContent");
   if(state.infoTab==="overview"){
@@ -141,7 +144,10 @@ function renderStage() {
   state.wiringUI?.dispose();
   state.wiringUI=null;
   for(const tab of document.querySelectorAll("[data-stage]")){
-    tab.setAttribute("aria-selected",String(tab.dataset.stage===state.stageTab));
+    const active=tab.dataset.stage===state.stageTab;
+    tab.setAttribute("aria-selected",String(active));
+    tab.tabIndex=active?0:-1;
+    if(active) $("viewport").setAttribute("aria-labelledby",tab.id);
   }
   const viewport=$("viewport");
   viewport.querySelector(".wiring-view")?.remove();
@@ -496,6 +502,26 @@ function onHashChange(){
   const match=location.hash.match(/^#bai-(\d{1,2})$/);
   if(match&&Number(match[1])!==state.lessonId) setLesson(Number(match[1]),false);
 }
+function wireRovingTabs(selector) {
+  const group=document.querySelector(selector);
+  group.addEventListener("keydown",event=>{
+    const current=event.target.closest?.('[role="tab"]');
+    if(!current||!group.contains(current))return;
+    const tabs=[...group.querySelectorAll('[role="tab"]')].filter(tab=>!tab.disabled);
+    const currentIndex=tabs.indexOf(current);
+    if(currentIndex<0)return;
+    let nextIndex;
+    if(event.key==="ArrowRight")nextIndex=(currentIndex+1)%tabs.length;
+    else if(event.key==="ArrowLeft")nextIndex=(currentIndex+tabs.length-1)%tabs.length;
+    else if(event.key==="Home")nextIndex=0;
+    else if(event.key==="End")nextIndex=tabs.length-1;
+    else return;
+    event.preventDefault();
+    const target=tabs[nextIndex];
+    target.focus({preventScroll:true});
+    target.click();
+  });
+}
 function wireEvents(){
   $("lessonSearch").addEventListener("input",renderLessonList);
   $("lessonList").addEventListener("click",event=>{
@@ -513,6 +539,8 @@ function wireEvents(){
     const tab=event.target.closest("[data-info]");
     if(tab){state.infoTab=tab.dataset.info;renderInfo();}
   });
+  wireRovingTabs(".stage-tabs");
+  wireRovingTabs(".info-tabs");
   $("experimentControls").addEventListener("input",onControlsInput);
   $("experimentControls").addEventListener("change",onControlsInput);
   const exp=$("experimentControls");

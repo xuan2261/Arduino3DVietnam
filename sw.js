@@ -8,6 +8,8 @@ const ASSETS = [
   "./src/circuit-router.js", "./src/electrical-solver.js",
   "./src/wiring-workbench.js", "./src/storage.js", "./src/scene3d.js",
   "./src/firmware-integrity.js", "./src/avr-panel.js", "./src/avr-runtime.js",
+  "./src/avr-gpio.js", "./src/avr-timer0.js",
+  "./src/avr-analog-serial.js", "./src/avr-board-runner.js",
   "./assets/favicon.svg", "./assets/vendor/three.module.min.js",
   "./assets/vendor/three.core.min.js", "./assets/vendor/THREE-LICENSE.txt",
   "./assets/vendor/avr/cpu.js", "./assets/vendor/avr/instruction.js",
@@ -27,7 +29,9 @@ const ASSETS = [
   "./assets/firmware/lesson_15.hex", "./assets/firmware/lesson_16.hex",
   "./THIRD-PARTY-NOTICES.md",
   "./docs/HUONG_DAN.md", "./docs/CIRCUIT_ENGINE.md",
-  "./docs/CIRCUIT_EXTENDED.md", "./docs/ARDUINO_CODE.md"
+  "./docs/CIRCUIT_EXTENDED.md", "./docs/ARDUINO_CODE.md",
+  "./docs/GPIO_RUNTIME.md", "./docs/TIMER0_RUNTIME.md",
+  "./docs/ANALOG_SERIAL_RUNTIME.md", "./docs/AVR_BOARD_LAB.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

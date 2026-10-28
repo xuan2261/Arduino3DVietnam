@@ -45,6 +45,8 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   const introduction=create("div","wire-intro");
     introduction.append(create("span","wire-work-eyebrow","BÀN ĐẤU DÂY TƯƠNG TÁC"),create("h3","",`Bài ${String(id).padStart(2,"0")} · Tự nối mạch`),
     create("p","","Chọn hai chân liên tiếp hoặc kéo để nối. Chỉ kiểm tra topology bài học, không đo dòng/áp hoặc xác nhận an toàn toàn bộ phần cứng."));
+  if(id===10||id===14)introduction.append(create("p","wire-scope-note",
+    "Bài này chỉ minh họa dây tín hiệu điều khiển, chưa mô hình nguồn và tải motor/bơm. Không thể kích hoạt mạch tự đấu; mô phỏng mẫu JavaScript vẫn chạy độc lập và không chứng minh tải thực hoạt động."));
   const toolbar=create("div","wire-actions");
   const sampleBtn=create("button","wire-action","⌁ Mạch mẫu");sampleBtn.type="button";sampleBtn.title="Nối dây đúng theo sơ đồ mẫu để đối chiếu";
   const clearBtn=create("button","wire-action","↺ Xóa dây");clearBtn.type="button";
@@ -141,8 +143,11 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     });
     const count=circuit.wires?.length||0;
     const functional=analysis.functional===true&&analysis.ok===true;
+    const signalReference=analysis.scope==="signal-only"&&analysis.signalPathsComplete===true&&
+      !analysis.issues?.some(item=>item.severity==="error");
     status.dataset.valid=String(functional);
-    if(message)status.textContent=message;
+    if(signalReference)status.textContent=`⚠ Đủ ${count} dây tín hiệu tham khảo, nhưng thiếu mô hình nguồn/tải motor hoặc bơm; không phải mạch hoàn chỉnh, không thể thử mạch tự đấu.`;
+    else if(message)status.textContent=message;
     else if(functional)status.textContent=`✓ Mạch đúng: ${count} dây, có đường tín hiệu cần thiết.`;
     else status.textContent=count
       ? `Đã nối ${count} dây. Mạch chưa đạt yêu cầu; xem gợi ý bên dưới.`
