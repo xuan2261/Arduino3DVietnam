@@ -68,6 +68,17 @@ export function runCircuitContracts() {
   ]);
   const buttonGoodResult = analyzeCircuit(3, buttonGood);
   check("button-functional", buttonGoodResult.ok && buttonGoodResult.paths.every(item => item.complete));
+  const buttonOutputInputTied = analyzeCircuit(3, connectCircuit(buttonGood, "D13", "D2"));
+  check("button-extra-output-to-input-blocks",
+    !buttonOutputInputTied.ok && issueCodes(buttonOutputInputTied).has("BOARD_PINS_DIRECTLY_TIED"));
+  const buttonLoadSenseMerged = analyzeCircuit(3, connectCircuit(buttonGood, "BTN:2", "LED:A"));
+  check("button-sensor-node-to-led-load-blocks",
+    !buttonLoadSenseMerged.ok && issueCodes(buttonLoadSenseMerged).has("UNEXPECTED_NET_MERGE"));
+  // A fully connected example must not remain usable when D2 is additionally
+  // tied directly to 5V: its button cannot signal a LOW release any more.
+  const buttonStuckHigh = analyzeCircuit(3, connectCircuit(buttonGood, "D2", "5V"));
+  check("button-extra-wire-stuck-high-blocks",
+    !buttonStuckHigh.ok && issueCodes(buttonStuckHigh).has("D2_STUCK_HIGH"));
   const noButton = analyzeCircuit(3, createCircuit(3));
   const noButtonCodes = issueCodes(noButton);
   check("button-disconnected-core", ["D2_DISCONNECTED","5V_DISCONNECTED","GND_DISCONNECTED"].every(code => noButtonCodes.has(code)));
@@ -86,6 +97,12 @@ export function runCircuitContracts() {
   ]);
   const rgbGoodResult = analyzeCircuit(5, rgbGood);
   check("rgb-functional", rgbGoodResult.ok && rgbGoodResult.paths.length === 3 && rgbGoodResult.paths.every(item => item.complete));
+  const rgbRedBypassed = analyzeCircuit(5, connectCircuit(rgbGood, "RGB:R", "GND"));
+  check("rgb-red-to-cathode-blocks",
+    !rgbRedBypassed.ok && issueCodes(rgbRedBypassed).has("RGB_RED_LED_BYPASSED"));
+  const rgbAnodesTied = analyzeCircuit(5, connectCircuit(rgbGood, "RGB:R", "RGB:G"));
+  check("rgb-independent-channels-blocked",
+    !rgbAnodesTied.ok && issueCodes(rgbAnodesTied).has("RGB_CHANNELS_TIED"));
   const rgbNoRedResistor = analyzeCircuit(5, wireMany(5, [
     ["D9","RGB:R"],
     ["D10","R_G:A"],["R_G:B","RGB:G"],

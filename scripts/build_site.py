@@ -26,6 +26,8 @@ FILES = [
     "src/lessons.js",
     "src/simulator.js",
     "src/circuit.js",
+    "src/circuit-extended.js",
+    "src/circuit-router.js",
     "src/wiring-workbench.js",
     "src/storage.js",
     "src/scene3d.js",
@@ -35,6 +37,7 @@ FILES = [
     "assets/vendor/THREE-LICENSE.txt",
     "docs/HUONG_DAN.md",
     "docs/CIRCUIT_ENGINE.md",
+    "docs/CIRCUIT_EXTENDED.md",
     "docs/ARDUINO_CODE.md",
 ]
 

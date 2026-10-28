@@ -88,6 +88,16 @@ def main() -> None:
                 )
                 check("circuit-contracts", circuits["failed"] == 0,
                       f"{circuits['passed']} passed")
+                extended = page.evaluate(
+                    "() => import('./tests/extended-circuit-contracts.js').then(m => m.runExtendedCircuitContracts())"
+                )
+                check("extended-circuit-contracts", extended["failed"] == 0,
+                      f"{extended['passed']} passed")
+                scene_lifecycle = page.evaluate(
+                    "() => import('./tests/scene3d-contracts.js').then(m => m.runScene3DContracts())"
+                )
+                check("scene-3d-lifecycle-contracts", scene_lifecycle["failed"] == 0,
+                      f"{scene_lifecycle['passed']} passed")
 
                 # Every lesson must update title and quiz without dropping canvas.
                 for lesson_id in range(1, 17):
@@ -172,6 +182,37 @@ def main() -> None:
                     check(f"wiring-{lesson_id}-sample",
                           not page.locator(".wire-activate").is_disabled())
                     page.locator('.stage-tabs [data-stage="3d"]').click()
+
+                # All supported lesson circuits are usable in the actual UI:
+                # pure engine tests are insufficient when data/sample routing
+                # or hidden panel lifecycle can regress.
+                wiring_ids = page.evaluate(
+                    "() => import('./src/circuit-router.js').then(m => m.supportedWiringLessons())"
+                )
+                check("wiring-coverage", len(wiring_ids) == 15
+                      and 1 not in wiring_ids and len(set(wiring_ids)) == 15,
+                      str(wiring_ids))
+                for lesson_id in wiring_ids:
+                    page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    page.locator('.stage-tabs [data-stage="wiring"]').click()
+                    check(f"wiring-{lesson_id:02d}-terminal-ui",
+                          page.locator("[data-terminal]").count() >= 4)
+                    page.locator(".wire-actions .wire-action").first.click()
+                    check(f"wiring-{lesson_id:02d}-valid-sample",
+                          not page.locator(".wire-activate").is_disabled()
+                          and page.locator(".wire-connected").count() >= 2)
+                    page.locator(".wire-activate").click()
+                    page.locator("#runButton").click()
+                    check(f"wiring-{lesson_id:02d}-active-run",
+                          "Đang chạy" in page.locator("#runStatus").inner_text())
+                    page.locator("#runButton").click()
+                    page.locator('.stage-tabs [data-stage="3d"]').click()
+                page.locator('.lesson-link[data-lesson="1"]').click()
+                page.locator('.stage-tabs [data-stage="wiring"]').click()
+                check("onboard-led-no-external-wiring",
+                      page.locator("[data-terminal]").count() == 0
+                      and "không cần nối mạch ngoài" in page.locator(".wiring-unsupported").inner_text())
+                page.locator('.stage-tabs [data-stage="3d"]').click()
 
                 # Quiz progress increments only after explicit completion click.
                 page.locator('.lesson-link[data-lesson="1"]').click()

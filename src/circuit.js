@@ -69,6 +69,14 @@ const CONFIGS = Object.freeze({
   }),
 });
 
+const REFERENCE_WIRES = Object.freeze({
+  2: [["D13","R1:A"],["R1:B","LED:A"],["LED:K","GND"]],
+  3: [["5V","BTN:1"],["BTN:2","D2"],["D2","R_PULL:A"],["R_PULL:B","GND"],
+      ["D13","R_LED:A"],["R_LED:B","LED:A"],["LED:K","GND"]],
+  5: [["D9","R_R:A"],["R_R:B","RGB:R"],["D10","R_G:A"],["R_G:B","RGB:G"],
+      ["D11","R_B:A"],["R_B:B","RGB:B"],["RGB:K","GND"]]
+});
+
 function lessonNumber(lessonId) {
   const id = Number(lessonId);
   if (!Number.isInteger(id) || id < 1) throw new TypeError("lessonId phải là số nguyên dương");
@@ -227,6 +235,61 @@ function addDisconnected(issues, nets, terminalId, code, label) {
   if (!nets.connected(terminalId)) issues.push(issue(code, "warning", `${label} chưa được nối dây.`, [terminalId]));
 }
 
+// Course netlists never require two distinct Arduino board pins to share the
+// same direct-wire net. This catches extra wires that bypass the intended
+// sensor/button/resistor path even when every required example path remains.
+function boardPinConflicts(config, nets) {
+  const pins = config.terminals.filter(item => item.component === "arduino");
+  const issues = [];
+  for (let i = 0; i < pins.length; i += 1) {
+    for (let j = i + 1; j < pins.length; j += 1) {
+      if (nets.same(pins[i].id, pins[j].id) && nets.connected(pins[i].id)) {
+        issues.push(issue("BOARD_PINS_DIRECTLY_TIED", "error",
+          `Chân ${pins[i].id} và ${pins[j].id} đang nối chung bằng dây. Các bài này không cho phép bỏ qua mạch linh kiện giữa các chân Arduino.`,
+          [pins[i].id, pins[j].id]));
+      }
+    }
+  }
+  return issues;
+}
+
+// The bounded lessons only allow direct-wire nets between component roles
+// found together in the verified sample; resistor and button endpoints may
+// swap freely because each passive component shares one role. A wire between
+// the button's sensing node and LED load node must not silently pass just
+// because the other required paths remain connected.
+function unexpectedNetMerges(config, circuit, samplePairs) {
+  const roles = new Map(config.terminals.map(t => [
+    t.id, t.component === "arduino" ? `arduino:${t.id}` : `part:${t.component}`
+  ]));
+  const reference = buildNets(config, samplePairs.map(([from,to]) => ({from,to})));
+  const actual = buildNets(config, circuit.wires);
+  const pairKey = (a,b)=>a<b ? a+"\u0000"+b : b+"\u0000"+a;
+  const allowed = new Set();
+  for (const net of reference.nets) {
+    for (let i=0;i<net.terminals.length;i++) {
+      for (let j=i+1;j<net.terminals.length;j++) {
+        allowed.add(pairKey(roles.get(net.terminals[i]),roles.get(net.terminals[j])));
+      }
+    }
+  }
+  const issues=[],reported=new Set();
+  for (const net of actual.nets) {
+    for (let i=0;i<net.terminals.length;i++) {
+      for (let j=i+1;j<net.terminals.length;j++) {
+        const rolePair=pairKey(roles.get(net.terminals[i]),roles.get(net.terminals[j]));
+        if (!allowed.has(rolePair) && !reported.has(rolePair)) {
+          reported.add(rolePair);
+          issues.push(issue("UNEXPECTED_NET_MERGE","error",
+            "Dây đang nối chung các nhóm chân không liên quan theo sơ đồ bài; hãy tháo kết nối tắt giữa các phần mạch.",
+            [net.terminals[i],net.terminals[j]]));
+        }
+      }
+    }
+  }
+  return issues;
+}
+
 function analyzeOutputLed(config, nets, source, resistor, prefix, label) {
   const issues = [];
   const resistorOk = resistorBridge(config, nets, resistor, source, "LED:A");
@@ -282,7 +345,7 @@ function analyzeLesson3(config, nets) {
     issues.push(issue("SHORT_D13_5V", "error", "D13 đang nối trực tiếp với 5V; khi D13 ở LOW sẽ xung đột mức điện áp.", ["D13", "5V"]));
   }
   if (nets.same("D2", "5V") && nets.connected("D2")) {
-    issues.push(issue("D2_STUCK_HIGH", "warning", "D2 đang nối trực tiếp với 5V nên không thể về LOW khi thả nút.", ["D2", "5V"]));
+    issues.push(issue("D2_STUCK_HIGH", "error", "D2 đang nối trực tiếp với 5V nên không thể về LOW khi thả nút; phải ngắt dây tắt này để nút hoạt động.", ["D2", "5V"]));
   }
   if (nets.same("D2", "GND") && nets.connected("D2")) {
     issues.push(issue("D2_STUCK_LOW", "warning", "D2 đang nối trực tiếp với GND; điện trở kéo xuống phải nằm nối tiếp giữa D2 và GND.", ["D2", "GND"]));
@@ -356,21 +419,37 @@ function analyzeLesson5(config, nets) {
     issues.push(issue("RGB_CATHODE_GND_MISSING", "warning", "Cathode chung của LED RGB chưa nối về GND.", ["RGB:K", "GND"]));
   }
 
+  for (let i = 0; i < RGB_CHANNELS.length; i += 1) {
+    for (let j = i + 1; j < RGB_CHANNELS.length; j += 1) {
+      const left = RGB_CHANNELS[i], right = RGB_CHANNELS[j];
+      if (nets.same(left.led, right.led) && nets.connected(left.led)) {
+        issues.push(issue("RGB_CHANNELS_TIED", "error",
+          "Hai kênh LED RGB đang bị nối chung tại chân màu, không thể điều khiển độc lập.",
+          [left.led, right.led]));
+      }
+    }
+  }
   const paths = [];
   for (const channel of RGB_CHANNELS) {
     const bridge = resistorBridge(config, nets, channel.resistor, channel.pin, channel.led);
     const bypassed = resistorBypassed(config, nets, channel.resistor);
     const direct = nets.same(channel.pin, channel.led);
+    const ledBypassed = nets.same(channel.led, "RGB:K") && nets.connected(channel.led);
     if (bypassed) {
       issues.push(issue(`RGB_${channel.id.toUpperCase()}_RESISTOR_BYPASSED`, "error", `Điện trở kênh ${channel.label} đang bị nối tắt qua.`, config.resistors[channel.resistor]));
     }
     if (direct) {
       issues.push(issue(`RGB_${channel.id.toUpperCase()}_RESISTOR_MISSING`, "error", `Kênh ${channel.label} đang nối ${channel.pin} trực tiếp vào LED RGB; cần điện trở hạn dòng nối tiếp.`, [channel.pin, channel.led]));
     }
+    if (ledBypassed) {
+      issues.push(issue(`RGB_${channel.id.toUpperCase()}_LED_BYPASSED`, "error",
+        `Kênh ${channel.label} của LED RGB đang nối thẳng về cathode/GND nên bị bỏ qua.`,
+        [channel.led, "RGB:K", "GND"]));
+    }
     if (!bridge && !direct && nets.connected(channel.pin) && nets.connected(channel.led)) {
       issues.push(issue(`RGB_${channel.id.toUpperCase()}_PATH_WRONG`, "warning", `Đường kênh ${channel.label} chưa đi đúng ${channel.pin} → điện trở của kênh → ${channel.led}.`, [channel.pin, ...config.resistors[channel.resistor], channel.led]));
     }
-    paths.push(path(`rgb-${channel.id}`, `${channel.pin} → điện trở → kênh ${channel.label} → cathode chung → GND`, bridge && cathodeGround && !bypassed && !direct));
+    paths.push(path(`rgb-${channel.id}`, `${channel.pin} → điện trở → kênh ${channel.label} → cathode chung → GND`, bridge && cathodeGround && !bypassed && !direct && !ledBypassed));
   }
   return { issues, paths };
 }
@@ -406,13 +485,18 @@ export function analyzeCircuit(lessonId, state = undefined) {
   const analysis = id === 2 ? analyzeLesson2(config, nets) : id === 3 ? analyzeLesson3(config, nets) : analyzeLesson5(config, nets);
   if (analysis.paths.length > CIRCUIT_LIMITS.maxFunctionalPaths) throw new RangeError("Cấu hình bài học vượt giới hạn functional path");
   const functional = analysis.paths.length > 0 && analysis.paths.every(item => item.complete);
-  const hasError = analysis.issues.some(item => item.severity === "error");
+  const allIssues = [
+    ...analysis.issues,
+    ...boardPinConflicts(config, nets),
+    ...unexpectedNetMerges(config, circuit, REFERENCE_WIRES[id]),
+  ];
+  const hasError = allIssues.some(item => item.severity === "error");
   return {
     lessonId: id,
     supported: true,
     ok: functional && !hasError,
     functional,
-    issues: analysis.issues,
+    issues: allIssues,
     paths: analysis.paths,
     nets: nets.nets,
     stats: {

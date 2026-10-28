@@ -54,7 +54,7 @@ Nó không tự động tải/cài compiler vào máy Windows và không chạy 
 
 Mức tái lập hiện tại là **pin theo phiên bản/commit**: action dùng commit SHA và Arduino CLI/core/Servo dùng phiên bản cố định. GitHub-hosted image `ubuntu-24.04` và Arduino package/library index vẫn là đầu vào mạng do bên ngoài quản lý, nên workflow chưa phải build hermetic hay tái lập byte-for-byte.
 
-Run GitHub Actions `40627906769` ngày 28/10/2026 đã cho bằng chứng compiler thật đầu tiên: **15/16 Sketch compile thành công** với Arduino CLI 1.5.1 và AVR core 1.8.6; riêng bài 12 thất bại vì `Servo.h: No such file or directory`. Workflow hiện tại đã bổ sung Servo 1.3.0 và đường dẫn library tường minh để xử lý đúng nguyên nhân đó. Cần một run mới của workflow đã sửa trước khi tuyên bố 16/16 compile thành công.
+Run GitHub Actions **40627906769** ngày 28/10/2026 cho bằng chứng compiler thật đầu tiên: **15/16** Sketch biên dịch, bài 12 thiếu Servo.h. Sau khi bổ sung chính xác Servo 1.3.0 và đường dẫn library tường minh, **run 40628551369 đã biên dịch thành công cả 16/16 Sketch** (exit code 0 từng bài) cho bo Uno, dùng Arduino CLI 1.5.1 và core 1.8.6. Báo cáo JSON và thông tin nguồn được sao lưu trong `releases/ci-evidence/run-40628551369/`; đây là biên dịch thật trên runner, **không phải nạp hoặc chạy trên bo thực**. Khi phát hành một SHA mới, phải rerun cùng workflow trên SHA đó.
 
 ## Review 16 Sketch hiện tại
 
@@ -73,13 +73,13 @@ Review này kiểm tra logic mẫu, mối quan hệ với sơ đồ dây và cá
 | 09 | Đã đồng bộ mã mẫu với bàn đàn: bảy nút INPUT_PULLUP D2–D8 về GND, buzzer thụ động ở D9. Sketch đọc từng nút và phát nốt tương ứng; cần thử trên bo thật khi toolchain có sẵn. |
 | 10 | Điều khiển cầu H hợp lý: D9 PWM cho ENA, D7/D8 chọn chiều. Mẫu cố định chiều thuận và PWM 160; nguồn động cơ/driver vẫn phải theo phần cứng thật. |
 | 11 | Công thức LM35 đúng khi ADC tham chiếu 5 V như tiêu đề Sketch giả định. Nếu thay reference/board thì công thức phải đổi. |
-| 12 | Logic Servo hợp lý; run 40627906769 xác nhận thiếu `Servo.h` là dependency môi trường, nên workflow đã pin `Servo@1.3.0` và truyền library root tường minh. Servo thực cần nguồn đủ dòng và GND chung. |
+| 12 | Logic Servo đã biên dịch thành công trong run 40628551369 khi dùng library `Servo@1.3.0`. Mạch thực cần **nguồn phù hợp với tải**, ưu tiên nguồn servo riêng và GND chung; không mặc định chân Arduino 5V đủ cấp dòng. |
 | 13 | Đã chỉnh phát đúng một lượt 50 xung trong setup(), loop() không phát thêm xung. Đây là lượng quay tương đối 90° với 200 bước/vòng, không phải đặt vị trí tuyệt đối qua phản hồi cảm biến. |
 | 14 | Sketch ghi rõ giả định ADC tăng theo độ ẩm. Hướng ADC của cảm biến thực phải được hiệu chuẩn; hệ tưới thật nên có hysteresis/thời gian nghỉ như nội dung đã cảnh báo. |
 | 15 | Dùng raw ADC và ngưỡng 650 là hợp lý cho ví dụ; không đổi thẳng sang Newton vì FSR phi tuyến. Với sơ đồ FSR phía 5 V, lực tăng thường làm raw tăng. |
 | 16 | Logic cảm biến và cảnh báo tách độc lập hợp lý. Wiring hiện đã ghi rõ `INPUT_PULLUP`: nút đóng D2 xuống GND, LED có điện trở 220 Ω và LDR/LM35 có đường nguồn/mass tương ứng. |
 
-Hai điểm lệch bài 09 và 13 đã được chỉnh trong nguồn v1.1. Run 40627906769 đã xác nhận 15 Sketch compile thật trên Uno; bài 12 đang chờ rerun sau khi bổ sung dependency Servo. Không được suy luận compile thành công từ việc công cụ trích xuất đủ 16 Sketch hoặc từ mô phỏng.
+Hai điểm lệch bài 09 và 13 đã được chỉnh trong nguồn v1.1. Run 40628551369 đã xác minh **16/16 Sketch compile trên Uno**; không được suy luận khả năng vận hành trên mạch thật từ kết quả compile hoặc mô phỏng. Run nói trên không thay thế kiểm tra commit cuối v1.2 trước khi phát hành website.
 
 ## Contract gợi ý cho UI
 

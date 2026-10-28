@@ -110,6 +110,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertLess(workflow.index(test_command), workflow.index(build_command))
         self.assertLess(workflow.index(build_command), workflow.index(upload_build))
         self.assertIn("needs: check", workflow)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", workflow,
+                      "GitHub Pages must never auto-deploy from a push")
         self.assertIn("uses: actions/download-artifact@v4", workflow)
         self.assertIn("uses: actions/upload-pages-artifact@v3", workflow)
         self.assertIn("uses: actions/deploy-pages@v4", workflow)

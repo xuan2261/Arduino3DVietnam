@@ -1,5 +1,24 @@
 # QA — Bản Arduino 3D Việt Nam
 
+## Bản v1.2.0 — bằng chứng kiểm thử
+
+Các số liệu này không bao gồm kiểm chứng bo mạch vật lý và không cho phép kết luận ứng dụng tương đương SPICE.
+
+| Gate | Bằng chứng |
+| --- | --- |
+| Python unit/release/Arduino verifier | **34/34 PASS** trên Windows sau khi tích hợp các engine và release-gate |
+| Mô phỏng bài học | **74/74** hợp đồng trạng thái |
+| Base netlist 02/03/05 | Kiểm tra đúng/sai chặn chập, bypass LED, nối tắt liên vùng và các chân Arduino |
+| Extended netlist 04/06–16 | Kiểm tra topology của 12 bài; 15/16 bài có đấu dây tương tác (01 dùng LED tích hợp) |
+| Three.js r180 | **25/25** hợp đồng lifecycle, focus/keyboard, context lost/restored, dispose/remount |
+| Chrome E2E trong workspace | **108/108 PASS** lần chạy tích hợp trước khi chốt docs; đủ 16 bài, 15 sơ đồ, tải .ino, PWA offline và responsive |
+| Arduino Uno C++ thật trên GitHub | **16/16 PASS**, run 40628551369, Arduino CLI 1.5.1 + AVR 1.8.6 + Servo 1.3.0, trên SHA của bước trước |
+| Chromium E2E trên GitHub | **59/59 PASS**, run 40628249442, trên SHA v1.1.0 |
+| Release gate | Tests xác nhận chặn workflow thiếu, lỗi, stale, khác SHA; Pages chỉ deploy thủ công sau hai run PASS cùng SHA |
+| Dòng điện, nguồn, motor, cảm biến thực | **Chưa kiểm chứng**: giới hạn về dòng, điện áp, công suất, driver và phần cứng cụ thể |
+
+Không được lấy 16/16 compile hoặc 59/59 remote E2E ở SHA cũ để tuyên bố bản v1.2.0 đã phát hành an toàn. Trước khi xuất bản website phải chạy lại cả hai workflow **trên cùng SHA cuối**.
+
 ## Kết quả kiểm tra thực tế (28/10/2026) — v1.0 và v1.1
 
 | Gate | Quan sát | Trạng thái |

@@ -1,7 +1,7 @@
 import { lessons, lessonById, defaultControls, validateLessons, NOTES } from "./lessons.js";
 import { simulate, advanceToggleState } from "./simulator.js";
 import { readProgress, saveProgress, normalizeProgress, exportProgress } from "./storage.js";
-import { createCircuit, analyzeCircuit } from "./circuit.js";
+import { createCircuit, analyzeCircuit } from "./circuit-router.js";
 import { mountWiringWorkbench, supportedWiringLessons } from "./wiring-workbench.js";
 
 const $ = id => document.getElementById(id);
@@ -133,7 +133,7 @@ function renderStage() {
         }
       });
     } else {
-      panel.innerHTML=`<div class="wiring-unsupported"><strong>Sơ đồ tham khảo · chưa hỗ trợ đấu dây tự do</strong><p>Bài ${pad(lesson.id)} có bảng chân để học tập. Bàn đấu dây có phát hiện lỗi hiện hỗ trợ bài 02 (LED), 03 (nút nhấn) và 05 (RGB).</p></div>
+      panel.innerHTML=`<div class="wiring-unsupported"><strong>${lesson.id === 1 ? "LED L có sẵn trên Arduino Uno" : "Sơ đồ tham khảo · chưa hỗ trợ đấu dây tự do"}</strong><p>${lesson.id === 1 ? "Bài nhập môn sử dụng LED L trên bo và không cần nối mạch ngoài. Có thể quan sát các chân D13 và GND bên dưới." : "Bài này có bảng chân để học tập."} ${supportedWiringLessons().length} bài khác có bàn đấu dây có giới hạn theo từng sơ đồ; đây không phải bộ giải điện học tổng quát.</p></div>
       <div class="wiring-diagram">${lesson.wiring.map(([from,to])=>
       `<div class="wire-route"><span class="wire-from">${safe(from)}</span><span class="wire-arrow">⟶</span><span class="wire-to">${safe(to)}</span></div>`).join("")}</div>`;
     }

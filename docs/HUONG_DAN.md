@@ -17,21 +17,21 @@ Trên Windows: chạy `CHAY-ARDUINO.bat`, sau đó mở `http://127.0.0.1:8091/`
 
 Bài 03 có **Giữ nút** (LED chỉ sáng khi giữ) và **Bật/tắt** (mỗi lần nhấn hợp lệ đảo trạng thái). Khi dùng màn hình cảm ứng, giữ ngón tay trên nút trong lúc thí nghiệm; dùng bàn phím có thể giữ phím Space sau khi focus vào nút.
 
-## 4. Tự nối dây điện (bài 02, 03, 05)
+## 4. Tự nối dây điện (bài 02–16)
 
-1. Chọn bài 02 (LED), 03 (nút nhấn) hoặc 05 (LED RGB), rồi mở tab **Sơ đồ kết nối**.
+1. Chọn bất kỳ bài nào từ **02 đến 16**, rồi mở tab **Sơ đồ kết nối**. Bài 01 dùng LED L tích hợp, không cần đấu dây ngoài.
 2. Nhấp **hai chân** liên tiếp để tạo dây, hoặc kéo chuột từ một chân sang chân khác.
 3. Nhấn **Mạch mẫu** để xem một mạch đúng, **Gỡ** để tháo một dây, **Xóa dây** để xóa toàn bộ.
-4. Theo dõi cảnh báo: nối tắt nguồn, đấu ngược LED, thiếu điện trở và sai đường tín hiệu sẽ bị bộ kiểm tra netlist phát hiện trong phạm vi ba bài này.
+4. Theo dõi cảnh báo: đấu trực tiếp sai chân, nối tắt nguồn, đảo cực LED, thiếu điện trở hoặc sai đường tín hiệu sẽ bị kiểm tra theo topology được định nghĩa cho từng bài.
 5. Chỉ khi bộ kiểm tra báo mạch hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ tự dừng mô phỏng.
 
-Các bài còn lại giữ sơ đồ hướng dẫn, **chưa hỗ trợ nối dây tự do**. Mô hình netlist kiểm tra kết nối, không tính dòng điện thật hoặc thay thế SPICE.
+Phạm vi là **15 mô hình netlist hữu hạn**, không phải một bộ giải điện học hoặc SPICE. Đặc biệt các bài động cơ/bơm chỉ xác minh phần đường tín hiệu/nguồn đã định nghĩa, **không xác minh dòng tải, bộ điều khiển công suất hoặc tính an toàn toàn mạch thực**. Bài servo minh họa nguồn riêng phù hợp và GND chung, không mặc định chân Arduino 5V có thể cấp dòng cho servo.
 
 ## 5. Sửa, tải mã Arduino C++
 
 Mở khu vực **Arduino Sketch**, nhấn **Sửa mã** để chỉnh văn bản, **Xem mã** để xem bản được tô sáng, **Tải .ino** để lưu mã ra tệp hoặc **Khôi phục mã mẫu** để quay lại bản gốc. Mã sửa chỉ lưu trong tab trình duyệt đang mở, nên hãy tải .ino để giữ lâu dài.
 
-Quan trọng: **sửa mã không thay đổi mô phỏng**. Muốn kiểm tra biên dịch thật, máy phải có Arduino CLI và core AVR; dùng lệnh `python scripts/verify_sketches.py --compile` ở thư mục dự án. Hiện máy thử nghiệm chưa có công cụ đó. Chức năng nạp firmware qua USB không hỗ trợ.
+Quan trọng: **sửa mã không thay đổi mô phỏng**. Máy Windows thử nghiệm chưa có Arduino CLI, nhưng GitHub Actions trong repository Private đã **biên dịch thành công cả 16 Sketch mẫu** trên Ubuntu với Arduino CLI 1.5.1, AVR core 1.8.6 và Servo 1.3.0. Bạn có thể dùng lệnh `python scripts/verify_sketches.py --compile` ở máy có toolchain tương ứng, hoặc chạy workflow thủ công cho commit hiện hành. Chức năng nạp firmware qua USB không hỗ trợ.
 
 ## 6. Tiến độ
 

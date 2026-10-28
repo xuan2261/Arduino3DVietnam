@@ -24,11 +24,33 @@ jobs:
         with:
           name: arduino-3d-viet-site
           path: dist
+  release-gates:
+    # The app may only be made publicly accessible if both independent,
+    # real-world validation runs passed for this exact Git commit.
+    if: github.event_name == 'workflow_dispatch'
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require exact-SHA compiler and Chromium E2E evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python scripts/verify_release_gates.py
   deploy:
     # A private repository must not publish a website simply because main was
     # pushed. GitHub Pages deployment requires an explicit workflow dispatch.
     if: github.event_name == 'workflow_dispatch'
-    needs: check
+    needs: [check, release-gates]
     runs-on: ubuntu-latest
     permissions:
       contents: read

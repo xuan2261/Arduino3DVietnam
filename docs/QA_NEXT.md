@@ -1,4 +1,4 @@
-# QA release/PWA — v1.1.0
+# QA release/PWA — v1.2.0
 
 Tài liệu này bổ sung các gate phát hành có thể chạy hoàn toàn offline bằng Python. Trọng tâm là tính toàn vẹn của `dist/`, cache Service Worker theo nội dung, GitHub Pages project subpath và đường CI thực sự được deploy.
 
@@ -27,13 +27,17 @@ Bộ Chrome E2E hiện có trong `tests/e2e_browser.py` đã kiểm tra bản `d
 
 Bản phát hành không giả định website nằm ở `/`. `index.html`, `site.webmanifest`, đăng ký `./sw.js` và toàn bộ precache đều là đường dẫn tương đối. Điều này cho phép cùng `dist/` chạy ở root domain hoặc project subpath mà không cần sửa base URL trong build.
 
+Repository hiện là **Private**: https://github.com/xuan2261/Arduino3DVietnam. Đẩy mã lên nhánh main chỉ chạy build/check, không tự triển khai Pages. Job release-gates trong Pages workflow có quyền đọc GitHub Actions và chỉ chạy thủ công; scripts/verify_release_gates.py yêu cầu cả hai workflow biên dịch C++ và Chrome E2E đều có status completed, conclusion success và workflow_dispatch cho **đúng head_sha hiện tại**. Một run cũ hoặc thất bại mới hơn không được phép vượt qua cổng. Script chỉ đọc và không thay đổi repository.
+
+Để xác minh cổng phát hành mà **không xuất bản website**, có workflow riêng `.github/workflows/release-gates-manual.yml` (chỉ `workflow_dispatch`, quyền đọc, không deploy). Chạy sau khi hai workflow kiểm chứng khác đã PASS trên cùng SHA, lưu log PASS của script. Chỉ khi cần chủ động công bố mới chạy Pages workflow thủ công.
+
 Builder tạo cache name dạng `arduino3d-viet-static-<16 hex>` từ tên và byte của tất cả release assets trừ chính `sw.js`. Khi bài học, CSS, module, tài liệu hoặc vendor asset đổi, browser nhận Service Worker mới với cache ID mới; activation xóa các cache cũ có prefix của ứng dụng.
 
 ## Gate còn cần khi có URL phát hành thật
 
 Các mục dưới đây cần hostname HTTPS thật hoặc thiết bị/AT để có bằng chứng đáng tin, nên không giả lập thành PASS trong unit test:
 
-- Mở URL GitHub Pages thật ở project subpath, cài/activate Service Worker, reload khi offline, sau đó deploy một bản có asset đổi và xác nhận cache ID mới được kích hoạt.
+- Khi chủ repository quyết định công bố website: kiểm tra quyền và visibility Pages, mở URL GitHub Pages thật ở project subpath, cài/activate Service Worker, reload khi offline, sau đó deploy một bản có asset đổi và xác nhận cache ID mới được kích hoạt.
 - Xác nhận response thực của host có MIME đúng cho `.js`, `.webmanifest`, `.svg` và không có redirect làm thoát khỏi project subpath.
 - Chạy Lighthouse/DevTools trên bản publish để ghi nhận LCP, CLS, tổng byte JavaScript và cache behavior; số liệu localhost không đại diện CDN Pages.
 - Kiểm tra bàn phím, focus, zoom 200%, reduced motion và screen reader trên bản publish. E2E hiện kiểm tra drawer focus và không scroll ngang ở các breakpoint, nhưng chưa thay thế kiểm tra AT.

@@ -8,11 +8,12 @@ const palette = {
   teal: 0x26af9d, coral: 0xf17b62, amber: 0xf0b866
 };
 const material = (color, extras = {}) => new T.MeshStandardMaterial({ color, roughness: .62, metalness: .05, ...extras });
-const bodyMat = material(palette.board, { roughness: .4 });
-const plasticMat = material(palette.dark, { roughness: .7 });
-const lightMat = material(palette.plastic, { roughness: .82 });
-const metallicMat = material(palette.metal, { metalness: .6, roughness: .32 });
-const pinMat = material(0xb8c6c4, { metalness: .48 });
+const createSharedMaterials = () => ({
+  bodyMat: material(palette.board, { roughness: .4 }),
+  plasticMat: material(palette.dark, { roughness: .7 }),
+  metallicMat: material(palette.metal, { metalness: .6, roughness: .32 }),
+  pinMat: material(0xb8c6c4, { metalness: .48 }),
+});
 
 function box(parent, size, colorOrMaterial, pos = [0,0,0], extras = {}) {
   const mesh = new T.Mesh(new T.BoxGeometry(...size), typeof colorOrMaterial === "number" ? material(colorOrMaterial, extras) : colorOrMaterial);
@@ -47,18 +48,23 @@ function canvasLabel(parent, text, x, y, z, width = 1.6, fontSize = 46, color = 
   parent.add(mesh);
   return mesh;
 }
-function disposeTree(obj) {
+function disposeTree(obj, keepMaterials = new Set()) {
+  const geometries = new Set();
+  const materials = new Set();
+  const textures = new Set();
   obj.traverse(child => {
     if (!child.isMesh && !child.isSprite) return;
-    child.geometry?.dispose?.();
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    for (const m of materials) {
-      if (m?.map) m.map.dispose();
-      if (m?.emissiveMap) m.emissiveMap.dispose();
-      // Shared immutable materials are kept until teardown.
-      if (![bodyMat, plasticMat, lightMat, metallicMat, pinMat].includes(m)) m?.dispose?.();
+    if (child.geometry) geometries.add(child.geometry);
+    const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const m of childMaterials) {
+      if (!m || keepMaterials.has(m)) continue;
+      materials.add(m);
+      for (const value of Object.values(m)) if (value?.isTexture) textures.add(value);
     }
   });
+  textures.forEach(texture => texture.dispose());
+  materials.forEach(item => item.dispose());
+  geometries.forEach(geometry => geometry.dispose());
 }
 function wire(parent, start, end, color, arch = .95) {
   const a = new T.Vector3(...start), b = new T.Vector3(...end);
@@ -70,7 +76,8 @@ function wire(parent, start, end, color, arch = .95) {
   return tube;
 }
 
-function makeBoard(scene) {
+function makeBoard(scene, shared) {
+  const { bodyMat, plasticMat, metallicMat, pinMat } = shared;
   const board = new T.Group();
   board.position.x = -2.65;
   scene.add(board);
@@ -146,7 +153,8 @@ function makeBreadboard(scene) {
   return base;
 }
 
-function createModule(scene, kind) {
+function createModule(scene, kind, shared) {
+  const { metallicMat } = shared;
   const module = new T.Group();
   module.position.set(5.15,.55,.10);
   scene.add(module);
@@ -248,6 +256,8 @@ function createModule(scene, kind) {
 
 export function mountScene(host, onSelect = () => {}) {
   if (!host?.isConnected) throw new Error("Không tìm thấy vùng hiển thị 3D");
+  const sharedMaterials = createSharedMaterials();
+  const sharedMaterialSet = new Set(Object.values(sharedMaterials));
   const scene = new T.Scene();
   scene.background = new T.Color(palette.ground);
   const ground = new T.Mesh(new T.PlaneGeometry(200,200),material(0xe9f1eb,{roughness:1}));
@@ -258,10 +268,9 @@ export function mountScene(host, onSelect = () => {}) {
   sun.shadow.camera.left=-20;sun.shadow.camera.right=20;sun.shadow.camera.top=15;sun.shadow.camera.bottom=-15;
   scene.add(sun);
   const camera = new T.PerspectiveCamera(38,1,.1,100);
-  let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,moved=false,drag=null;
+  let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
   let activeModule=null,activeWires=null,board=null,breadboard=null,renderer;
   const minZoom=.42,maxZoom=2.25;
-  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   try {
     renderer = new T.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "low-power" });
@@ -271,13 +280,17 @@ export function mountScene(host, onSelect = () => {}) {
     renderer.toneMappingExposure=1.28;
     renderer.shadowMap.enabled=true;
     renderer.shadowMap.type=T.PCFSoftShadowMap;
-    renderer.domElement.setAttribute("aria-label","Mô hình Arduino Uno 3D. Dùng chuột kéo để xoay; dùng các nút phía dưới để điều khiển.");
+    renderer.domElement.setAttribute("role","application");
+    renderer.domElement.setAttribute("aria-keyshortcuts","ArrowLeft ArrowRight ArrowUp ArrowDown Home Enter Space");
+    renderer.domElement.setAttribute("aria-label","Mô hình Arduino Uno 3D tương tác. Dùng phím mũi tên để xoay, +/− để thu phóng, Home để đặt lại và Enter để chọn bo mạch. Trên màn hình cảm ứng, vuốt ngang để xoay; vuốt dọc vẫn cuộn trang.");
     renderer.domElement.tabIndex=0;
     host.replaceChildren(renderer.domElement);
   } catch(error) {
+    disposeTree(ground);
+    sharedMaterialSet.forEach(item => item.dispose());
     throw new Error("Trình duyệt không tạo được WebGL: " + (error?.message || "Không rõ nguyên nhân"));
   }
-  board=makeBoard(scene);breadboard=makeBreadboard(scene);
+  board=makeBoard(scene,sharedMaterials);breadboard=makeBreadboard(scene);
   const defaultPosition=()=>{theta=.48;phi=.94;zoom=1;};
   function updateCamera() {
     // At portrait widths the same fixed camera distance clips the board and
@@ -288,19 +301,20 @@ export function mountScene(host, onSelect = () => {}) {
     camera.position.set(radius*Math.sin(phi)*Math.sin(theta),radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
     camera.lookAt(1.15,.35,0);
   }
-  function draw(){raf=0;if(disposed||document.hidden)return;updateCamera();renderer.render(scene,camera);}
-  function invalidate(){if(!raf && !disposed && !document.hidden) raf=requestAnimationFrame(draw);}
+  function draw(){raf=0;if(disposed||contextLost||document.hidden)return;updateCamera();renderer.render(scene,camera);}
+  function invalidate(){if(!raf && !disposed && !contextLost && !document.hidden) raf=requestAnimationFrame(draw);}
   function resize(){
-    if(disposed)return;
+    if(disposed||contextLost)return;
     const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);
     camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);invalidate();
   }
   const observer = new ResizeObserver(resize);observer.observe(host);
   const canvas=renderer.domElement;
   function down(event){
-    if(event.button!==0)return;
+    if(event.button!==0||drag)return;
     drag={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
-    moved=false;canvas.setPointerCapture?.(event.pointerId);
+    moved=false;
+    try{canvas.setPointerCapture?.(event.pointerId);}catch{}
   }
   function move(event){
     if(!drag||event.pointerId!==drag.pointerId)return;
@@ -309,34 +323,64 @@ export function mountScene(host, onSelect = () => {}) {
     theta-=dx*.008;phi=Math.max(.27,Math.min(1.45,phi+dy*.008));
     drag.x=event.clientX;drag.y=event.clientY;invalidate();
   }
-  function up(event){
+  function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
     drag=null;
     try{canvas.releasePointerCapture?.(event.pointerId);}catch{}
-    if(!moved)onSelect("Arduino Uno R3");
+    if(select&&!moved)onSelect("Arduino Uno R3");
   }
+  const up=event=>finishPointer(event,true);
+  const cancel=event=>finishPointer(event,false);
   function wheel(event) {
     event.preventDefault();
     zoom=Math.min(maxZoom,Math.max(minZoom,zoom+Math.sign(event.deltaY)*.10));
     invalidate();
   }
   const onVisibility=()=>{if(!document.hidden)invalidate();};
-  const onKey=(event)=>{if(document.activeElement!==canvas)return;if(event.key==="ArrowLeft"){theta-=.13;invalidate();event.preventDefault();}if(event.key==="ArrowRight"){theta+=.13;invalidate();event.preventDefault();}if(event.key==="ArrowUp"){phi=Math.max(.27,phi-.12);invalidate();event.preventDefault();}if(event.key==="ArrowDown"){phi=Math.min(1.45,phi+.12);invalidate();event.preventDefault();}};
+  const onKey=(event)=>{
+    if(document.activeElement!==canvas)return;
+    let handled=true;
+    if(event.key==="ArrowLeft")theta-=.13;
+    else if(event.key==="ArrowRight")theta+=.13;
+    else if(event.key==="ArrowUp")phi=Math.max(.27,phi-.12);
+    else if(event.key==="ArrowDown")phi=Math.min(1.45,phi+.12);
+    else if(["+","=","Add"].includes(event.key))zoom=Math.max(minZoom,zoom-.10);
+    else if(["-","_","Subtract"].includes(event.key))zoom=Math.min(maxZoom,zoom+.10);
+    else if(event.key==="Home")defaultPosition();
+    else if(event.key==="Enter"||event.key===" ")onSelect("Arduino Uno R3");
+    else handled=false;
+    if(handled){event.preventDefault();invalidate();}
+  };
+  const onContextLost=event=>{
+    event.preventDefault();
+    contextLost=true;
+    if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
+    drag=null;
+    if(raf){cancelAnimationFrame(raf);raf=0;}
+  };
+  const onContextRestored=()=>{
+    if(disposed)return;
+    contextLost=false;
+    resize();
+  };
   canvas.addEventListener("pointerdown",down);
   canvas.addEventListener("pointermove",move);
   canvas.addEventListener("pointerup",up);
-  canvas.addEventListener("pointercancel",up);
+  canvas.addEventListener("pointercancel",cancel);
+  canvas.addEventListener("lostpointercapture",cancel);
   canvas.addEventListener("wheel",wheel,{passive:false});
   canvas.addEventListener("keydown",onKey);
+  canvas.addEventListener("webglcontextlost",onContextLost,false);
+  canvas.addEventListener("webglcontextrestored",onContextRestored,false);
   document.addEventListener("visibilitychange",onVisibility);
   window.addEventListener("resize",resize);
 
   function setLesson(lesson) {
     if(disposed)return;
-    if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module);}
-    if(activeWires){scene.remove(activeWires);disposeTree(activeWires);}
+    if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
+    if(activeWires){scene.remove(activeWires);disposeTree(activeWires,sharedMaterialSet);}
     activeModule=createModule(scene, lesson.id===1?"board":
-      ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led");
+      ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
     activeWires = new T.Group();scene.add(activeWires);
     const count=Math.min(6,Math.max(2,lesson.wiring.length));
     const colors=[0x3aa9a0,0xe6a558,0xdb745e,0x376a9e,0x606d67,0x8a8bdb];
@@ -381,25 +425,35 @@ export function mountScene(host, onSelect = () => {}) {
   }
   resize();
   return {setLesson,update,control,resize,dispose() {
-    if(disposed)return;disposed=true;
-    if(raf)cancelAnimationFrame(raf);
+    if(disposed)return;
+    const wasContextLost=contextLost;
+    disposed=true;
+    if(raf){cancelAnimationFrame(raf);raf=0;}
+    if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     observer.disconnect();
     document.removeEventListener("visibilitychange",onVisibility);
     window.removeEventListener("resize",resize);
     canvas.removeEventListener("pointerdown",down);
     canvas.removeEventListener("pointermove",move);
     canvas.removeEventListener("pointerup",up);
-    canvas.removeEventListener("pointercancel",up);
+    canvas.removeEventListener("pointercancel",cancel);
+    canvas.removeEventListener("lostpointercapture",cancel);
     canvas.removeEventListener("wheel",wheel);
     canvas.removeEventListener("keydown",onKey);
-    if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module);}
-    if(activeWires){scene.remove(activeWires);disposeTree(activeWires);}
-    if(board){scene.remove(board.board);disposeTree(board.board);}
+    canvas.removeEventListener("webglcontextlost",onContextLost,false);
+    canvas.removeEventListener("webglcontextrestored",onContextRestored,false);
+    // In Three r180, resources may retain dispose listeners from a pre-restore
+    // WebGL context. Losing the owned context first releases GPU resources as a
+    // unit and prevents stale listeners from deleting handles in the new
+    // context while CPU-side geometry/material disposal still runs normally.
+    if(!wasContextLost)renderer.forceContextLoss?.();
+    if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
+    if(activeWires){scene.remove(activeWires);disposeTree(activeWires,sharedMaterialSet);}
+    if(board){scene.remove(board.board);disposeTree(board.board,sharedMaterialSet);}
     if(breadboard){scene.remove(breadboard);disposeTree(breadboard);}
-    scene.remove(ground);disposeTree(ground);ground.material.dispose();
-    [bodyMat,plasticMat,lightMat,metallicMat,pinMat].forEach(m=>m.dispose());
+    scene.remove(ground);disposeTree(ground);
+    sharedMaterialSet.forEach(item=>item.dispose());
     renderer.dispose();
-    renderer.forceContextLoss?.();
     canvas.remove();
   }};
 }

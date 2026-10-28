@@ -5,17 +5,10 @@
  */
 import {
   createCircuit, connectCircuit, disconnectCircuit,
-  analyzeCircuit, listTerminals
-} from "./circuit.js";
-
-const PRESETS = Object.freeze({
-  2: [["D13","R1:A"],["R1:B","LED:A"],["LED:K","GND"]],
-  3: [["5V","BTN:1"],["BTN:2","D2"],["D2","R_PULL:A"],["R_PULL:B","GND"],
-      ["D13","R_LED:A"],["R_LED:B","LED:A"],["LED:K","GND"]],
-  5: [["D9","R_R:A"],["R_R:B","RGB:R"],["D10","R_G:A"],["R_G:B","RGB:G"],
-      ["D11","R_B:A"],["R_B:B","RGB:B"],["RGB:K","GND"]]
-});
-const IDS = new Set(["5V","GND","D2","D9","D10","D11","D13"]);
+  analyzeCircuit, listTerminals,
+  supportedWiringLessons as availableLessons,
+  createSampleCircuit
+} from "./circuit-router.js";
 const create = (tag,cls,text)=>{
   const node=document.createElement(tag);
   if(cls)node.className=cls;
@@ -27,11 +20,9 @@ const title = terminal => typeof terminal==="string" ? terminal : terminal.label
 const issueText = issue => typeof issue==="string"
   ? issue : issue?.message || issue?.description || issue?.code || "Lỗi kết nối chưa xác định";
 
-export function supportedWiringLessons() { return [2,3,5]; }
+export function supportedWiringLessons() { return availableLessons(); }
 export function sampleCircuit(lessonId) {
-  const id=Number(lessonId);
-  if(!PRESETS[id])return createCircuit(id);
-  return PRESETS[id].reduce((model,[from,to])=>connectCircuit(model,from,to),createCircuit(id));
+  return createSampleCircuit(lessonId);
 }
 
 /**
@@ -52,8 +43,8 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   host.classList.add("wiring-workbench");
   const titleRow=create("div","wire-work-header");
   const introduction=create("div","wire-intro");
-  introduction.append(create("span","wire-work-eyebrow","BÀN ĐẤU DÂY TƯƠNG TÁC"),create("h3","",`Bài ${String(id).padStart(2,"0")} · Tự nối mạch`),
-    create("p","","Chọn hai chân liên tiếp hoặc kéo từ chân này sang chân kia để nối dây. Kiểm tra trước khi chạy mô phỏng mẫu."));
+    introduction.append(create("span","wire-work-eyebrow","BÀN ĐẤU DÂY TƯƠNG TÁC"),create("h3","",`Bài ${String(id).padStart(2,"0")} · Tự nối mạch`),
+    create("p","","Chọn hai chân liên tiếp hoặc kéo để nối. Chỉ kiểm tra topology bài học, không đo dòng/áp hoặc xác nhận an toàn toàn bộ phần cứng."));
   const toolbar=create("div","wire-actions");
   const sampleBtn=create("button","wire-action","⌁ Mạch mẫu");sampleBtn.type="button";sampleBtn.title="Nối dây đúng theo sơ đồ mẫu để đối chiếu";
   const clearBtn=create("button","wire-action","↺ Xóa dây");clearBtn.type="button";
@@ -77,7 +68,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     const socket=create("span","wire-socket");socket.setAttribute("aria-hidden","true");
     const label=create("span","wire-terminal-label",title(item));
     button.replaceChildren(socket,label);
-    (IDS.has(key)?boardList:componentList).append(button);
+    (item.component==="arduino"?boardList:componentList).append(button);
   }
   boardGroup.append(boardList);
   componentGroup.append(componentList);
