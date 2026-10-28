@@ -69,6 +69,7 @@ Kiến trúc tách riêng:
 - `scripts/build_site.py`: đóng gói website tĩnh vào `dist/`.
 - `scripts/verify_sketches.py`: báo trạng thái compiler, có thể compile Sketch cho Uno nếu đã cài CLI/core.
 - `scripts/export_firmware.py`: xuất/kiểm tra gói 16 Intel HEX thật, SHA source/sketch/flash với toolchain được pin.
+- `.gitattributes`: ghim tệp Intel HEX dạng **binary** trong Git để giữ nguyên ký tự xuống dòng CRLF từ công cụ compile, bảo đảm SHA-256 không thay đổi khi checkout trên Windows/Linux.
 - `scripts/validate_hardware_evidence.py`: xác minh **cấu trúc và tính nhất quán** của báo cáo đo nhập thủ công; không tương tác USB/bo mạch.
 - `scripts/verify_release_gates.py`: cổng chỉ đọc cho compile/Chromium cùng commit phát hành, bổ sung provenance firmware trước khi cho phép deploy.
 - `tests/`: unittest, hợp đồng browser và Chrome E2E (nếu Playwright/Chrome có sẵn).

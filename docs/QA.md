@@ -6,8 +6,9 @@ Phần tích hợp được kiểm chứng trên **workspace `C:\Work\Arduino3DV
 
 | Gate | Quan sát trực tiếp / giới hạn |
 | --- | --- |
-| Python unit | `python -m unittest discover -s tests -q`: **67/67 PASS** sau khi thêm export HEX, hardware evidence, provenance release gate, pinning GitHub Actions và source tích hợp |
+| Python unit | `python -m unittest discover -s tests -q`: **68/68 PASS** sau khi thêm export HEX, bảo toàn byte Intel HEX trên Git, hardware evidence, provenance release gate, pinning GitHub Actions và source tích hợp |
 | Firmware HEX | `python scripts/export_firmware.py --verify assets/firmware --sha 8a3b6727638be13d674ed37d5ca2853fc6e7dcf6`: **16/16 Intel HEX PASS**, nguồn `src/lessons.js` và 16 Sketch SHA khớp |
+| Tính toàn vẹn qua Git checkout | Bản CI đầu tiên của ứng viên trên SHA `93419da…` phát hiện Git đã chuẩn hóa CRLF trong `.hex`, khiến nguồn trên runner khác SHA dù local PASS. Đã sửa bằng `assets/firmware/*.hex binary` trong `.gitattributes`, kiểm 16 blob ở Git index byte-for-byte so với manifest, thêm regression; **cần CI chạy lại trên SHA sửa lỗi** |
 | Firmware export GitHub | Workflow `40648560140` trên source commit `8a3b672…`: success; artifact có 16 HEX, toolchain Arduino CLI 1.5.1 / AVR core 1.8.6 / Servo 1.3.0 |
 | AVR CPU-only | Worker đã chạy Chrome 5/5 contract CPU/HEX và firmware thật bài 01 qua 100.000 chu kỳ, thanh ghi DDRB và PORTB mang bit 5; **không** chứng minh ngoại vi GPIO/timer/Serial hoạt động |
 | Electrical LED | Worker đã chạy Chrome 22/22 contract tính dòng 5 V giới hạn bài 02/03/05, có thử lỗi chập/đảo cực/thiếu điện trở; không đo mạch vật lý |

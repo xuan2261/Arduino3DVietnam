@@ -12,3 +12,6 @@
 *.bat text eol=crlf
 *.min.js text eol=lf
 *.zip binary
+# Genuine avr-objcopy Intel HEX artifacts contain CRLF on all platforms.
+# Git text normalization must not rewrite compiled bytes pinned by SHA-256.
+assets/firmware/*.hex binary

@@ -33,6 +33,16 @@ def copy_release_sources(target: Path) -> None:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_compiled_intel_hex_preserves_original_crlf_bytes_across_git_checkouts(self):
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertRegex(attributes, r"(?m)^assets/firmware/\*\.hex\s+binary\s*$",
+                         "Compiled firmware bytes must never undergo Git EOL conversion")
+        for lesson_id in range(1, 17):
+            data = (ROOT / f"assets/firmware/lesson_{lesson_id:02d}.hex").read_bytes()
+            self.assertGreater(data.count(b"\r\n"), 0, f"lesson {lesson_id}: expected compiler CRLF")
+            self.assertEqual(data.count(b"\r\n"), data.count(b"\n"),
+                             f"lesson {lesson_id}: Git may have normalized compiled bytes")
+
     def test_service_worker_precache_matches_release_files(self):
         worker = (ROOT / "sw.js").read_text(encoding="utf-8")
         block = ASSETS_RE.search(worker)
