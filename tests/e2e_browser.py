@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import http.server
 import json
+import os
 import sys
 import threading
 from pathlib import Path
@@ -50,10 +51,16 @@ def main() -> None:
     base = f"http://127.0.0.1:{server.server_port}/"
     try:
         with sync_playwright() as playwright:
-            # Use the already-installed system Chrome. The Playwright-managed
-            # Chromium revision expected by this Python package is not installed;
-            # do not download or replace a pinned browser as a test side effect.
-            browser = playwright.chromium.launch(headless=True, channel="chrome")
+            # The local Windows runner uses existing Chrome; an opt-in GitHub
+            # runner can use the pinned Playwright-managed Chromium installed
+            # in that disposable runner. Neither mode installs a browser here.
+            browser_kind = os.environ.get("ARDUINO_E2E_BROWSER", "chrome").lower()
+            if browser_kind not in {"chrome", "chromium"}:
+                raise ValueError("ARDUINO_E2E_BROWSER must be chrome or chromium")
+            kwargs = {"headless": True}
+            if browser_kind == "chrome":
+                kwargs["channel"] = "chrome"
+            browser = playwright.chromium.launch(**kwargs)
             try:
                 desktop = browser.new_context(
                     viewport={"width": 1440, "height": 900},
