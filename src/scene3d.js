@@ -7,6 +7,16 @@ const palette = {
   silk: 0xd7eee8, ground: 0xe8f0eb, plastic: 0xf8faf6,
   teal: 0x26af9d, coral: 0xf17b62, amber: 0xf0b866
 };
+const BASE_SCENE_ARIA = "Mô hình Arduino Uno 3D tương tác. Dùng phím mũi tên để xoay, +/− để thu phóng, Home để đặt lại và Enter để chọn bo mạch. Trên màn hình cảm ứng, vuốt ngang để xoay; vuốt dọc vẫn cuộn trang.";
+const CONCEPTUAL_WIRING_NOTICE = "SƠ ĐỒ NET KHÁI NIỆM · KHÔNG PHẢI VỊ TRÍ LỖ BREADBOARD";
+const CONCEPTUAL_WIRING_ARIA = "Lớp dây là sơ đồ net khái niệm từ netlist hiện tại, không phải vị trí lỗ breadboard hay mô phỏng dòng điện vật lý.";
+const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
+const WIRING_COLORS = Object.freeze({
+  checked: 0x188b80,
+  warning: 0xd59b35,
+  error: 0xd65f55,
+  unverified: 0x7c8d89,
+});
 const material = (color, extras = {}) => new T.MeshStandardMaterial({ color, roughness: .62, metalness: .05, ...extras });
 const createSharedMaterials = () => ({
   bodyMat: material(palette.board, { roughness: .4 }),
@@ -66,14 +76,165 @@ function disposeTree(obj, keepMaterials = new Set()) {
   materials.forEach(item => item.dispose());
   geometries.forEach(geometry => geometry.dispose());
 }
-function wire(parent, start, end, color, arch = .95) {
-  const a = new T.Vector3(...start), b = new T.Vector3(...end);
-  const mid = a.clone().lerp(b, .5).add(new T.Vector3(0, arch, 0));
-  const curve = new T.QuadraticBezierCurve3(a, mid, b);
-  const tube = new T.Mesh(new T.TubeGeometry(curve, 40, .055, 8, false), material(color, { roughness: .45 }));
-  parent.add(tube);
-  for (const pos of [a,b]) cylinder(parent, .088, .088, .14, 0x273c43, pos.toArray(), 12);
-  return tube;
+function wiringStatus(analysis) {
+  if (!analysis || analysis.supported !== true) return "unverified";
+  const severities = new Set(Array.isArray(analysis.issues) ? analysis.issues.map(item => item?.severity) : []);
+  if (severities.has("error")) return "error";
+  if (severities.has("warning")) return "warning";
+  if (analysis.ok !== true) return "warning";
+  return "checked";
+}
+
+function wiringStatusLabel(status) {
+  if (status === "error") return "CÓ LỖI TOPOLOGY";
+  if (status === "warning") return "CÓ CẢNH BÁO TOPOLOGY";
+  if (status === "checked") return "TOPOLOGY ĐÃ KIỂM TRA";
+  return "CHƯA CÓ PHÂN TÍCH TOPOLOGY";
+}
+
+function normalizeWiringModel(circuit, terminals, analysis) {
+  const wireInput = Array.isArray(circuit?.wires) ? circuit.wires : [];
+  const terminalInput = Array.isArray(terminals) ? terminals : [];
+  const terminalMap = new Map();
+  for (const item of terminalInput.slice(0, WIRING_LIMITS.maxTerminals)) {
+    if (!item || typeof item.id !== "string" || terminalMap.has(item.id)) continue;
+    terminalMap.set(item.id, { ...item });
+  }
+
+  const nets = Array.isArray(analysis?.nets) ? analysis.nets.slice(0, WIRING_LIMITS.maxTerminals) : [];
+  const normalizedNets = nets.map((net, index) => ({
+    id: typeof net?.id === "string" && net.id ? net.id : `net-${index + 1}`,
+    terminals: new Set(Array.isArray(net?.terminals)
+      ? net.terminals.slice(0, WIRING_LIMITS.maxTerminals).filter(id => typeof id === "string") : []),
+  }));
+  const issues = Array.isArray(analysis?.issues) ? analysis.issues.slice(0, WIRING_LIMITS.maxIssues) : [];
+  const severityRank = { warning: 1, error: 2 };
+  const statusForNet = net => {
+    if (!analysis || analysis.supported !== true || !net) return "unverified";
+    let rank = 0;
+    for (const issue of issues) {
+      const issueTerminals = Array.isArray(issue?.terminals)
+        ? issue.terminals.slice(0, WIRING_LIMITS.maxTerminals) : [];
+      if (!issueTerminals.some(id => net.terminals.has(id))) continue;
+      rank = Math.max(rank, severityRank[issue?.severity] || 0);
+    }
+    return rank === 2 ? "error" : rank === 1 ? "warning" : "checked";
+  };
+
+  let omittedWires = Math.max(0, wireInput.length - WIRING_LIMITS.maxWires);
+  const wires = [];
+  const usedIds = new Set();
+  for (const item of wireInput.slice(0, WIRING_LIMITS.maxWires)) {
+    const from = typeof item?.from === "string" ? item.from : "";
+    const to = typeof item?.to === "string" ? item.to : "";
+    if (!from || !to || from === to || !terminalMap.has(from) || !terminalMap.has(to)) {
+      omittedWires += 1;
+      continue;
+    }
+    const net = normalizedNets.find(candidate => candidate.terminals.has(from) && candidate.terminals.has(to)) || null;
+    const status = statusForNet(net);
+    wires.push({
+      id: typeof item.id === "string" ? item.id : `wire-${wires.length + 1}`,
+      from, to, netId: net?.id || null, status,
+    });
+    usedIds.add(from); usedIds.add(to);
+  }
+
+  const usedTerminals = [...terminalMap.values()].filter(item => usedIds.has(item.id));
+  const visibleNetIds = new Set(wires.map(item => item.netId).filter(Boolean));
+  const visibleNets = normalizedNets.filter(net => visibleNetIds.has(net.id));
+  return {
+    wires,
+    terminals: usedTerminals,
+    nets: visibleNets,
+    omittedWires,
+    status: wiringStatus(analysis),
+    analysisSupported: analysis?.supported === true,
+  };
+}
+
+function conceptualTerminalLayout(terminals) {
+  const positions = new Map();
+  const count = terminals.length;
+  if (!count) return positions;
+  const rows = count > 20 ? 3 : count > 10 ? 2 : 1;
+  const perRow = Math.ceil(count / rows);
+  for (let index = 0; index < count; index++) {
+    const row = Math.floor(index / perRow);
+    const column = index % perRow;
+    const itemsInRow = Math.min(perRow, count - row * perRow);
+    const x = itemsInRow === 1 ? 0 : -5.15 + (10.3 * column / (itemsInRow - 1));
+    const z = rows === 1 ? 0 : -.24 + row * (.48 / Math.max(1, rows - 1));
+    positions.set(terminals[index].id, new T.Vector3(x, .19, z));
+  }
+  return positions;
+}
+
+function conceptualWire(parent, start, end, status, index, userData) {
+  const mid = start.clone().lerp(end, .5);
+  mid.y += .34 + (index % 5) * .08;
+  const curve = new T.QuadraticBezierCurve3(start, mid, end);
+  const geometry = new T.TubeGeometry(curve, 18, .035, 6, false);
+  const wireMaterial = new T.MeshBasicMaterial({ color: WIRING_COLORS[status], transparent: true, opacity: .94 });
+  const mesh = new T.Mesh(geometry, wireMaterial);
+  mesh.userData = { kind: "conceptual-wire", physicalLocation: false, ...userData };
+  parent.add(mesh);
+  return mesh;
+}
+
+function makeConceptualWiringLayer(scene, model) {
+  const layer = new T.Group();
+  layer.position.set(1.15, .10, -3.14);
+  layer.userData.kind = "conceptual-netlist";
+  const panel = new T.Mesh(
+    new T.BoxGeometry(12.3, .055, 1.62),
+    new T.MeshBasicMaterial({ color: 0xf7fbf8, transparent: true, opacity: .88 })
+  );
+  panel.userData = { kind: "conceptual-panel", physicalLocation: false };
+  layer.add(panel);
+
+  canvasLabel(layer, CONCEPTUAL_WIRING_NOTICE, 0, .055, -.62, 6.0, 25, "#355f58");
+  const statusText = `${model.wires.length} DÂY · ${model.nets.length} NET · ${wiringStatusLabel(model.status)}`;
+  canvasLabel(layer, statusText, 0, .06, .61, 4.8, 27,
+    model.status === "error" ? "#a8423b" : model.status === "warning" ? "#93671d" : "#356b62");
+  canvasLabel(layer, "MÀU = TRẠNG THÁI TOPOLOGY · KHÔNG MÔ PHỎNG DÒNG/ÁP", 0, .058, .43, 4.9, 22, "#687c76");
+
+  const positions = conceptualTerminalLayout(model.terminals);
+  for (const terminal of model.terminals) {
+    const pos = positions.get(terminal.id);
+    if (!pos) continue;
+    const node = new T.Mesh(
+      new T.CylinderGeometry(.065, .065, .10, 12),
+      new T.MeshBasicMaterial({ color: 0x405a58 })
+    );
+    node.position.copy(pos); node.position.y = .14;
+    node.userData = { kind: "conceptual-terminal", terminalId: terminal.id, physicalLocation: false };
+    layer.add(node);
+    canvasLabel(layer, terminal.id.slice(0, 22), pos.x, .09, pos.z + .11, .78, 27, "#354f4b");
+  }
+
+  model.wires.forEach((item, index) => {
+    const start = positions.get(item.from), end = positions.get(item.to);
+    if (!start || !end) return;
+    conceptualWire(layer, start, end, item.status, index, {
+      wireId: item.id, from: item.from, to: item.to, netId: item.netId, status: item.status,
+    });
+  });
+
+  const netLabels = model.nets.slice(0, WIRING_LIMITS.maxNetLabels);
+  for (const net of netLabels) {
+    const wire = model.wires.find(item => item.netId === net.id);
+    if (!wire) continue;
+    const a = positions.get(wire.from), b = positions.get(wire.to);
+    if (!a || !b) continue;
+    const status = wire.status;
+    const suffix = status === "error" ? "LỖI" : status === "warning" ? "CẢNH BÁO" : status === "checked" ? "ĐÃ KIỂM TRA" : "CHƯA PHÂN TÍCH";
+    const midpoint = a.clone().lerp(b, .5);
+    canvasLabel(layer, `${net.id} · ${suffix}`, midpoint.x, .64, midpoint.z, 1.20, 24,
+      status === "error" ? "#a8423b" : status === "warning" ? "#93671d" : status === "checked" ? "#246b62" : "#677874");
+  }
+  scene.add(layer);
+  return layer;
 }
 
 function makeBoard(scene, shared) {
@@ -269,7 +430,7 @@ export function mountScene(host, onSelect = () => {}) {
   scene.add(sun);
   const camera = new T.PerspectiveCamera(38,1,.1,100);
   let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
-  let activeModule=null,activeWires=null,board=null,breadboard=null,renderer;
+  let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
   const minZoom=.42,maxZoom=2.25;
 
   try {
@@ -282,7 +443,7 @@ export function mountScene(host, onSelect = () => {}) {
     renderer.shadowMap.type=T.PCFSoftShadowMap;
     renderer.domElement.setAttribute("role","application");
     renderer.domElement.setAttribute("aria-keyshortcuts","ArrowLeft ArrowRight ArrowUp ArrowDown Home Enter Space");
-    renderer.domElement.setAttribute("aria-label","Mô hình Arduino Uno 3D tương tác. Dùng phím mũi tên để xoay, +/− để thu phóng, Home để đặt lại và Enter để chọn bo mạch. Trên màn hình cảm ứng, vuốt ngang để xoay; vuốt dọc vẫn cuộn trang.");
+    renderer.domElement.setAttribute("aria-label",BASE_SCENE_ARIA);
     renderer.domElement.tabIndex=0;
     host.replaceChildren(renderer.domElement);
   } catch(error) {
@@ -310,6 +471,22 @@ export function mountScene(host, onSelect = () => {}) {
   }
   const observer = new ResizeObserver(resize);observer.observe(host);
   const canvas=renderer.domElement;
+  function resetWiringMetadata() {
+    canvas.dataset.wiringMode="none";
+    canvas.dataset.wiringWireCount="0";
+    canvas.dataset.wiringNetCount="0";
+    canvas.dataset.wiringStatus="none";
+    canvas.dataset.wiringPhysicalMap="none";
+    canvas.setAttribute("aria-label",BASE_SCENE_ARIA);
+    canvas.removeAttribute("title");
+  }
+  resetWiringMetadata();
+  function clearWiringLayer(redraw=true) {
+    if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
+    resetWiringMetadata();
+    if(redraw)invalidate();
+    return {mode:"none",shownWires:0,omittedWires:0,netCount:0,status:"none",analysisSupported:false,physicalMapping:"none"};
+  }
   function down(event){
     if(event.button!==0||drag)return;
     drag={x:event.clientX,y:event.clientY,pointerId:event.pointerId};
@@ -357,6 +534,11 @@ export function mountScene(host, onSelect = () => {}) {
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     if(raf){cancelAnimationFrame(raf);raf=0;}
+    // Three r180 recreates its WebGL caches on restore. Dispatching resource
+    // disposal while the old context is already lost removes the old cache
+    // listeners without destroying the CPU-side geometry/material/texture
+    // objects, so the same scene can be uploaded cleanly to the new context.
+    disposeTree(scene);
   };
   const onContextRestored=()=>{
     if(disposed)return;
@@ -377,18 +559,47 @@ export function mountScene(host, onSelect = () => {}) {
 
   function setLesson(lesson) {
     if(disposed)return;
+    currentLessonId=Number(lesson?.id);
+    clearWiringLayer(false);
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
-    if(activeWires){scene.remove(activeWires);disposeTree(activeWires,sharedMaterialSet);}
     activeModule=createModule(scene, lesson.id===1?"board":
       ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
-    activeWires = new T.Group();scene.add(activeWires);
-    const count=Math.min(6,Math.max(2,lesson.wiring.length));
-    const colors=[0x3aa9a0,0xe6a558,0xdb745e,0x376a9e,0x606d67,0x8a8bdb];
-    for(let i=0;i<count;i++) {
-      const z=-1.6+i*.57;
-      wire(activeWires,[1.3,.95,z*.92],[2.9,.88,z*.81],colors[i],.76+.2*(i%3));
-    }
     invalidate();
+  }
+  function setWiring(circuit,terminals=[],analysis=null){
+    if(disposed)return {mode:"none",shownWires:0,omittedWires:0,netCount:0,status:"none",analysisSupported:false,physicalMapping:"none"};
+    if(circuit==null)return clearWiringLayer(true);
+    if(!circuit || typeof circuit!=="object" || Array.isArray(circuit))throw new TypeError("Netlist 3D không hợp lệ");
+    const circuitLessonId=Number(circuit.lessonId);
+    if(currentLessonId!==null && Number.isFinite(currentLessonId) && circuitLessonId!==currentLessonId){
+      clearWiringLayer(false);
+      throw new RangeError("Netlist 3D không thuộc bài học đang hiển thị");
+    }
+    if(analysis && Number.isFinite(Number(analysis.lessonId)) && Number(analysis.lessonId)!==circuitLessonId){
+      clearWiringLayer(false);
+      throw new RangeError("Kết quả phân tích netlist thuộc bài học khác");
+    }
+    clearWiringLayer(false);
+    const model=normalizeWiringModel(circuit,terminals,analysis);
+    activeWiringLayer=makeConceptualWiringLayer(scene,model);
+    const summary={
+      mode:"conceptual-netlist",
+      shownWires:model.wires.length,
+      omittedWires:model.omittedWires,
+      netCount:model.nets.length,
+      status:model.status,
+      analysisSupported:model.analysisSupported,
+      physicalMapping:"none",
+    };
+    canvas.dataset.wiringMode=summary.mode;
+    canvas.dataset.wiringWireCount=String(summary.shownWires);
+    canvas.dataset.wiringNetCount=String(summary.netCount);
+    canvas.dataset.wiringStatus=summary.status;
+    canvas.dataset.wiringPhysicalMap="none";
+    canvas.setAttribute("aria-label",`${BASE_SCENE_ARIA} ${CONCEPTUAL_WIRING_ARIA}`);
+    canvas.title=CONCEPTUAL_WIRING_NOTICE;
+    invalidate();
+    return summary;
   }
   function update(snapshot){
     if(disposed)return;
@@ -424,7 +635,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,update,control,resize,dispose() {
+  return {setLesson,setWiring,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -448,7 +659,7 @@ export function mountScene(host, onSelect = () => {}) {
     // context while CPU-side geometry/material disposal still runs normally.
     if(!wasContextLost)renderer.forceContextLoss?.();
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
-    if(activeWires){scene.remove(activeWires);disposeTree(activeWires,sharedMaterialSet);}
+    if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     if(board){scene.remove(board.board);disposeTree(board.board,sharedMaterialSet);}
     if(breadboard){scene.remove(breadboard);disposeTree(breadboard);}
     scene.remove(ground);disposeTree(ground);

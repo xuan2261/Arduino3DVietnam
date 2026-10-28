@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/wokwi/avr8js",
+    "tag": "v0.21.1",
+    "version": "0.21.1",
+    "release_date": "2026-08-31",
+    "tag_object": "5f180cc5eac6a1ecbebd14de1c0ddb4c9820bf46",
+    "commit": "bee6f0a94e0e27786f6bc21aee3c775849fb50fd",
+    "tree": "7a1df509b93fbf65635d871195a07ab0c5c486fd",
+    "commit_signature_verified_by_github": true,
+    "license": "MIT"
+  },
+  "exact_upstream_files": [
+    {
+      "path": "assets/vendor/avr/avr8js-0.21.1-source/cpu.ts",
+      "upstream_path": "src/cpu/cpu.ts",
+      "git_blob_sha1": "4065b0a9e4816756d051c4841ebf8a9ef35b908e",
+      "sha256": "6b947714ba67cd8d09acf90e012d7b15e720a6c7ac0a5478ccd86d07ef021002"
+    },
+    {
+      "path": "assets/vendor/avr/avr8js-0.21.1-source/instruction.ts",
+      "upstream_path": "src/cpu/instruction.ts",
+      "git_blob_sha1": "77f27ba486b61dc274b9bde2b4aa5c2879f3bc31",
+      "sha256": "fb5ab0837dee73be25609c937219236c96822974f4d2ef43d7d83e5fc1df5475"
+    },
+    {
+      "path": "assets/vendor/avr/avr8js-0.21.1-source/interrupt.ts",
+      "upstream_path": "src/cpu/interrupt.ts",
+      "git_blob_sha1": "73b56ee63025ccfed75402065567cfb7d8547727",
+      "sha256": "3021a736c32b92e1ba06b3d160bfce7959780ff0aa16675ec3e7f069890e7b99"
+    },
+    {
+      "path": "assets/vendor/avr/AVR8JS-LICENSE.txt",
+      "upstream_path": "LICENSE",
+      "git_blob_sha1": "267bdc64e83f89a63e84c213de23a135a3a4244c",
+      "sha256": "71d092fa8944eb36ce929756f620ee5bf31f119d5f78a6941dc04d48f504177b"
+    }
+  ],
+  "derived_browser_esm": [
+    {
+      "path": "assets/vendor/avr/cpu.js",
+      "sha256": "d3caa3cbcd70319b45fbfc1c024d21f63f2e49a349543f305efbde51f07a1236"
+    },
+    {
+      "path": "assets/vendor/avr/instruction.js",
+      "sha256": "82664a05845ffb46ed78ea29a7f539e6152dd1626f2cf81df01597c16fef4415"
+    },
+    {
+      "path": "assets/vendor/avr/interrupt.js",
+      "sha256": "fdd767535daa0aba32d3627520e9753cdcb0d8203126a374d40659eddadc5508"
+    }
+  ],
+  "transform": {
+    "purpose": "Browser-native ESM without a Node runtime or npm install",
+    "changes": [
+      "Remove TypeScript-only types, interfaces and type-only imports",
+      "Make CPU constructor field initialization explicit while preserving source order",
+      "Add the local .js suffix to the interrupt import",
+      "Do not change avrInstruction opcode branches or instruction algorithms"
+    ]
+  }
+}

@@ -1,5 +1,21 @@
 # QA — Bản Arduino 3D Việt Nam
 
+## Ứng viên v1.3.0 — bằng chứng mới (28/10/2026)
+
+Phần tích hợp được kiểm chứng trên **workspace `C:\Work\Arduino3DVietnam`**, chưa được gắn nhãn phát hành v1.3.0. Không dùng những kết quả riêng lẻ dưới đây để suy luận rằng toàn bộ UI, firmware, phần cứng hoặc release gate đã nghiệm thu.
+
+| Gate | Quan sát trực tiếp / giới hạn |
+| --- | --- |
+| Python unit | `python -m unittest discover -s tests -q`: **67/67 PASS** sau khi thêm export HEX, hardware evidence, provenance release gate, pinning GitHub Actions và source tích hợp |
+| Firmware HEX | `python scripts/export_firmware.py --verify assets/firmware --sha 8a3b6727638be13d674ed37d5ca2853fc6e7dcf6`: **16/16 Intel HEX PASS**, nguồn `src/lessons.js` và 16 Sketch SHA khớp |
+| Firmware export GitHub | Workflow `40648560140` trên source commit `8a3b672…`: success; artifact có 16 HEX, toolchain Arduino CLI 1.5.1 / AVR core 1.8.6 / Servo 1.3.0 |
+| AVR CPU-only | Worker đã chạy Chrome 5/5 contract CPU/HEX và firmware thật bài 01 qua 100.000 chu kỳ, thanh ghi DDRB và PORTB mang bit 5; **không** chứng minh ngoại vi GPIO/timer/Serial hoạt động |
+| Electrical LED | Worker đã chạy Chrome 22/22 contract tính dòng 5 V giới hạn bài 02/03/05, có thử lỗi chập/đảo cực/thiếu điện trở; không đo mạch vật lý |
+| Lớp dây 3D | Worker đã chạy Chrome 39/39 contract netlist/scene, thêm context loss/restore, không giả định vị trí lỗ breadboard |
+| Hardware evidence | `tests/test_hardware_evidence.py`: 10/10 unit, chỉ kiểm tra JSON khai báo; **chưa có dữ liệu đo thật** |
+| Browser E2E ứng viên v1.3.0 | **141/141 PASS** trong Chrome local, gồm opcode-step UI, 16 HEX integrity, scene 3D conceptual, electrical 02/03/05, offline dist + firmware cache; hai kiểm thử nâng cấp SW (controller cũ→mới và lần đầu null→controller) khóa AVR nhưng giữ nguyên Sketch draft; 0 uncaught page errors và 0 console warnings. Chưa thay thế kiểm chứng Chromium remote trên SHA cuối |
+| Release provenance | Kiểm tra artifact HEX so với bản build + workflow exact-SHA là điều kiện bắt buộc trước tag/draft/deploy; **chưa tuyên bố gate mới PASS** |
+
 ## Bản v1.2.0 — bằng chứng kiểm thử
 
 Các số liệu này không bao gồm kiểm chứng bo mạch vật lý và không cho phép kết luận ứng dụng tương đương SPICE.

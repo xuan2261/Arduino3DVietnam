@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "format": "arduino-uno-intel-hex",
+  "git_sha": "8a3b6727638be13d674ed37d5ca2853fc6e7dcf6",
+  "source_file": "src/lessons.js",
+  "source_sha256": "f20b8008e951c5ff337e939227ccd59fa9c984ec2c9bf59f91880b8e2e9551e7",
+  "board": "arduino:avr:uno",
+  "toolchain": {
+    "arduino_cli": "1.5.1",
+    "arduino_avr_core": "1.8.6",
+    "servo_library": "1.3.0"
+  },
+  "lessons": [
+    {
+      "id": 1,
+      "slug": "lam-quen-arduino",
+      "file": "lesson_01.hex",
+      "sketch_sha256": "81e1e31bb1ecc4c230ec08d30b1bcf2e2de6e38679b50b9baa84fd781eabd1a7",
+      "hex_bytes": 2059,
+      "hex_sha256": "1923c082b7dae924bfa0a8e4bb1766af68b96798aedec570b75abc65ca705d42",
+      "flash_sha256": "36a32b562fd8208dd88e71eb65c09d642d5b47f40cea0cc765a97979135f89ff"
+    },
+    {
+      "id": 2,
+      "slug": "led-nhap-nhay",
+      "file": "lesson_02.hex",
+      "sketch_sha256": "00ac153cd208c5e96891312cadb89383909fda64c91fff61e60923ba16bb6e35",
+      "hex_bytes": 2615,
+      "hex_sha256": "b0486f73bf131e0d2b2cc49db0591a8cf96aa885c3ea7405a7d58d61fe86c7d0",
+      "flash_sha256": "27f5aef07d92e541a9f72042d849f4cd9181fe8ad0098a5212fc410172d49496"
+    },
+    {
+      "id": 3,
+      "slug": "nut-nhan",
+      "file": "lesson_03.hex",
+      "sketch_sha256": "71a5f3d03653eddab599651a0c36932cc0749d2b180a6a34c2ac76bb577cd323",
+      "hex_bytes": 5954,
+      "hex_sha256": "977b54db863e9c9f27de21f5e686884b8294d23f3ea0ab69aec40bb681ad3bf0",
+      "flash_sha256": "a74a9f9a5b26afd596ded14039b70545c2f21b9534fc773886e0f2c5eb4e6bb7"
+    },
+    {
+      "id": 4,
+      "slug": "bien-tro",
+      "file": "lesson_04.hex",
+      "sketch_sha256": "689036be21c8098c33a0e38a14286e87034d127f53ba114a024defd6ad4a0ea5",
+      "hex_bytes": 3720,
+      "hex_sha256": "50b9f830def0cbcaa80d48231fe696a4aa5e340f3f1ad568973f27861a6482fe",
+      "flash_sha256": "a66ae41cd2bd22772cade3a028c93ee93cf38f619e5e686a1464305a3cd083af"
+    },
+    {
+      "id": 5,
+      "slug": "led-rgb",
+      "file": "lesson_05.hex",
+      "sketch_sha256": "9a5e176877fd7f86ddf925d73a0e238f560ae8e09bce7e4b615a8212911903df",
+      "hex_bytes": 2689,
+      "hex_sha256": "8d65cf43a7ed3e46fbde9683543389a0bfb9ed25b5dd8dd47ac68a079fceec53",
+      "flash_sha256": "c7b2cd98801ea4c492b004045057a7688d681aedcbc1e00dc9fe10a4853e1d9d"
+    },
+    {
+      "id": 6,
+      "slug": "cam-bien-anh-sang",
+      "file": "lesson_06.hex",
+      "sketch_sha256": "4b21fd8dbe9fce93769f31e7e7ac1a6ab07506024d78cef4c10c46a3f2fb0762",
+      "hex_bytes": 6183,
+      "hex_sha256": "2f9dcb204cb944233d7fce0cfd1aa15be648dbb33c957cd5d32b9e75d42cfb6b",
+      "flash_sha256": "0e05bbe9f982a0fcaa0b4020e2b8f123c6e15b7536ff0d0b01ba3bbd922c2e42"
+    },
+    {
+      "id": 7,
+      "slug": "do-khoang-cach",
+      "file": "lesson_07.hex",
+      "sketch_sha256": "f083dae20c0666fa909b0a9be30f6a4803e7ed9555dd8223282372054109d26e",
+      "hex_bytes": 5274,
+      "hex_sha256": "6dfd2b1fecf33384bc7fd0a87c7baae2ab846f341eb6db3663e6ca363beb8a28",
+      "flash_sha256": "bf5118a6472c86055e7c155a5a5bfa1100106a549a187275d8359831966e5fc9"
+    },
+    {
+      "id": 8,
+      "slug": "coi-buzzer",
+      "file": "lesson_08.hex",
+      "sketch_sha256": "2a24afc3a6f2f60946cf3dcca0801b6fb6bcf1ed6a092d9f44d71b0e97df69cf",
+      "hex_bytes": 4616,
+      "hex_sha256": "8b782633fb8cec41b6a96304df775a25ba38883d515dc4a0b32dd529a74e9c24",
+      "flash_sha256": "350146c142ef7384feb5c272e3acd168aa240b43723623405577246150d8e3d1"
+    },
+    {
+      "id": 9,
+      "slug": "piano-mini",
+      "file": "lesson_09.hex",
+      "sketch_sha256": "e92563dc729fcc74fdcc1aa5cdfcd6e1c66a126588af3cf645ac51c3cb1c44c6",
+      "hex_bytes": 6858,
+      "hex_sha256": "928723b0dfbcb8ec67fc900ea527ee03b51b1f51a436d0fa48af43def905fc9d",
+      "flash_sha256": "7c14f5d8532698cd6b10b71c3b44f418d1295e041031186f73cd8b4f75673fd3"
+    },
+    {
+      "id": 10,
+      "slug": "dong-co-dc",
+      "file": "lesson_10.hex",
+      "sketch_sha256": "52425b99803042676c48697832702124fbee078c70faa583de475229ba65e6ea",
+      "hex_bytes": 2623,
+      "hex_sha256": "3cbc8b5a8003056ed4415beabeb7646f008cdaef20f722c73686b19390dbb6e3",
+      "flash_sha256": "c1f8574c249068e2e13e37a1a8708e4b4bfc3f6c06e734cf215eb5e20e845de0"
+    },
+    {
+      "id": 11,
+      "slug": "nhiet-do",
+      "file": "lesson_11.hex",
+      "sketch_sha256": "0c81f2e07c284e2f24ee5d5f42882c765aa0f47ed80731f466f84172754ad312",
+      "hex_bytes": 10466,
+      "hex_sha256": "f682bb83c33bd41c37e61917163db7bb695f1c42f7cd06d2d0fa5537a63bf1a9",
+      "flash_sha256": "68851452718ed988638057ad86d7145bcf0c70c4c6afcfce1f8bc803ba48ef8b"
+    },
+    {
+      "id": 12,
+      "slug": "dong-co-servo",
+      "file": "lesson_12.hex",
+      "sketch_sha256": "10fe654c3fd006aaae17662eedbb9d131b5c75e17a8199f2482a959206dde5ab",
+      "hex_bytes": 5712,
+      "hex_sha256": "ab579a88cc5df0b22a3e34d7ca4be512a26e97a039b26a393a3cfec7e385e067",
+      "flash_sha256": "4f68da38eddb209a9261bc6526fd754161df41c5bbd1021215c8ad37195d0f6a"
+    },
+    {
+      "id": 13,
+      "slug": "dong-co-buoc",
+      "file": "lesson_13.hex",
+      "sketch_sha256": "0cdfd3a5f3ac96df8a78f81692ecf5d7dbb1ee49d349036bffff4122ad04a8fe",
+      "hex_bytes": 2259,
+      "hex_sha256": "f0aec35af22bd69a483f286705f6452905dbf56cc49c33a741870472fad7792b",
+      "flash_sha256": "ca925111cb68515b1e190bd05c95ff34bfd0fb12494e2cb99113758d9436af18"
+    },
+    {
+      "id": 14,
+      "slug": "chau-cay-thong-minh",
+      "file": "lesson_14.hex",
+      "sketch_sha256": "9cde3b98c5f312c5d4ff0cee08b66e9ab3536a0af32c3adc1d934fc895f5abee",
+      "hex_bytes": 3245,
+      "hex_sha256": "3da97e0c79610a37b2119ee68c0f1d31f53213a23e74bcebf01ad8cb1883673b",
+      "flash_sha256": "0a63a6aba0247a6b12a32e05a65d0deb24f8b7a6a806f907634dbc60a0da21aa"
+    },
+    {
+      "id": 15,
+      "slug": "cam-bien-luc",
+      "file": "lesson_15.hex",
+      "sketch_sha256": "cf2aa350f404b74fd55c4a2869bf843e9cd23197d1acdc68dd99acdeb566b15f",
+      "hex_bytes": 6183,
+      "hex_sha256": "4a52173a45a83edcd4b3d7d66c141590e1879a196766960936fab303a1195dd0",
+      "flash_sha256": "11e2a8ac212525b03db552912d213ef3d7e8df2720d531d3062e787ae57b995e"
+    },
+    {
+      "id": 16,
+      "slug": "du-an-tong-hop",
+      "file": "lesson_16.hex",
+      "sketch_sha256": "63adc4b2549c6eb984ce8ffd76f5a72f50ec0500d71fdaf5c71f2f9c1ddf2d4c",
+      "hex_bytes": 7680,
+      "hex_sha256": "7550598e86fca9b6c20ccf845e374db8cc4b19f0d169ffd6ece92a86a76baffb",
+      "flash_sha256": "f836cd94b59e809afa151be3e9edae622ec057441b86c20c0b07713ee2176ad8"
+    }
+  ]
+}

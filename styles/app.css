@@ -240,6 +240,19 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .practice-footer .text-button { font-size: 10px; }
 .app-footer { display: flex; justify-content: space-between; gap: 15px; padding: 22px 0 5px; color: #92a39d; letter-spacing: .05em; font-size: 9px; }
 .app-footer a:hover { color: var(--teal); }
+.electrical-section { margin-top:16px; overflow:hidden; }
+.electrical-section[hidden] { display:none; }
+.electrical-content { padding:0 20px 17px; }
+.electrical-source { display:inline-block; margin:0 0 10px; padding:5px 9px; font-size:11px; font-weight:750; color:#246b5b; background:#e8f5ed; border-radius:6px; }
+.electrical-channels { display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr)); gap:10px; }
+.electrical-channel { display:flex; flex-direction:column; gap:5px; padding:12px 13px; border:1px solid #dce8df; border-radius:9px; background:#f7faf7; }
+.electrical-channel strong { color:#294d48; font-size:12px; }
+.electrical-channel .electrical-value { font-size:18px; font-weight:800; color:#196e60; font-variant-numeric:tabular-nums; }
+.electrical-channel small { font-size:10px; color:#678479; }
+.electrical-disclaimer { margin:10px 0 0; font-size:11px; line-height:1.7; color:#647c76; }
+.electrical-blocked { margin:2px 0; font-size:12px; line-height:1.7; color:#985c36; }
+.update-notice { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:13px 16px; border:1px solid #e6c495; border-radius:10px; background:#fff5e5; color:#765425; font-size:12px; line-height:1.6; margin-bottom:17px; }
+.update-notice .button { flex:none; min-height:37px; }
 .loading-text { color: var(--muted); font-size: 12px; }
 .wiring-view,.parts-view { position: absolute; inset: 0; z-index: 2; overflow-y: auto; background: #e9f0eb; padding: 54px 27px 72px; }
 .wiring-view h3,.parts-view h3 { margin: 0 0 9px; font-size: 15px; color: #26534f; }

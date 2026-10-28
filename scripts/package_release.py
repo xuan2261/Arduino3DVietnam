@@ -12,7 +12,7 @@ from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "releases"
 PREFIX = "Arduino3DVietnam"
-RELEASE = "v1.2.0-20261028"
+RELEASE = "v1.3.0-20261028"
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules"}
 TOP = [
     ".github", "assets", "docs", "scripts", "src", "styles", "tests",

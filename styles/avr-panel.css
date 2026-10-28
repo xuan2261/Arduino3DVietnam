@@ -1,0 +1,23 @@
+.avr-section { margin:16px 0 0; border-radius:10px; background:#f7faf8; border:1px solid #dce9df; }
+.avr-panel-inner { padding:15px 16px 12px; }
+.avr-panel-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:7px; }
+.avr-panel-heading h3 { margin:0; font-size:15px; color:#234a45; font-weight:800; }
+.avr-cpu-label { display:inline-block; color:#206c62; background:#e3f3eb; padding:5px 7px; border-radius:5px; letter-spacing:.05em; font-size:10px; font-weight:800; }
+.avr-intro,.avr-caveat,.avr-draft-note,.avr-provenance { margin:7px 0 0; color:#68857b; font-size:12px; line-height:1.65; }
+.avr-caveat { border-top:1px solid #dde9e0; margin-top:12px; padding-top:10px; }
+.avr-draft-note { color:#9c703a; font-weight:700; }
+.avr-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:11px 0 0; }
+.avr-button-primary { background:#146e67; color:white; min-height:39px; padding:8px 11px; font-size:12px; }
+.avr-button-primary:hover { background:#0b594f; }
+.avr-button-secondary { border:1px solid #badacf; color:#205e53; background:white; min-height:39px; padding:8px 11px; font-size:12px; }
+.avr-button-secondary:hover:not(:disabled) { background:#e4f5ed; }
+.avr-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.avr-status { background:#f0f5f1; border:1px solid #e1ece3; border-radius:7px; padding:9px 11px; color:#476b61; line-height:1.6; font-size:12px; margin:10px 0 0; }
+.avr-status[data-kind="success"] { color:#1d7057; border-color:#c6e8d7; background:#edfaf2; }
+.avr-status[data-kind="error"] { color:#985044; border-color:#edc6bf; background:#fff3ef; }
+.avr-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:10px; }
+.avr-metrics[hidden] { display:none; }
+.avr-metric { display:flex; flex-direction:column; gap:4px; padding:8px 9px; min-width:0; background:white; border:1px solid #deebe3; border-radius:6px; }
+.avr-metric small { color:#7b9188; font-size:11px; }
+.avr-metric strong { color:#2d5f57; font-size:13px; font-family:Consolas,"Cascadia Code",monospace; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+@media(max-width:650px) { .avr-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .avr-section { margin:12px 0 0; } .avr-panel-inner { padding:12px; } }

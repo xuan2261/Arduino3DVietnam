@@ -11,6 +11,7 @@
   <link rel="manifest" href="site.webmanifest">
   <link rel="stylesheet" href="styles/app.css">
   <link rel="stylesheet" href="styles/wiring.css">
+  <link rel="stylesheet" href="styles/avr-panel.css">
   <script type="module" src="src/app.js"></script>
 </head>
 <body>
@@ -32,7 +33,7 @@
     <div class="main-column">
       <header class="topbar">
         <div class="topbar-left"><button id="openSidebar" class="icon-button hamburger" aria-label="Mở danh sách bài học" aria-expanded="false" aria-controls="sidebar">☰</button><span class="workspace-label">KHÔNG GIAN HỌC TẬP</span><span class="topbar-separator"></span><span class="topbar-path">Arduino Uno R3 <span>/</span> <span id="breadcrumb">Bài 01</span></span></div>
-        <div class="topbar-right"><span class="version-pill">BẢN THỰC HÀNH 1.1</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
+        <div class="topbar-right"><span class="version-pill">ỨNG VIÊN 1.3</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
       </header>
 
       <main class="content" id="content">
@@ -51,10 +52,15 @@
           <aside class="info-panel panel" aria-labelledby="infoHeading"><div class="panel-heading"><div><span class="panel-index">02 / KHÁM PHÁ KIẾN THỨC</span><h2 id="infoHeading">Hướng dẫn bài học</h2></div><span class="info-icon" aria-hidden="true">✦</span></div><div class="info-tabs" role="tablist" aria-label="Nội dung bài học"><button role="tab" data-info="overview" aria-selected="true">Tổng quan</button><button role="tab" data-info="pinout" aria-selected="false">Chân nối</button><button role="tab" data-info="practice" aria-selected="false">Thực hành</button></div><div class="info-content" id="infoContent" tabindex="-1"><p class="loading-text">Đang tải nội dung học...</p></div><div class="info-footer"><div class="tip-symbol" aria-hidden="true">i</div><p id="safetyNote">Đây là mô phỏng học tập trên máy tính. Khi dùng linh kiện thật, kiểm tra sơ đồ và nguồn điện trước khi cấp nguồn.</p></div></aside>
         </div>
 
+        <section class="electrical-section panel" id="electricalSection" aria-labelledby="electricalHeading" hidden>
+          <div class="panel-heading small-heading"><div><span class="panel-index">TÍNH DÒNG CÓ GIỚI HẠN · BÀI 02 / 03 / 05</span><h2 id="electricalHeading">Ước tính dòng LED từ mạch đã kiểm tra</h2></div></div>
+          <div id="electricalResult" class="electrical-content" role="status" aria-live="polite"></div>
+        </section>
         <div class="bottom-grid">
           <section class="code-panel panel" aria-labelledby="codeHeading"><div class="panel-heading small-heading"><div><span class="panel-index">03 / THAM KHẢO CHƯƠNG TRÌNH</span><h2 id="codeHeading">Arduino Sketch</h2></div><button class="text-button" id="copyCode">⧉ Sao chép mã</button></div><div class="code-container"><div class="code-file"><span class="code-file-dot"></span><span id="codeFilename">bai_01.ino</span><span class="code-language">ARDUINO / C++</span></div><pre id="codeViewer" tabindex="0" aria-label="Mã chương trình tham khảo"><code>// Mã Arduino sẽ xuất hiện ở đây.</code></pre><label class="sr-only" for="codeEditor">Chỉnh sửa mã Arduino cho bài học</label><textarea id="codeEditor" class="code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" maxlength="12000" hidden></textarea></div><div class="code-tools"><button class="text-button" id="editCode" type="button">✎ Sửa mã</button><button class="text-button" id="restoreCode" type="button" hidden>↺ Khôi phục mã mẫu</button><button class="text-button" id="downloadCode" type="button">↓ Tải .ino</button><span id="codeEditStatus" class="code-edit-status" role="status"></span></div><div class="serial-heading"><strong>▦ Serial Monitor <small>GIẢ LẬP</small></strong><button class="text-button" id="clearSerial">Xóa nhật ký</button></div><div id="serialConsole" class="serial-console" role="log" aria-label="Nhật ký đầu vào và đầu ra của mô phỏng" aria-live="off"><p>Chưa có dữ liệu.</p></div><p class="code-disclaimer">Sketch để đọc, sửa và tải .ino. Thay đổi mã <strong>không ảnh hưởng mô phỏng mẫu</strong>, vốn không biên dịch hay chạy Arduino C++.</p></section>
           <section class="practice-panel panel" aria-labelledby="practiceHeading"><div class="panel-heading small-heading"><div><span class="panel-index">04 / KIỂM TRA KIẾN THỨC</span><h2 id="practiceHeading">Bạn đã hiểu bài chưa?</h2></div><span class="quiz-symbol" aria-hidden="true">✓</span></div><div class="practice-content"><div class="quiz-question" id="quizQuestion">Hãy thử một câu hỏi sau bài học.</div><form id="quizForm"><div id="quizChoices" class="quiz-choices"></div><div id="quizFeedback" class="quiz-feedback" role="status" aria-live="polite"></div><button class="button button-dark quiz-submit" type="submit">Kiểm tra đáp án →</button></form><button id="completeButton" class="button complete-button" hidden>✓ Xác nhận hoàn thành bài học</button></div><div class="practice-footer"><span id="progressText">0/16 bài đã hoàn thành</span><button id="exportProgress" class="text-button">Xuất tiến độ ↓</button><button id="importProgress" class="text-button">Nhập tiến độ ↑</button><input type="file" id="progressFile" accept="application/json,.json" hidden></div></section>
         </div>
+        <section class="avr-section panel" id="avrPanelMount" aria-labelledby="avrHeading"></section>
         <footer class="app-footer"><span>ARDUINO 3D VIỆT NAM · HỌC BẰNG THỰC HÀNH</span><span>Nội dung tiếng Việt · Tiến độ lưu cục bộ · <a href="docs/HUONG_DAN.md" target="_blank" rel="noopener">Tài liệu sử dụng</a></span></footer>
       </main>
     </div>

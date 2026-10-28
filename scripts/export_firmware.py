@@ -124,6 +124,12 @@ def verify_firmware_bundle(folder: Path, *, expected_sha: str | None = None) -> 
         raise FirmwareError("Git SHA không trùng bản đang xét")
     if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("source_sha256"))):
         raise FirmwareError("Thiếu SHA256 nguồn")
+    # Hashing a manifest against itself is not enough. Recompute provenance
+    # from the *checked-out* lesson source and all 16 extracted sketches.
+    actual_source_sha = digest(existing.LESSONS_FILE.read_bytes())
+    if manifest["source_sha256"] != actual_source_sha:
+        raise FirmwareError("Firmware được biên dịch từ nguồn bài học khác workspace")
+    source_sketches = existing.extract_sketches()
     if manifest.get("toolchain") != {
         "arduino_cli": EXPECTED_CLI,
         "arduino_avr_core": EXPECTED_CORE,
@@ -144,6 +150,9 @@ def verify_firmware_bundle(folder: Path, *, expected_sha: str | None = None) -> 
             raise FirmwareError("Tên firmware không hợp lệ")
         if not isinstance(row.get("sketch_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", row["sketch_sha256"]):
             raise FirmwareError("Thiếu Sketch SHA256")
+        source_sketch = source_sketches[lesson_id - 1]
+        if row.get("slug") != source_sketch.slug or row["sketch_sha256"] != digest(source_sketch.source.encode("utf-8")):
+            raise FirmwareError("Sketch hash/slug trong manifest không khớp bài học gốc")
         path = (folder / filename).resolve()
         if path.parent != folder or not path.is_file():
             raise FirmwareError("Thiếu firmware từ manifest")

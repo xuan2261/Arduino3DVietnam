@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import export_firmware as fw
+from scripts import verify_sketches
 
 
 def record(address: int, kind: int, payload: bytes = b"") -> str:
@@ -24,15 +25,17 @@ def example_hex(value: int = 0) -> str:
 
 def sample_manifest(directory: Path, sha: str = "a" * 40) -> dict:
     lessons = []
+    sketches = verify_sketches.extract_sketches()
     for lesson_id in range(1, 17):
+        source_sketch = sketches[lesson_id - 1]
         data = example_hex(lesson_id).encode("ascii")
         filename = f"lesson_{lesson_id:02d}.hex"
         (directory / filename).write_bytes(data)
         lessons.append({
             "id": lesson_id,
-            "slug": f"lesson-{lesson_id}",
+            "slug": source_sketch.slug,
             "file": filename,
-            "sketch_sha256": "b" * 64,
+            "sketch_sha256": fw.digest(source_sketch.source.encode("utf-8")),
             "hex_bytes": len(data),
             "hex_sha256": fw.digest(data),
             "flash_sha256": fw.digest(fw.parse_intel_hex(data.decode("ascii"))),
@@ -42,7 +45,7 @@ def sample_manifest(directory: Path, sha: str = "a" * 40) -> dict:
         "format": "arduino-uno-intel-hex",
         "git_sha": sha,
         "source_file": "src/lessons.js",
-        "source_sha256": "c" * 64,
+        "source_sha256": fw.digest(verify_sketches.LESSONS_FILE.read_bytes()),
         "board": "arduino:avr:uno",
         "toolchain": {
             "arduino_cli": fw.EXPECTED_CLI,
@@ -103,6 +106,20 @@ class FirmwareExportTests(unittest.TestCase):
                 fw.verify_firmware_bundle(path, expected_sha="f" * 40)
             (path / "lesson_04.hex").write_text(example_hex(7), encoding="ascii")
             with self.assertRaisesRegex(fw.FirmwareError, "khớp"):
+                fw.verify_firmware_bundle(path)
+
+    def test_forged_source_or_sketch_hash_is_rejected_even_if_hex_is_valid(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)
+            manifest = sample_manifest(path)
+            manifest["source_sha256"] = "a" * 64
+            (path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(fw.FirmwareError, "nguồn bài học khác"):
+                fw.verify_firmware_bundle(path)
+            manifest["source_sha256"] = fw.digest(verify_sketches.LESSONS_FILE.read_bytes())
+            manifest["lessons"][4]["sketch_sha256"] = "0" * 64
+            (path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(fw.FirmwareError, "Sketch hash"):
                 fw.verify_firmware_bundle(path)
 
     def test_missing_or_unexpected_file_and_version_rejected(self):
