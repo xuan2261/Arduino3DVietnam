@@ -258,9 +258,9 @@ export function mountScene(host, onSelect = () => {}) {
   sun.shadow.camera.left=-20;sun.shadow.camera.right=20;sun.shadow.camera.top=15;sun.shadow.camera.bottom=-15;
   scene.add(sun);
   const camera = new T.PerspectiveCamera(38,1,.1,100);
-  let theta=.45,phi=.88,radius=16.7,raf=0,disposed=false,moved=false,drag=null;
+  let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,moved=false,drag=null;
   let activeModule=null,activeWires=null,board=null,breadboard=null,renderer;
-  const minRadius=10,maxRadius=33;
+  const minZoom=.42,maxZoom=2.25;
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   try {
@@ -278,8 +278,13 @@ export function mountScene(host, onSelect = () => {}) {
     throw new Error("Trình duyệt không tạo được WebGL: " + (error?.message || "Không rõ nguyên nhân"));
   }
   board=makeBoard(scene);breadboard=makeBreadboard(scene);
-  const defaultPosition=()=>{theta=.48;phi=.94;radius=16.7;};
+  const defaultPosition=()=>{theta=.48;phi=.94;zoom=1;};
   function updateCamera() {
+    // At portrait widths the same fixed camera distance clips the board and
+    // breadboard. Fit the full lab first, then apply the learner's zoom.
+    const fitted = Math.max(16.7, 18.5 /
+      (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, camera.aspect)));
+    const radius = Math.min(48, Math.max(8, fitted * zoom));
     camera.position.set(radius*Math.sin(phi)*Math.sin(theta),radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
     camera.lookAt(1.15,.35,0);
   }
@@ -312,7 +317,7 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function wheel(event) {
     event.preventDefault();
-    radius=Math.min(maxRadius,Math.max(minRadius,radius+Math.sign(event.deltaY)*1.3));
+    zoom=Math.min(maxZoom,Math.max(minZoom,zoom+Math.sign(event.deltaY)*.10));
     invalidate();
   }
   const onVisibility=()=>{if(!document.hidden)invalidate();};
@@ -369,8 +374,8 @@ export function mountScene(host, onSelect = () => {}) {
     if(disposed)return;
     if(action==="left")theta-=.32;
     else if(action==="right")theta+=.32;
-    else if(action==="in")radius=Math.max(minRadius,radius-2);
-    else if(action==="out")radius=Math.min(maxRadius,radius+2);
+    else if(action==="in")zoom=Math.max(minZoom,zoom-.12);
+    else if(action==="out")zoom=Math.min(maxZoom,zoom+.12);
     else if(action==="reset")defaultPosition();
     invalidate();
   }

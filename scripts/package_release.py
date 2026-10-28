@@ -12,7 +12,7 @@ from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "releases"
 PREFIX = "Arduino3DVietnam"
-RELEASE = "20261028"
+RELEASE = "v1.1.0-20261028"
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules"}
 TOP = [
     ".github", "assets", "docs", "scripts", "src", "styles", "tests",
@@ -72,7 +72,8 @@ def package() -> list[tuple[Path, int]]:
     results = [(path, archive(path, files)) for path, files in outputs]
     hashes = [f"{sha256(path.read_bytes()).hexdigest()}  {path.name}"
               for path, _ in results]
-    (OUT / "SHA256SUMS.txt").write_text("\n".join(hashes) + "\n", encoding="utf-8")
+    # Preserve SHA256SUMS.txt from v1.0; every version gets its own receipt.
+    (OUT / f"SHA256SUMS-{RELEASE}.txt").write_text("\n".join(hashes) + "\n", encoding="utf-8")
     return results
 
 

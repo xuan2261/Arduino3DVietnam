@@ -7,21 +7,25 @@ Làm mới sản phẩm với nội dung tiếng Việt là nguồn chính; khô
 ## Sơ đồ mô-đun
 
 ```text
-index.html + styles/app.css
-             |
-             v
-         src/app.js
-        /    |      \
-       v     v       v
- lessons.js simulator.js storage.js
-       |       |
-       +--- snapshots ---> scene3d.js ---> Three.js r180 (MIT)
+index.html + styles/app.css + styles/wiring.css
+                       |
+                       v
+                   src/app.js
+                 /   |    |    \
+                v    v    v     v
+        lessons.js  circuit.js  storage.js
+               |          |        |
+          simulator.js     v      Tiến độ
+               |   wiring-workbench.js
+               v
+           snapshot ────> scene3d.js ────> Three.js r180
 ```
 
 **Phân tách quan trọng:**
 
 - Nội dung bài học và danh sách linh kiện thuộc `lessons.js`.
 - Quy tắc HIGH/LOW, ADC, PWM, số bước, ngưỡng và điều kiện thuộc `simulator.js` (không phụ thuộc WebGL).
+- Netlist của bài 02, 03 và 05, kiểm tra ngắn mạch/đảo cực/thiếu điện trở thuộc `circuit.js`; UI SVG, thao tác chọn/kéo và tháo dây thuộc `wiring-workbench.js`. Đây chỉ là kiểm tra topology theo ba bài có terminal cố định, không phải bộ giải SPICE.
 - Màu LED, vị trí servo, hình học mô-đun chỉ là biểu diễn của snapshot ở `scene3d.js`.
 - Giao diện, tương tác, quiz và serial log thuộc `app.js`.
 - Tiến độ thuộc `storage.js`, không được suy ra từ việc người dùng xem bài hay bấm Chạy.
@@ -32,6 +36,10 @@ index.html + styles/app.css
 `led`, `brightness`, `rgb`, `angle`, `toneHz`, `motorSpeed`, `pump`, `value`, `status`, `serial`, `pins`, `kind`.
 
 Những đầu ra này **không phải kết quả thực thi Sketch Arduino C++**. Chúng do mã JavaScript định nghĩa từ kiến thức điện tử; thay đổi Sketch văn bản sẽ không làm thay đổi mô phỏng. Đồng hồ chỉ tiến khi đang chạy; mỗi kết quả được xác định từ đầu vào và thời gian ảo. Chế độ nút nhấn kiểu toggle dùng nhớ cạnh nhấn và chống dội 30 ms.
+
+Trong ba bài có netlist, nhấn **Thử mạch vừa đấu** chỉ được cho phép khi `analysis.ok && analysis.functional`. Đầu vào mô phỏng tiếp tục đến từ các điều khiển của bài, không đến từ một bộ giải điện học; nếu netlist trở nên sai, việc chạy bị chặn/dừng. Các bài khác dùng sơ đồ tham khảo.
+
+Trình chỉnh sửa Sketch giữ draft trong bộ nhớ của tab, cung cấp bản tải .ino; **không eval/biên dịch** mã vừa nhập. Công cụ máy tính `scripts/verify_sketches.py` chỉ biên dịch source Sketch cho Arduino Uno khi Arduino CLI/core thực sự tồn tại và khi người dùng gọi `--compile`.
 
 ## Thiết kế giao diện
 
@@ -48,7 +56,7 @@ Register: Product. Scene: học sinh/sinh viên và người mới bắt đầu 
 ## Chất lượng và giới hạn
 
 - Renderer Three.js được tạo trễ, giải phóng geometry/material, ngắt observers/listeners sau dispose; chỉ yêu cầu frame khi cần vẽ.
-- Mô phỏng giới hạn trong các quy tắc bài; không có bộ giải mạch điện tổng quát (SPICE), không kết nối USB hay Arduino CLI.
+- Mô phỏng giới hạn trong các quy tắc bài; netlist hữu hạn cho 3 bài, không có bộ giải điện tổng quát (SPICE) hoặc kết nối USB. Arduino CLI chỉ là lựa chọn compile trên máy đã cài sẵn và không nằm trong runtime website.
 - Các Sketch là tham khảo cho bo thực; trước khi đưa vào môi trường học thực tế, cần đối chiếu sơ đồ điện và thông số từng thiết bị.
 - Không dùng mật khẩu lưu localStorage. Tiến độ JSON phải qua kiểm tra phiên bản, danh sách ID, giới hạn số lượng.
 
@@ -57,5 +65,5 @@ Register: Product. Scene: học sinh/sinh viên và người mới bắt đầu 
 1. Chuyển qua TypeScript + Vite khi Node được cài và có nhu cầu quản lý package.
 2. Tách data lessons thành các tệp `vi/*.json` có schema và kiểm tra ngữ nghĩa.
 3. Thay mô hình linh kiện hình học bằng mô hình chi tiết có provenance, LOD và asset budget.
-4. Bổ sung simulator AVR/WASM và toolchain C++ thực, **không** thay thế mô phỏng bằng phản hồi giả.
-5. Thêm scene wiring có netlist/định luật điện cơ bản và chống chập điện.
+4. Bổ sung runtime AVR/WASM và toolchain C++ thực nếu được cấp quyền triển khai; không thay thế mô phỏng bằng phản hồi giả.
+5. Mở rộng bàn đấu dây từ 3 lên 16 bài với mô hình topology mới có test âm; xây bộ tính điện học thực trong một giai đoạn độc lập.

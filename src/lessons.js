@@ -221,23 +221,28 @@ void loop() {
     category: "CHƯƠNG 03 · ÂM NHẠC", level: "Trung bình", minutes: 20,
     description: "Chọn các nốt Đô–Rê–Mi để quan sát điều khiển buzzer.",
     goal: "Liên hệ các nốt nhạc với tần số và phát âm bằng tone().",
-    theory: "Mỗi nốt nhạc có tần số cơ bản khác nhau. Ví dụ Đô 4 (C4) khoảng 262 Hz, La 4 (A4) là 440 Hz. Với đàn thật, nút nhấn có thể được gán cho từng nốt.",
+    theory: "Mỗi nốt nhạc có tần số cơ bản khác nhau. Ví dụ Đô 4 (C4) khoảng 262 Hz, La 4 (A4) là 440 Hz. Mạch đàn mẫu dùng 7 nút nối về GND tại D2–D8, cấu hình INPUT_PULLUP và chọn nốt theo nút đang nhấn; buzzer nhận âm ở D9.",
     insight: "Bài này chỉ hiển thị tần số và trạng thái nốt; nếu bật âm, trình duyệt có thể tạo âm thanh tổng hợp với Web Audio sau tương tác.",
     caution: "Không nên để âm lớn hoặc phát âm liên tục quá lâu.",
-    components: ["Buzzer thụ động", "Các nút nhấn", "Arduino Uno"],
-    wiring: [["D8", "Buzzer (+)", "Tín hiệu âm"], ["GND", "Buzzer (−)", "Mass"], ["D2–D7", "Các nút nhấn", "Đầu vào phím"]],
+    components: ["Buzzer thụ động", "7 nút nhấn", "Arduino Uno"],
+    wiring: [["D9", "Buzzer (+)", "Tín hiệu tone"], ["GND", "Buzzer (−)", "Mass"], ["D2–D8", "Một chân của 7 nút nhấn tương ứng", "Đầu vào INPUT_PULLUP"], ["GND", "Chân còn lại của mỗi nút nhấn", "Nhấn = LOW"]],
     steps: ["Xem bảng tần số các nốt.", "Nhấn Chạy mô phỏng, chọn Đô/Rê/Mi...", "So sánh nốt thấp và nốt cao bằng giá trị Hz."],
     controls: [piano()],
-    sketch: `// Bài 09 — Giai điệu đơn giản
-const int BUZZER = 8;
-const int NOTES[] = {262, 294, 330, 349, 392, 440, 494};
-void setup() {}
+    sketch: `// Bài 09 — 7 nút đàn piano; mỗi nút nối GND
+const byte BUZZER = 9;
+const byte KEYS[7] = {2, 3, 4, 5, 6, 7, 8};
+const int NOTES[7] = {262, 294, 330, 349, 392, 440, 494};
+void setup() {
+  for (byte i = 0; i < 7; ++i) pinMode(KEYS[i], INPUT_PULLUP);
+}
 void loop() {
-  for (int i = 0; i < 7; i++) {
-    tone(BUZZER, NOTES[i], 240);
-    delay(300);
+  int selected = -1;
+  for (byte i = 0; i < 7; ++i) {
+    if (digitalRead(KEYS[i]) == LOW) { selected = i; break; }
   }
-  delay(900);
+  if (selected >= 0) tone(BUZZER, NOTES[selected]);
+  else noTone(BUZZER);
+  delay(10);
 }`,
     quiz: { question: "Trong Arduino, lệnh nào được dùng để phát tín hiệu âm ở tần số chỉ định?", choices: ["analogRead()", "tone()", "digitalRead()", "millis()"], answer: 1, explanation: "tone(pin, frequency) tạo tín hiệu âm trên chân được chọn." }
   },
@@ -321,26 +326,24 @@ void loop() {
     description: "Điều khiển vị trí quay bằng số bước thay vì chỉ tốc độ.",
     goal: "Hiểu số bước trên vòng và driver điều khiển động cơ bước.",
     theory: "Động cơ bước di chuyển theo các bước rời rạc. Với loại 200 bước/vòng, 50 bước tương ứng xấp xỉ 90°. Động cơ thực thường cần driver, giới hạn dòng và nguồn riêng.",
-    insight: "Giới hạn 200 bước/vòng ở bài này chỉ dùng cho động cơ tham chiếu, không áp dụng cho mọi loại.",
+    insight: "Động cơ tham chiếu có 200 bước/vòng. Mã mẫu phát một lần 50 bước khi khởi động, không tự lặp. 90° là độ dịch chuyển tương đối từ vị trí bắt đầu, không phải góc tuyệt đối có phản hồi vị trí.",
     caution: "Không cấp trực tiếp các cuộn dây động cơ bước từ chân digital.",
     components: ["Động cơ bước", "Driver động cơ", "Arduino Uno"],
     wiring: [["D2", "STEP driver", "Xung bước"], ["D3", "DIR driver", "Chiều quay"], ["GND", "GND driver", "Chung mass"], ["Nguồn riêng", "VMOT driver", "Nguồn động cơ"]],
     steps: ["Tìm chân STEP và DIR của driver.", "Chỉnh số bước từ 0 đến 200.", "Chạy mô phỏng và so sánh góc quay với 200 bước/vòng."],
     controls: [slider("steps", "Số bước", 0, 200, 50, "bước")],
-    sketch: `// Bài 13 — STEP/DIR driver (mẫu 200 bước/vòng)
+    sketch: `// Bài 13 — Quay 50 bước một lần khi khởi động
 const int STEP_PIN = 2, DIR_PIN = 3;
 void setup() {
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
   digitalWrite(DIR_PIN, HIGH);
-}
-void loop() {
   for (int i = 0; i < 50; i++) {
     digitalWrite(STEP_PIN, HIGH); delayMicroseconds(500);
     digitalWrite(STEP_PIN, LOW); delayMicroseconds(500);
   }
-  delay(1500);
-}`,
+}
+void loop() { /* Không phát thêm bước */ }`,
     quiz: { question: "Với động cơ 200 bước/vòng (không vi bước), 50 bước tương đương khoảng bao nhiêu độ?", choices: ["45°", "90°", "180°", "360°"], answer: 1, explanation: "50/200 × 360° = 90°." }
   },
   {
@@ -395,12 +398,25 @@ void loop() {
     category: "CHƯƠNG 05 · THỬ THÁCH CUỐI", level: "Ứng dụng", minutes: 30,
     description: "Kết hợp ánh sáng, nhiệt độ và nút nhấn để đưa ra quyết định tự động.",
     goal: "Đọc nhiều đầu vào, ưu tiên cảnh báo nhiệt độ và tự điều khiển đèn khi trời tối.",
-    theory: "Một dự án điều khiển gồm ba phần: tín hiệu đầu vào, quy tắc quyết định và đầu ra. Ở bài cuối, ánh sáng thấp làm đèn sáng; nhiệt độ cao tạo cảnh báo; nút nhấn cho phép tạm tắt đèn trong mô phỏng.",
-    insight: "Hãy thử từng cảm biến riêng, rồi thay đổi hai tham số cùng lúc để xem quy tắc ưu tiên.",
-    caution: "Đây là ví dụ giải thích logic, không phải hệ thống giám sát an toàn thực tế.",
-    components: ["Arduino Uno R3", "Cảm biến ánh sáng", "LM35", "Nút nhấn", "LED", "Buzzer"],
-    wiring: [["A0", "Tín hiệu ánh sáng", "Đầu vào analog"], ["A1", "Tín hiệu nhiệt độ", "Đầu vào analog"], ["D2", "Nút điều khiển", "Đầu vào digital"], ["D13", "LED", "Đầu ra"], ["D8", "Buzzer", "Báo nhiệt độ"]],
-    steps: ["Đặt ánh sáng dưới 400 và kiểm tra LED bật.", "Tăng nhiệt độ trên 30 °C để quan sát cảnh báo.", "Nhấn và giữ nút điều khiển để tạm tắt đèn, còn cảnh báo nhiệt vẫn hoạt động."],
+    theory: "Một dự án điều khiển gồm đầu vào, quy tắc quyết định và đầu ra. Trong mạch tham chiếu, LDR nối về 5V và điện trở 10 kΩ nối về GND tạo chia áp, nên ánh sáng yếu cho giá trị A0 thấp. LM35 đọc tại A1, nút D2 dùng INPUT_PULLUP (ấn = LOW), LED được giới hạn dòng và buzzer thụ động có cực tính phù hợp.",
+    insight: "Hãy thử từng cảm biến riêng, rồi thay đổi hai tham số cùng lúc để thấy quy tắc ưu tiên. Nút chỉ tạm tắt LED, không tắt cảnh báo nhiệt.",
+    caution: "Chỉ là mô phỏng giáo dục. Khi làm mạch thật cần kiểm tra chân LM35 theo đúng datasheet, hạn dòng LED, nguồn phù hợp cho buzzer và GND chung; không dùng làm hệ thống cảnh báo an toàn thực tế.",
+    components: ["Arduino Uno R3", "LDR và điện trở chia áp 10 kΩ", "Cảm biến LM35", "Nút nhấn", "LED và điện trở 220 Ω", "Buzzer thụ động"],
+    wiring: [
+      ["5V", "LDR (một đầu)", "Nguồn nhánh trên chia áp"],
+      ["A0", "Đầu còn lại LDR + đầu điện trở 10 kΩ", "Nút chia áp đo ánh sáng"],
+      ["GND", "Đầu còn lại điện trở 10 kΩ", "Mass nhánh chia áp"],
+      ["5V", "Nguồn LM35 (Vs)", "Cấp nguồn đúng datasheet"],
+      ["A1", "Đầu ra LM35 (Vout)", "Đọc nhiệt độ analog"],
+      ["GND", "GND LM35", "Mass chung cảm biến"],
+      ["D2", "Một chân nút nhấn", "INPUT_PULLUP: mặc định HIGH"],
+      ["GND", "Chân đối diện của nút nhấn", "Ấn xuống D2 = LOW"],
+      ["D13", "Điện trở 220 Ω → anode LED (+)", "Hạn dòng LED"],
+      ["GND", "Cathode LED (−)", "Hoàn thành đường dòng"],
+      ["D8", "Cực (+) buzzer thụ động", "Tín hiệu tone (buzzer nhỏ, đúng định mức)"],
+      ["GND", "Cực (−) buzzer", "Mass buzzer"]
+    ],
+    steps: ["Đối chiếu bảng chân: LDR chia áp A0, LM35 A1, nút D2–GND với INPUT_PULLUP, LED D13 qua điện trở, buzzer D8.", "Đặt ánh sáng dưới 400 để kiểm tra LED và tăng nhiệt độ trên 30 °C để xem cảnh báo.", "Nhấn và giữ nút điều khiển để tạm tắt đèn; cảnh báo nhiệt vẫn hoạt động độc lập."],
     controls: [slider("light", "Mức sáng", 0, 1023, 650), slider("temp", "Nhiệt độ", 0, 60, 25, "°C"), button("pressed", "Tạm tắt đèn")],
     sketch: `// Bài 16 — Logic tổng hợp
 const int LIGHT = A0, TEMP = A1;

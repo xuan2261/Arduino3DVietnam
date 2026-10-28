@@ -17,11 +17,27 @@ Trên Windows: chạy `CHAY-ARDUINO.bat`, sau đó mở `http://127.0.0.1:8091/`
 
 Bài 03 có **Giữ nút** (LED chỉ sáng khi giữ) và **Bật/tắt** (mỗi lần nhấn hợp lệ đảo trạng thái). Khi dùng màn hình cảm ứng, giữ ngón tay trên nút trong lúc thí nghiệm; dùng bàn phím có thể giữ phím Space sau khi focus vào nút.
 
-## 4. Tiến độ
+## 4. Tự nối dây điện (bài 02, 03, 05)
+
+1. Chọn bài 02 (LED), 03 (nút nhấn) hoặc 05 (LED RGB), rồi mở tab **Sơ đồ kết nối**.
+2. Nhấp **hai chân** liên tiếp để tạo dây, hoặc kéo chuột từ một chân sang chân khác.
+3. Nhấn **Mạch mẫu** để xem một mạch đúng, **Gỡ** để tháo một dây, **Xóa dây** để xóa toàn bộ.
+4. Theo dõi cảnh báo: nối tắt nguồn, đấu ngược LED, thiếu điện trở và sai đường tín hiệu sẽ bị bộ kiểm tra netlist phát hiện trong phạm vi ba bài này.
+5. Chỉ khi bộ kiểm tra báo mạch hợp lệ mới có thể nhấn **Thử mạch vừa đấu**. Lúc này nút **Chạy mô phỏng** kiểm tra cả tính hợp lệ của netlist lẫn quy tắc mô phỏng bài mẫu. Tháo dây khiến mạch sai sẽ tự dừng mô phỏng.
+
+Các bài còn lại giữ sơ đồ hướng dẫn, **chưa hỗ trợ nối dây tự do**. Mô hình netlist kiểm tra kết nối, không tính dòng điện thật hoặc thay thế SPICE.
+
+## 5. Sửa, tải mã Arduino C++
+
+Mở khu vực **Arduino Sketch**, nhấn **Sửa mã** để chỉnh văn bản, **Xem mã** để xem bản được tô sáng, **Tải .ino** để lưu mã ra tệp hoặc **Khôi phục mã mẫu** để quay lại bản gốc. Mã sửa chỉ lưu trong tab trình duyệt đang mở, nên hãy tải .ino để giữ lâu dài.
+
+Quan trọng: **sửa mã không thay đổi mô phỏng**. Muốn kiểm tra biên dịch thật, máy phải có Arduino CLI và core AVR; dùng lệnh `python scripts/verify_sketches.py --compile` ở thư mục dự án. Hiện máy thử nghiệm chưa có công cụ đó. Chức năng nạp firmware qua USB không hỗ trợ.
+
+## 6. Tiến độ
 
 Tiến độ lưu trên chính trình duyệt. Bấm **Xuất tiến độ** để tải một tệp JSON; bấm **Nhập tiến độ** để khôi phục trên trình duyệt khác. Tệp chỉ chứa danh sách ID bài hoàn thành. Nếu trình duyệt chặn lưu trữ, cần xuất dữ liệu trước khi đóng trang.
 
-## 5. Giới hạn và an toàn
+## 7. Giới hạn và an toàn
 
 Mã mẫu Arduino chỉ để đọc, sao chép và thử nghiệm trên thiết bị thật trong môi trường phù hợp. Nút Chạy mô phỏng **không** biên dịch hay nạp Arduino Sketch. Mô hình linh kiện 3D là bản minh họa giáo dục; kiểm tra sơ đồ và thông số linh kiện thực trước khi cấp nguồn.
 

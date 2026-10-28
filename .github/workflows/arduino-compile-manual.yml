@@ -1,0 +1,34 @@
+# Opt-in only. This workflow is not triggered by push/pull_request.
+# It installs compiler and Arduino AVR core only on the disposable GitHub runner
+# after a repository owner explicitly clicks "Run workflow".
+name: Arduino Uno C++ Compile (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Arduino CLI 1.5.1 on disposable runner
+        uses: arduino/setup-arduino-cli@v2.0.0
+        with:
+          version: '1.5.1'
+      - name: Install Arduino AVR core 1.8.6 on disposable runner
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.6
+      - name: Compile 16 bundled Uno Sketches (no upload)
+        run: python scripts/verify_sketches.py --compile --json > arduino-compile.json
+      - name: Keep compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arduino-uno-compile-results
+          path: arduino-compile.json
+          if-no-files-found: warn

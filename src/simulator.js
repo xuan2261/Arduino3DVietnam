@@ -98,8 +98,8 @@ export function simulate(lessonId, controls = {}, elapsedMs = 0, running = false
       const hz = running && note ? note[1] : 0;
       Object.assign(output, { kind: "piano", toneHz: hz,
         value: note ? `${note[0]} · ${note[1]} Hz` : "Chọn một nốt nhạc",
-        status: note ? `Nốt ${note[0]}` : "Chưa chọn nốt", serial: `D8 = ${hz} Hz`,
-        pins: [["D8", hz ? `${hz} Hz` : "LOW"]] });
+        status: note ? `Nốt ${note[0]}` : "Chưa chọn nốt", serial: `D9 = ${hz} Hz`,
+        pins: [["D9", hz ? `${hz} Hz` : "LOW"]] });
       break;
     }
     case 10: {

@@ -1,6 +1,8 @@
 import { lessons, lessonById, defaultControls, validateLessons, NOTES } from "./lessons.js";
 import { simulate, advanceToggleState } from "./simulator.js";
 import { readProgress, saveProgress, normalizeProgress, exportProgress } from "./storage.js";
+import { createCircuit, analyzeCircuit } from "./circuit.js";
+import { mountWiringWorkbench, supportedWiringLessons } from "./wiring-workbench.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -18,7 +20,9 @@ const state = {
   elapsedMs: 0, previousTime: 0, frame: 0, lastLogTime: 0,
   previousSignature: "", progress: readProgress(), quizSolved: false,
   infoTab: "overview", stageTab: "3d", scene: null, code: "",
-  serial: [], audio: null, audioTone: null
+  serial: [], audio: null, audioTone: null,
+  codeDrafts: new Map(), editingCode: false,
+  circuitModels: new Map(), activeCircuits: new Set(), wiringUI: null
 };
 
 function currentLesson() { return lessonById(state.lessonId); }
@@ -82,6 +86,8 @@ function renderInfo() {
   $("safetyNote").textContent=lesson.caution;
 }
 function renderStage() {
+  state.wiringUI?.dispose();
+  state.wiringUI=null;
   for(const tab of document.querySelectorAll("[data-stage]")){
     tab.setAttribute("aria-selected",String(tab.dataset.stage===state.stageTab));
   }
@@ -91,13 +97,46 @@ function renderStage() {
   const sceneMount=$("sceneMount");
   sceneMount.hidden=state.stageTab!=="3d";
   $("cameraToolbar").hidden=state.stageTab!=="3d";
+  viewport.classList.toggle("is-wiring",state.stageTab==="wiring");
+  viewport.classList.toggle("is-not-3d",state.stageTab!=="3d");
   const lesson=currentLesson();
   if(state.stageTab==="wiring"){
     const panel=el("div","wiring-view");
-    panel.innerHTML=`<h3>Sơ đồ đấu nối của bài ${pad(lesson.id)}</h3><p>${safe(lesson.goal)}</p>
-      <div class="wiring-diagram">${lesson.wiring.map(([from,to],i)=>
-      `<div class="wire-route"><span class="wire-from">${safe(from)}</span><span class="wire-arrow">⟶</span><span class="wire-to">${safe(to)}</span></div>`).join("")}</div>`;
     viewport.append(panel);
+    if(supportedWiringLessons().includes(lesson.id)) {
+      panel.classList.add("is-interactive");
+      state.wiringUI=mountWiringWorkbench(panel,lesson.id,{
+        initial:state.circuitModels.get(lesson.id)??createCircuit(lesson.id),
+        active:state.activeCircuits.has(lesson.id),
+        onChange(model,analysis){
+          state.circuitModels.set(lesson.id,model);
+          if(state.activeCircuits.has(lesson.id)&&(!analysis.ok||!analysis.functional)){
+            if(state.running) {
+              stopClock();
+              log("Đã dừng mô phỏng vì mạch tự đấu không còn hợp lệ.");
+            }
+          }
+          updateSnapshot(true);
+        },
+        onActivate(model,analysis){
+          state.circuitModels.set(lesson.id,model);
+          if(analysis.ok&&analysis.functional){
+            state.activeCircuits.add(lesson.id);
+            log("Đang dùng mạch tự đấu của bài này (giới hạn kiểm tra topology).");
+          }
+          updateSnapshot(true);
+        },
+        onDeactivate(){
+          state.activeCircuits.delete(lesson.id);
+          log("Đã trở lại mô phỏng mẫu của bài học.");
+          updateSnapshot(true);
+        }
+      });
+    } else {
+      panel.innerHTML=`<div class="wiring-unsupported"><strong>Sơ đồ tham khảo · chưa hỗ trợ đấu dây tự do</strong><p>Bài ${pad(lesson.id)} có bảng chân để học tập. Bàn đấu dây có phát hiện lỗi hiện hỗ trợ bài 02 (LED), 03 (nút nhấn) và 05 (RGB).</p></div>
+      <div class="wiring-diagram">${lesson.wiring.map(([from,to])=>
+      `<div class="wire-route"><span class="wire-from">${safe(from)}</span><span class="wire-arrow">⟶</span><span class="wire-to">${safe(to)}</span></div>`).join("")}</div>`;
+    }
   }else if(state.stageTab==="overview"){
     const panel=el("div","parts-view");
     panel.innerHTML=`<h3>Bộ linh kiện mô phỏng</h3><p>Các linh kiện của bài ${pad(lesson.id)} được dựng như hình minh họa, không thay thế sơ đồ kỹ thuật chi tiết.</p>
@@ -155,9 +194,46 @@ function highlightArduino(code) {
   }).join("");
 }
 function renderSketch(){
-  state.code=currentLesson().sketch;
+  state.code=state.codeDrafts.get(state.lessonId) ?? currentLesson().sketch;
+  state.editingCode=false;
   $("codeFilename").textContent=`bai_${pad(state.lessonId)}.ino`;
   $("codeViewer").innerHTML=`<code>${highlightArduino(state.code)}</code>`;
+  $("codeViewer").hidden=false;
+  $("codeEditor").hidden=true;
+  $("codeEditor").value=state.code;
+  $("editCode").textContent="✎ Sửa mã";
+  updateCodeDraftStatus();
+}
+function updateCodeDraftStatus(){
+  const changed=state.codeDrafts.has(state.lessonId);
+  $("restoreCode").hidden=!changed;
+  $("codeEditStatus").classList.toggle("is-edited",changed);
+  $("codeEditStatus").textContent=changed
+    ? "Mã đã sửa · chỉ lưu trong tab này"
+    : "Mã tham khảo · không chạy trên mô phỏng";
+}
+function toggleCodeEditor(){
+  state.editingCode=!state.editingCode;
+  $("codeEditor").hidden=!state.editingCode;
+  $("codeViewer").hidden=state.editingCode;
+  $("editCode").textContent=state.editingCode?"▤ Xem mã":"✎ Sửa mã";
+  if(state.editingCode){$("codeEditor").value=state.code;$("codeEditor").focus({preventScroll:true});}
+  else $("codeViewer").innerHTML=`<code>${highlightArduino(state.code)}</code>`;
+}
+function resetCodeDraft(){
+  state.codeDrafts.delete(state.lessonId);
+  state.code=currentLesson().sketch;
+  $("codeEditor").value=state.code;
+  $("codeViewer").innerHTML=`<code>${highlightArduino(state.code)}</code>`;
+  updateCodeDraftStatus();
+}
+function downloadSketch(){
+  const blob=new Blob([state.code],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;link.download=`bai_${pad(state.lessonId)}.ino`;
+  document.body.append(link);link.click();link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),500);
 }
 function renderQuiz(){
   state.quizSolved=false;
@@ -191,7 +267,20 @@ function log(message){
   host.scrollTop=host.scrollHeight;
 }
 function updateSnapshot(force=false) {
-  const snapshot=simulate(state.lessonId,state.controls,state.elapsedMs,state.running,state.memory);
+  let snapshot=simulate(state.lessonId,state.controls,state.elapsedMs,state.running,state.memory);
+  if(state.activeCircuits.has(state.lessonId)){
+    const circuit=state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId);
+    const analysis=analyzeCircuit(state.lessonId,circuit);
+    if(!analysis.ok||!analysis.functional){
+      const reason=analysis.issues?.find(x=>x.severity==="error")?.message
+        ?? analysis.issues?.[0]?.message ?? "Thiếu kết nối";
+      snapshot={...snapshot,led:false,brightness:0,rgbIntensity:0,toneHz:0,pump:false,motorSpeed:0,
+        value:"Mạch tự đấu chưa hợp lệ",status:reason,serial:`MẠCH CHƯA ĐÚNG: ${reason}`,pins:[]};
+    } else {
+      snapshot={...snapshot,status:snapshot.status+" · mạch tự đấu hợp lệ",
+        serial:"MẠCH HỢP LỆ · "+snapshot.serial};
+    }
+  }
   const signature=JSON.stringify(snapshot);
   if(!force&&state.previousSignature===signature)return;
   state.previousSignature=signature;
@@ -219,6 +308,14 @@ function startPause(){
   if(state.running) {
     stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
   }else {
+    if(state.activeCircuits.has(state.lessonId)){
+      const analysis=analyzeCircuit(state.lessonId,state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId));
+      if(!analysis.ok||!analysis.functional){
+        log("Không thể chạy mạch tự đấu: hãy sửa kết nối và kiểm tra lại.");
+        updateSnapshot(true);
+        return;
+      }
+    }
     state.running=true;state.previousTime=0;state.lastLogTime=state.elapsedMs;
     log(`Bắt đầu bài ${pad(state.lessonId)}: ${currentLesson().title}`);
     const snap=updateSnapshot(true);log(snap.serial);
@@ -318,10 +415,24 @@ function markCompleted(){
     "Đã ghi nhận hoàn thành. Tiến độ được lưu trên thiết bị này." :
     "Đã ghi nhận trong phiên này; trình duyệt không cho phép lưu tiến độ lâu dài. Hãy xuất bản sao JSON.";
 }
-function closeSidebar() {
-  $("sidebar").classList.remove("is-open");$("sidebarBackdrop").hidden=true;
-  $("openSidebar").setAttribute("aria-expanded","false");
+const drawerMedia = window.matchMedia("(max-width: 1010px)");
+function syncSidebar(open=false, restoreFocus=true) {
+  const sidebar=$("sidebar"),wasOpen=sidebar.classList.contains("is-open");
+  const mobile=drawerMedia.matches,show=mobile&&open;
+  // Do not put aria-hidden/inert on an ancestor while it owns focus.
+  if(!show&&wasOpen&&sidebar.contains(document.activeElement)) {
+    if(restoreFocus)$("openSidebar").focus({preventScroll:true});
+    else $("lessonTitle").focus({preventScroll:true});
+  }
+  sidebar.classList.toggle("is-open",show);
+  sidebar.inert=mobile&&!show;
+  if(mobile)sidebar.setAttribute("aria-hidden",String(!show));
+  else sidebar.removeAttribute("aria-hidden");
+  $("sidebarBackdrop").hidden=!show;
+  $("openSidebar").setAttribute("aria-expanded",String(show));
+  if(show&&!wasOpen)$("closeSidebar").focus({preventScroll:true});
 }
+function closeSidebar(restoreFocus=true){ syncSidebar(false,restoreFocus); }
 function onHashChange(){
   const match=location.hash.match(/^#bai-(\d{1,2})$/);
   if(match&&Number(match[1])!==state.lessonId) setLesson(Number(match[1]),false);
@@ -330,7 +441,7 @@ function wireEvents(){
   $("lessonSearch").addEventListener("input",renderLessonList);
   $("lessonList").addEventListener("click",event=>{
     const b=event.target.closest("[data-lesson]");
-    if(b){setLesson(Number(b.dataset.lesson));closeSidebar();window.scrollTo({top:0,behavior:"auto"});}
+    if(b){setLesson(Number(b.dataset.lesson));closeSidebar(false);window.scrollTo({top:0,behavior:"auto"});}
   });
   $("previousLesson").addEventListener("click",()=>setLesson(state.lessonId-1));
   $("nextLesson").addEventListener("click",()=>setLesson(state.lessonId+1));
@@ -371,6 +482,16 @@ function wireEvents(){
     const b=event.target.closest("[data-camera]");if(b)state.scene?.control(b.dataset.camera);
   });
   $("clearSerial").addEventListener("click",()=>{state.serial=[];$("serialConsole").replaceChildren(el("p","","Đã xóa nhật ký."));});
+  $("editCode").addEventListener("click",toggleCodeEditor);
+  $("restoreCode").addEventListener("click",resetCodeDraft);
+  $("downloadCode").addEventListener("click",downloadSketch);
+  $("codeEditor").addEventListener("input",event=>{
+    const draft=event.target.value.slice(0,12000);
+    state.code=draft;
+    if(draft===currentLesson().sketch)state.codeDrafts.delete(state.lessonId);
+    else state.codeDrafts.set(state.lessonId,draft);
+    updateCodeDraftStatus();
+  });
   $("copyCode").addEventListener("click",async()=>{
     const button=$("copyCode"),original=button.textContent;
     try{
@@ -407,23 +528,31 @@ function wireEvents(){
     event.target.value="";
   });
   $("openSidebar").addEventListener("click",()=>{
-    const open=!$("sidebar").classList.contains("is-open");
-    $("sidebar").classList.toggle("is-open",open);
-    $("sidebarBackdrop").hidden=!open;$("openSidebar").setAttribute("aria-expanded",String(open));
+    syncSidebar(!$("sidebar").classList.contains("is-open"));
   });
   $("closeSidebar").addEventListener("click",closeSidebar);
   $("sidebarBackdrop").addEventListener("click",closeSidebar);
+  drawerMedia.addEventListener("change",()=>syncSidebar(false,false));
+  $("sidebar").addEventListener("keydown",event=>{
+    if(event.key!=="Tab" || !drawerMedia.matches || !$("sidebar").classList.contains("is-open"))return;
+    const els=[...$("sidebar").querySelectorAll("button:not(:disabled), input:not(:disabled), a[href]")].filter(x=>x.getClientRects().length>0);
+    const first=els[0],last=els[els.length-1];
+    if(!first||!last)return;
+    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+  });
   const help=$("helpDialog");
   $("helpButton").addEventListener("click",()=>help.showModal());
   $("closeHelp").addEventListener("click",()=>help.close());
   $("helpGotIt").addEventListener("click",()=>help.close());
-  window.addEventListener("keydown",event=>{if(event.key==="Escape")closeSidebar();});
+  window.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("sidebar").classList.contains("is-open"))closeSidebar();});
   document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.running)startPause();});
   window.addEventListener("beforeunload",()=>state.scene?.dispose());
 }
 async function init(){
   validateLessons();
   wireEvents();
+  syncSidebar(false,false);
   const hash=location.hash.match(/^#bai-(\d{1,2})$/);
   setLesson(hash && lessonById(Number(hash[1]))?Number(hash[1]):1);
   document.documentElement.dataset.ready="content";

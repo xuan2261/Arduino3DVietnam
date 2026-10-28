@@ -1,12 +1,13 @@
 /* Offline cache for the published HTTPS site. Not enabled on localhost during development. */
-const CACHE = "arduino3d-viet-static-v1-20261028";
+const CACHE = "arduino3d-viet-static-v2-20261028";
 const ASSETS = [
   "./", "./index.html", "./site.webmanifest", "./styles/app.css",
-  "./src/app.js", "./src/lessons.js", "./src/simulator.js",
+  "./styles/wiring.css", "./src/app.js", "./src/lessons.js", "./src/simulator.js",
+  "./src/circuit.js", "./src/wiring-workbench.js",
   "./src/storage.js", "./src/scene3d.js",
   "./assets/favicon.svg", "./assets/vendor/three.module.min.js",
   "./assets/vendor/three.core.min.js", "./assets/vendor/THREE-LICENSE.txt",
-  "./docs/HUONG_DAN.md"
+  "./docs/HUONG_DAN.md", "./docs/CIRCUIT_ENGINE.md", "./docs/ARDUINO_CODE.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
