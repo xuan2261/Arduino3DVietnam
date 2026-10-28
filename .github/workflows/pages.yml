@@ -1,4 +1,4 @@
-name: Build, Test and Deploy
+name: Build and Test (deploy only on manual request)
 on:
   push:
     branches: [main]
@@ -25,6 +25,9 @@ jobs:
           name: arduino-3d-viet-site
           path: dist
   deploy:
+    # A private repository must not publish a website simply because main was
+    # pushed. GitHub Pages deployment requires an explicit workflow dispatch.
+    if: github.event_name == 'workflow_dispatch'
     needs: check
     runs-on: ubuntu-latest
     permissions:
