@@ -34,7 +34,8 @@ SOFTWARE_WEBGL_FALLBACK_DIAGNOSTIC = re.compile(
 WEBGL_READPIXELS_DIAGNOSTIC = re.compile(
     r"^\[\.WebGL-0x[0-9a-fA-F]+\]"
     r"GL Driver Message \(OpenGL, Performance, GL_CLOSE_PATH_NV, High\): "
-    r"GPU stall due to ReadPixels$"
+    r"GPU stall due to ReadPixels"
+    r"(?: \(this message will no longer repeat\))?$"
 )
 
 
@@ -244,6 +245,9 @@ def main() -> None:
             "[.WebGL-0x4c0013d400]GL Driver Message "
             "(OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
         )
+        readpixels_repeat_fixture = (
+            readpixels_fixture + " (this message will no longer repeat)"
+        )
         page_fixture = base + "#bai-01"
         check("gpu-diagnostic-classifier-bounded",
               classify_browser_gpu_diagnostic(fallback_fixture, "", 0, 0, 0, page_fixture) ==
@@ -257,6 +261,9 @@ def main() -> None:
                   readpixels_fixture, page_fixture, 0, 0, 0, page_fixture) ==
               "chromium-webgl-readpixels-driver-stall"
               and classify_browser_gpu_diagnostic(
+                  readpixels_repeat_fixture, page_fixture, 0, 0, 0, page_fixture) ==
+              "chromium-webgl-readpixels-driver-stall"
+              and classify_browser_gpu_diagnostic(
                   fallback_fixture, page_fixture, 0, 0, 1, page_fixture) is None
               and classify_browser_gpu_diagnostic(
                   fallback_fixture, page_fixture, 1, 0, 0, page_fixture) is None
@@ -266,6 +273,9 @@ def main() -> None:
                   readpixels_fixture, base + "src/scene3d.js", 0, 0, 0, page_fixture) is None
               and classify_browser_gpu_diagnostic(
                   "Application warning from lesson UI", "", 0, 0, 0, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  readpixels_fixture + " (this message will repeat)",
+                  page_fixture, 0, 0, 0, page_fixture) is None
               and classify_browser_gpu_diagnostic(
                   readpixels_fixture.replace("ReadPixels", "ReadPixels extra"),
                   "", 0, 0, 0, page_fixture) is None)
@@ -336,6 +346,53 @@ def main() -> None:
                 # Chromium GPU diagnostic has argsCount==0 and cannot match here.
                 if synthetic_index is not None:
                     del warnings[synthetic_index]
+
+                repeat_warning_start = len(warnings)
+                with page.expect_console_message(
+                    predicate=lambda message: message.type == "warning"
+                    and message.text == readpixels_repeat_fixture,
+                    timeout=5000,
+                ) as repeat_warning_info:
+                    page.evaluate("text => console.warn(text)", readpixels_repeat_fixture)
+                repeat_warning = repeat_warning_info.value
+                repeat_location = repeat_warning.location or {}
+                repeat_line = repeat_location.get("lineNumber", repeat_location.get("line"))
+                repeat_column = repeat_location.get("columnNumber", repeat_location.get("column"))
+                repeat_args_count = len(repeat_warning.args)
+                repeat_page_url = page.url
+                repeat_location_url = str(repeat_location.get("url") or "")
+                repeat_index = next((
+                    index for index in range(repeat_warning_start, len(warnings))
+                    if warnings[index]["text"] == readpixels_repeat_fixture
+                    and warnings[index]["argsCount"] == repeat_args_count
+                ), None)
+                repeat_runtime_matches = [entry for entry in cdp_runtime_console_events if
+                                          entry["pageKey"] == main_page_key
+                                          and readpixels_repeat_fixture in entry["argValues"]]
+                check("gpu-diagnostic-repeat-suffix-page-console-warn-rejected",
+                      repeat_args_count >= 1
+                      and repeat_index is not None
+                      and repeat_runtime_matches
+                      and classify_browser_gpu_diagnostic(
+                          readpixels_repeat_fixture,
+                          repeat_location_url,
+                          repeat_line,
+                          repeat_column,
+                          repeat_args_count,
+                          repeat_page_url,
+                      ) is None,
+                      json.dumps({
+                          "argsCount": repeat_args_count,
+                          "pageUrl": repeat_page_url,
+                          "location": repeat_location,
+                          "capturedAsUnexpected": repeat_index is not None,
+                          "runtimeConsoleMatches": repeat_runtime_matches,
+                      }, ensure_ascii=False))
+                # Remove only the deliberate JS control after proving it hit
+                # the fatal-warning path. Real GPU diagnostics have argsCount=0
+                # plus positive CDP Log.entryAdded provenance and cannot match.
+                if repeat_index is not None:
+                    del warnings[repeat_index]
                 SCREENSHOTS.mkdir(exist_ok=True)
                 page.screenshot(path=str(SCREENSHOTS / "qa-v1.1-desktop.png"), full_page=False)
                 check("desktop-3d", page.locator("#sceneMount canvas").count() == 1)
