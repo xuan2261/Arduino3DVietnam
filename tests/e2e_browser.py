@@ -38,13 +38,30 @@ WEBGL_READPIXELS_DIAGNOSTIC = re.compile(
 )
 
 
-def classify_browser_gpu_diagnostic(text: str, location_url: str) -> str | None:
+def classify_browser_gpu_diagnostic(
+    text: str,
+    location_url: str,
+    line_number: int | None,
+    column_number: int | None,
+    args_count: int,
+    page_url: str,
+) -> str | None:
     """Classify only known Chromium-internal headless WebGL diagnostics.
 
-    App/page warnings always carry their source URL and must remain fatal even
-    if their text copies a browser diagnostic verbatim.
+    Playwright Chromium routes Runtime.consoleAPICalled through the JS console
+    path with its arguments, while browser Log.entryAdded messages are exposed
+    with an empty args list. Chromium sometimes attributes those internal GPU
+    entries to the current document URL at line/column zero, so that exact case
+    is accepted in addition to an empty URL. Page console calls remain fatal.
     """
-    if location_url:
+    if args_count != 0:
+        return None
+    browser_location = not location_url or (
+        location_url == page_url
+        and line_number == 0
+        and column_number == 0
+    )
+    if not browser_location:
         return None
     if SOFTWARE_WEBGL_FALLBACK_DIAGNOSTIC.fullmatch(text):
         return "chromium-software-webgl-fallback-deprecation"
@@ -61,6 +78,12 @@ def main() -> None:
     warnings: list[dict[str, object]] = []
     console_errors: list[dict[str, object]] = []
     browser_gpu_diagnostics: list[dict[str, object]] = []
+    gpu_diagnostic_candidates: list[dict[str, object]] = []
+    cdp_log_entries: list[dict[str, object]] = []
+    cdp_runtime_console_events: list[dict[str, object]] = []
+    cdp_sessions: list[object] = []
+    cdp_setup_errors: list[str] = []
+    page_sequence = 0
 
     def check(name: str, passed: bool, details: str = "") -> None:
         report.append({"name": name, "passed": bool(passed), "details": details})
@@ -84,31 +107,118 @@ def main() -> None:
             {"modulePath": module_path, "exportName": export_name},
         )
 
-    def capture_console(page) -> None:
+    def capture_console(page) -> str:
+        nonlocal page_sequence
+        page_sequence += 1
+        page_key = f"page-{page_sequence}"
         page.on("pageerror", lambda exc: errors.append(str(exc)))
+
+        # Positive provenance for browser-internal diagnostics. Playwright's
+        # Chromium bridge turns CDP Log.entryAdded into ConsoleMessage(args=[])
+        # while JS console APIs arrive through Runtime.consoleAPICalled with
+        # their argument handles. Keep both protocol streams as audit evidence.
+        try:
+            cdp = page.context.new_cdp_session(page)
+            cdp_sessions.append(cdp)
+
+            def on_log_entry(event) -> None:
+                entry = event.get("entry") or {}
+                cdp_log_entries.append({
+                    "pageKey": page_key,
+                    "level": entry.get("level"),
+                    "source": entry.get("source"),
+                    "text": entry.get("text"),
+                    "url": entry.get("url") or "",
+                    "lineNumber": entry.get("lineNumber", 0),
+                    "protocolArgsCount": len(entry.get("args") or []),
+                })
+
+            def on_runtime_console(event) -> None:
+                if event.get("type") != "warning":
+                    return
+                args = event.get("args") or []
+                stack = (event.get("stackTrace") or {}).get("callFrames") or []
+                cdp_runtime_console_events.append({
+                    "pageKey": page_key,
+                    "type": event.get("type"),
+                    "argsCount": len(args),
+                    "argValues": [arg.get("value") for arg in args if "value" in arg],
+                    "url": stack[0].get("url", "") if stack else "",
+                    "lineNumber": stack[0].get("lineNumber", 0) if stack else 0,
+                    "columnNumber": stack[0].get("columnNumber", 0) if stack else 0,
+                })
+
+            cdp.on("Log.entryAdded", on_log_entry)
+            cdp.on("Runtime.consoleAPICalled", on_runtime_console)
+            cdp.send("Log.enable")
+            cdp.send("Runtime.enable")
+        except Exception as error:
+            cdp_setup_errors.append(f"{page_key}: {error}")
+
         def on_console(message) -> None:
             if message.type not in {"warning", "error"}:
                 return
             location = message.location or {}
             location_url = str(location.get("url") or "")
+            line_number = location.get("lineNumber", location.get("line"))
+            column_number = location.get("columnNumber", location.get("column"))
+            args_count = len(message.args)
+            current_page_url = page.url
             entry: dict[str, object] = {
+                "pageKey": page_key,
                 "text": message.text,
+                "argsCount": args_count,
+                "pageUrl": current_page_url,
                 "location": {
                     "url": location_url,
-                    "lineNumber": location.get("lineNumber"),
-                    "columnNumber": location.get("columnNumber"),
+                    "lineNumber": line_number,
+                    "columnNumber": column_number,
                 },
             }
             if message.type == "error":
                 console_errors.append(entry)
                 return
-            diagnostic_kind = classify_browser_gpu_diagnostic(message.text, location_url)
+            diagnostic_kind = classify_browser_gpu_diagnostic(
+                message.text,
+                location_url,
+                line_number,
+                column_number,
+                args_count,
+                current_page_url,
+            )
             if diagnostic_kind:
-                entry["kind"] = diagnostic_kind
-                browser_gpu_diagnostics.append(entry)
+                entry["candidateKind"] = diagnostic_kind
+                gpu_diagnostic_candidates.append(entry)
             else:
                 warnings.append(entry)
         page.on("console", on_console)
+        return page_key
+
+    def reconcile_browser_gpu_diagnostics() -> None:
+        allowed_sources = {"rendering", "deprecation"}
+        for candidate in gpu_diagnostic_candidates:
+            location = candidate["location"]
+            log_matches = [entry for entry in cdp_log_entries if
+                           entry["pageKey"] == candidate["pageKey"]
+                           and entry["level"] == "warning"
+                           and entry["text"] == candidate["text"]
+                           and entry["url"] == location["url"]
+                           and entry["lineNumber"] == location["lineNumber"]]
+            browser_matches = [entry for entry in log_matches
+                               if entry["source"] in allowed_sources]
+            runtime_matches = [entry for entry in cdp_runtime_console_events if
+                               entry["pageKey"] == candidate["pageKey"]
+                               and candidate["text"] in entry["argValues"]]
+            candidate["cdpLogMatches"] = log_matches
+            candidate["runtimeConsoleMatches"] = runtime_matches
+            if browser_matches:
+                candidate["kind"] = candidate.pop("candidateKind")
+                candidate["cdpSource"] = browser_matches[0]["source"]
+                browser_gpu_diagnostics.append(candidate)
+            else:
+                # Fail closed: exact text/args/location is still not enough if
+                # CDP did not positively identify a rendering/deprecation log.
+                warnings.append(candidate)
 
     class QuietHandler(Handler):
         def log_message(self, format: str, *args) -> None:
@@ -134,16 +244,31 @@ def main() -> None:
             "[.WebGL-0x4c0013d400]GL Driver Message "
             "(OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
         )
+        page_fixture = base + "#bai-01"
         check("gpu-diagnostic-classifier-bounded",
-              classify_browser_gpu_diagnostic(fallback_fixture, "") ==
+              classify_browser_gpu_diagnostic(fallback_fixture, "", 0, 0, 0, page_fixture) ==
               "chromium-software-webgl-fallback-deprecation"
-              and classify_browser_gpu_diagnostic(readpixels_fixture, "") ==
+              and classify_browser_gpu_diagnostic(readpixels_fixture, "", 0, 0, 0, page_fixture) ==
               "chromium-webgl-readpixels-driver-stall"
-              and classify_browser_gpu_diagnostic(fallback_fixture, base + "src/app.js") is None
-              and classify_browser_gpu_diagnostic(readpixels_fixture, base + "src/scene3d.js") is None
-              and classify_browser_gpu_diagnostic("Application warning from lesson UI", "") is None
               and classify_browser_gpu_diagnostic(
-                  readpixels_fixture.replace("ReadPixels", "ReadPixels extra"), "") is None)
+                  fallback_fixture, page_fixture, 0, 0, 0, page_fixture) ==
+              "chromium-software-webgl-fallback-deprecation"
+              and classify_browser_gpu_diagnostic(
+                  readpixels_fixture, page_fixture, 0, 0, 0, page_fixture) ==
+              "chromium-webgl-readpixels-driver-stall"
+              and classify_browser_gpu_diagnostic(
+                  fallback_fixture, page_fixture, 0, 0, 1, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  fallback_fixture, page_fixture, 1, 0, 0, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  fallback_fixture, base + "src/app.js", 0, 0, 0, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  readpixels_fixture, base + "src/scene3d.js", 0, 0, 0, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  "Application warning from lesson UI", "", 0, 0, 0, page_fixture) is None
+              and classify_browser_gpu_diagnostic(
+                  readpixels_fixture.replace("ReadPixels", "ReadPixels extra"),
+                  "", 0, 0, 0, page_fixture) is None)
         with sync_playwright() as playwright:
             # The local Windows runner uses existing Chrome; an opt-in GitHub
             # runner can use the pinned Playwright-managed Chromium installed
@@ -162,9 +287,55 @@ def main() -> None:
                     service_workers="allow",
                 )
                 page = desktop.new_page()
-                capture_console(page)
+                main_page_key = capture_console(page)
                 page.goto(base, wait_until="domcontentloaded", timeout=15000)
                 ready(page)
+                synthetic_warning_start = len(warnings)
+                with page.expect_console_message(
+                    predicate=lambda message: message.type == "warning"
+                    and message.text == fallback_fixture,
+                    timeout=5000,
+                ) as synthetic_warning_info:
+                    page.evaluate("text => console.warn(text)", fallback_fixture)
+                synthetic_warning = synthetic_warning_info.value
+                synthetic_location = synthetic_warning.location or {}
+                synthetic_line = synthetic_location.get("lineNumber", synthetic_location.get("line"))
+                synthetic_column = synthetic_location.get("columnNumber", synthetic_location.get("column"))
+                synthetic_args_count = len(synthetic_warning.args)
+                synthetic_page_url = page.url
+                synthetic_location_url = str(synthetic_location.get("url") or "")
+                synthetic_index = next((
+                    index for index in range(synthetic_warning_start, len(warnings))
+                    if warnings[index]["text"] == fallback_fixture
+                    and warnings[index]["argsCount"] == synthetic_args_count
+                ), None)
+                runtime_control_matches = [entry for entry in cdp_runtime_console_events if
+                                           entry["pageKey"] == main_page_key
+                                           and fallback_fixture in entry["argValues"]]
+                check("gpu-diagnostic-page-console-warn-rejected",
+                      synthetic_args_count >= 1
+                      and synthetic_index is not None
+                      and runtime_control_matches
+                      and classify_browser_gpu_diagnostic(
+                          fallback_fixture,
+                          synthetic_location_url,
+                          synthetic_line,
+                          synthetic_column,
+                          synthetic_args_count,
+                          synthetic_page_url,
+                      ) is None,
+                      json.dumps({
+                          "argsCount": synthetic_args_count,
+                          "pageUrl": synthetic_page_url,
+                          "location": synthetic_location,
+                          "capturedAsUnexpected": synthetic_index is not None,
+                          "runtimeConsoleMatches": runtime_control_matches,
+                      }, ensure_ascii=False))
+                # Remove only this deliberately injected JS warning after proving
+                # the production warning gate captured it as unexpected. A real
+                # Chromium GPU diagnostic has argsCount==0 and cannot match here.
+                if synthetic_index is not None:
+                    del warnings[synthetic_index]
                 SCREENSHOTS.mkdir(exist_ok=True)
                 page.screenshot(path=str(SCREENSHOTS / "qa-v1.1-desktop.png"), full_page=False)
                 check("desktop-3d", page.locator("#sceneMount canvas").count() == 1)
@@ -707,7 +878,10 @@ def main() -> None:
                 offline.close()
 
                 desktop.close()
+                reconcile_browser_gpu_diagnostics()
                 check("no-uncaught-pageerrors", not errors, "; ".join(errors[:4]))
+                check("cdp-console-provenance-ready", not cdp_setup_errors,
+                      json.dumps(cdp_setup_errors, ensure_ascii=False))
                 check("no-console-errors", not console_errors,
                       json.dumps(console_errors[:4], ensure_ascii=False))
                 check("no-console-warnings", not warnings,

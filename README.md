@@ -115,7 +115,7 @@ Repository: **https://github.com/xuan2261/Arduino3DVietnam** (Private). Đẩy c
 Các workflow chính:
 
 - `.github/workflows/arduino-compile-manual.yml`: cài toolchain đã chốt và biên dịch thật 16 Sketch trên runner độc lập; đã có run 16/16 PASS.
-- `.github/workflows/browser-e2e-manual.yml`: Chrome/Chromium thực, WebGL, đấu dây, keyboard, tiến độ và offline; bản v1.2.0 có 108/108 trên Chromium remote, còn ứng viên v1.3.0 đạt **143/143 Chrome local** (gồm lần đầu Service Worker nhận quyền, nâng cấp bản cũ và bộ phân loại chẩn đoán GPU có negative tests). Chromium remote phải PASS trên đúng commit phát hành mới.
+- `.github/workflows/browser-e2e-manual.yml`: Chrome/Chromium thực, WebGL, đấu dây, keyboard, tiến độ và offline; bản v1.2.0 có 108/108 trên Chromium remote, còn ứng viên v1.3.0 đạt **145/145 Chrome local** (gồm cập nhật Service Worker và kiểm chứng nguồn cảnh báo GPU bằng Chrome DevTools Protocol, có negative tests). Chromium remote phải PASS trên đúng commit phát hành mới.
 - `.github/workflows/pages.yml`: job `deploy` chỉ chạy thủ công, sau khi `release-gates` xác minh **cả hai run phía trên đã PASS cho đúng SHA**. Không chấp nhận thành công của commit cũ.
 - `.github/workflows/release-gates-manual.yml`: cho phép xác minh **chỉ đọc** hai điều kiện đó, không deploy hay thay đổi visibility website.
 - `.github/workflows/firmware-hex-manual.yml`: biên dịch thủ công 16 tệp `.hex` kèm checksum/manifest, không nạp Arduino.
