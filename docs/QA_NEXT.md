@@ -11,7 +11,7 @@ python -m unittest discover -s tests -v
 python scripts/build_site.py
 ```
 
-`tests/test_release.py` hiện kiểm tra **10 hợp đồng**, gồm:
+`tests/test_release.py` hiện kiểm tra **11 hợp đồng**, gồm:
 
 1. Danh sách precache của `sw.js` phải khớp chính xác các tệp release trong `scripts/build_site.py`, cộng route `./`, không có URL tuyệt đối hoặc mục trùng.
 2. Build cùng input phải tạo cùng cache ID; thay đổi một release asset phải đổi cache ID; `dist/` chỉ chứa allowlist release và marker của builder.
@@ -21,7 +21,7 @@ python scripts/build_site.py
 
 Các thử nghiệm bổ sung chặn đường dẫn ra ngoài workspace/symlink, nguồn avr8js hoặc giấy phép sai provenance/checksum, sai manifest/Sketch/HEX/flash và nguồn bài học không khớp, cùng việc thiếu những module AVR/solver và license trong release. Đóng gói không dựa vào giá trị hash tự công bố mà còn kiểm tra source, Sketch và Intel HEX thực. Tổng bản xuất website có 54 file cố định và marker, không chứa toàn bộ thư mục development.
 
-Kết quả cũ v1.2: `test_release.py` **5/5** và toàn suite ban đầu **22/22** là bằng chứng lịch sử. Kết quả ứng viên v1.3 ngày 28/10/2026: `test_release.py` **11/11**; toàn bộ `python -m unittest discover -s tests -q` **68/68 PASS**, `python scripts/build_site.py` PASS; 16 HEX trong `dist/assets/firmware/` cũng được xác minh trực tiếp với `export_firmware.py`. Bản CI ứng viên đầu đã phát hiện checkout Git đổi byte `CRLF` sang `LF`; `.gitattributes` mới đánh dấu `assets/firmware/*.hex binary`, có regression và đối chiếu byte trong Git index, cần xác minh lại trên runner Linux. Test content-addressed build dùng fixture trong thư mục tạm; bản build thật chỉ thay `dist/` có marker được cho phép.
+Kết quả cũ v1.2: `test_release.py` **5/5** và toàn suite ban đầu **22/22** là bằng chứng lịch sử. Kết quả ứng viên v1.3 ngày 28/10/2026: `test_release.py` **11/11**; toàn bộ `python -m unittest discover -s tests -q` **68/68 PASS**, `python scripts/build_site.py` PASS; 16 HEX trong `dist/assets/firmware/` cũng được xác minh trực tiếp với `export_firmware.py`. Bản CI ứng viên đầu đã phát hiện checkout Git đổi byte `CRLF` sang `LF`; `.gitattributes` mới đánh dấu `assets/firmware/*.hex binary`, có regression và đối chiếu byte trong Git index. **GitHub push check trên commit `b313b530` đã PASS** sau sửa lỗi này (run `40652449937`). Test content-addressed build dùng fixture trong thư mục tạm; bản build thật chỉ thay `dist/` có marker được cho phép.
 
 Bộ Chrome E2E hiện có trong `tests/e2e_browser.py` đã kiểm tra bản `dist/` được Service Worker điều khiển, sau đó ngắt mạng và reload thành công. Vì vậy không thêm `tests/offline-contracts.js`: một test JavaScript riêng sẽ lặp lại bằng chứng end-to-end hiện có nhưng không tăng độ tin cậy khi môi trường không có Node.
 
@@ -48,4 +48,4 @@ Các mục dưới đây cần hostname HTTPS thật hoặc thiết bị/AT đ�
 
 Workflow đã thu hẹp quyền: cấp `contents: read` ở cấp workflow; chỉ job `deploy` nhận `pages: write` và `id-token: write`. Không cần quyền xuất bản trong job `check`.
 
-Các action GitHub đang được pin theo major tag (`@v4`, `@v5`, `@v3`) thay vì commit SHA. Nếu dự án cần supply-chain pinning nghiêm ngặt, chuyển chúng sang SHA đã xác minh và cập nhật qua Dependabot/Renovate.
+Các GitHub Actions trong workflow compile, browser E2E, firmware export, preflight và Pages đã được **pin đầy đủ SHA 40 ký tự**, có comment phiên bản để kiểm tra ngược. Danh sách tag và commit từ GitHub REST được ghi tại [FIRMWARE_RELEASE_GATE.md](FIRMWARE_RELEASE_GATE.md). Khi cập nhật action, phải xác thực lại tag/release từ upstream, cập nhật SHA và chạy negative/release tests trước khi sử dụng bản mới; không tự chuyển về thẻ major có thể di chuyển.

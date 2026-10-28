@@ -11,6 +11,7 @@ import functools
 import http.server
 import json
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -23,12 +24,43 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+SOFTWARE_WEBGL_FALLBACK_DIAGNOSTIC = re.compile(
+    r"^\[GroupMarkerNotSet\(crbug\.com/242999\)!:[0-9A-F]+\]"
+    r"Automatic fallback to software WebGL has been deprecated\. "
+    r"Please use the --enable-unsafe-swiftshader "
+    r"\(about:flags#enable-unsafe-swiftshader\) flag to opt in to lower "
+    r"security guarantees for trusted content\.$"
+)
+WEBGL_READPIXELS_DIAGNOSTIC = re.compile(
+    r"^\[\.WebGL-0x[0-9a-fA-F]+\]"
+    r"GL Driver Message \(OpenGL, Performance, GL_CLOSE_PATH_NV, High\): "
+    r"GPU stall due to ReadPixels$"
+)
+
+
+def classify_browser_gpu_diagnostic(text: str, location_url: str) -> str | None:
+    """Classify only known Chromium-internal headless WebGL diagnostics.
+
+    App/page warnings always carry their source URL and must remain fatal even
+    if their text copies a browser diagnostic verbatim.
+    """
+    if location_url:
+        return None
+    if SOFTWARE_WEBGL_FALLBACK_DIAGNOSTIC.fullmatch(text):
+        return "chromium-software-webgl-fallback-deprecation"
+    if WEBGL_READPIXELS_DIAGNOSTIC.fullmatch(text):
+        return "chromium-webgl-readpixels-driver-stall"
+    return None
+
+
 def main() -> None:
     from scripts.serve import Handler
 
     report: list[dict[str, object]] = []
     errors: list[str] = []
-    warnings: list[str] = []
+    warnings: list[dict[str, object]] = []
+    console_errors: list[dict[str, object]] = []
+    browser_gpu_diagnostics: list[dict[str, object]] = []
 
     def check(name: str, passed: bool, details: str = "") -> None:
         report.append({"name": name, "passed": bool(passed), "details": details})
@@ -54,8 +86,29 @@ def main() -> None:
 
     def capture_console(page) -> None:
         page.on("pageerror", lambda exc: errors.append(str(exc)))
-        page.on("console", lambda message: warnings.append(message.text)
-                if message.type == "warning" else None)
+        def on_console(message) -> None:
+            if message.type not in {"warning", "error"}:
+                return
+            location = message.location or {}
+            location_url = str(location.get("url") or "")
+            entry: dict[str, object] = {
+                "text": message.text,
+                "location": {
+                    "url": location_url,
+                    "lineNumber": location.get("lineNumber"),
+                    "columnNumber": location.get("columnNumber"),
+                },
+            }
+            if message.type == "error":
+                console_errors.append(entry)
+                return
+            diagnostic_kind = classify_browser_gpu_diagnostic(message.text, location_url)
+            if diagnostic_kind:
+                entry["kind"] = diagnostic_kind
+                browser_gpu_diagnostics.append(entry)
+            else:
+                warnings.append(entry)
+        page.on("console", on_console)
 
     class QuietHandler(Handler):
         def log_message(self, format: str, *args) -> None:
@@ -70,6 +123,27 @@ def main() -> None:
     server_thread.start()
     base = f"http://127.0.0.1:{server.server_port}/"
     try:
+        fallback_fixture = (
+            "[GroupMarkerNotSet(crbug.com/242999)!:A0501800AC2D0000]"
+            "Automatic fallback to software WebGL has been deprecated. "
+            "Please use the --enable-unsafe-swiftshader "
+            "(about:flags#enable-unsafe-swiftshader) flag to opt in to lower "
+            "security guarantees for trusted content."
+        )
+        readpixels_fixture = (
+            "[.WebGL-0x4c0013d400]GL Driver Message "
+            "(OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+        )
+        check("gpu-diagnostic-classifier-bounded",
+              classify_browser_gpu_diagnostic(fallback_fixture, "") ==
+              "chromium-software-webgl-fallback-deprecation"
+              and classify_browser_gpu_diagnostic(readpixels_fixture, "") ==
+              "chromium-webgl-readpixels-driver-stall"
+              and classify_browser_gpu_diagnostic(fallback_fixture, base + "src/app.js") is None
+              and classify_browser_gpu_diagnostic(readpixels_fixture, base + "src/scene3d.js") is None
+              and classify_browser_gpu_diagnostic("Application warning from lesson UI", "") is None
+              and classify_browser_gpu_diagnostic(
+                  readpixels_fixture.replace("ReadPixels", "ReadPixels extra"), "") is None)
         with sync_playwright() as playwright:
             # The local Windows runner uses existing Chrome; an opt-in GitHub
             # runner can use the pinned Playwright-managed Chromium installed
@@ -634,7 +708,10 @@ def main() -> None:
 
                 desktop.close()
                 check("no-uncaught-pageerrors", not errors, "; ".join(errors[:4]))
-                check("no-console-warnings", not warnings, "; ".join(warnings[:4]))
+                check("no-console-errors", not console_errors,
+                      json.dumps(console_errors[:4], ensure_ascii=False))
+                check("no-console-warnings", not warnings,
+                      json.dumps(warnings[:4], ensure_ascii=False))
             finally:
                 browser.close()
     finally:
@@ -644,7 +721,20 @@ def main() -> None:
 
     print(json.dumps({
         "total": len(report), "passed": sum(item["passed"] for item in report),
-        "failed": sum(not item["passed"] for item in report), "checks": report,
+        "failed": sum(not item["passed"] for item in report),
+        "browser_gpu_diagnostics": {
+            "count": len(browser_gpu_diagnostics),
+            "messages": browser_gpu_diagnostics,
+        },
+        "unexpected_console_warnings": {
+            "count": len(warnings),
+            "messages": warnings,
+        },
+        "console_errors": {
+            "count": len(console_errors),
+            "messages": console_errors,
+        },
+        "checks": report,
     }, indent=2, ensure_ascii=False))
 
 

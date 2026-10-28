@@ -43,3 +43,7 @@ Trong khi cô lập teardown, một scene Three.js r180 tối thiểu cũng tái
 ## Giới hạn
 
 Các contract pointer dùng sự kiện trình duyệt và kiểm tra CSS thực tế, nhưng chưa thay thế kiểm thử trên điện thoại/máy tính bảng vật lý. Chưa chạy NVDA, JAWS, VoiceOver hoặc TalkBack; `role`, nhãn, focus và keyboard behavior đã được kiểm tra bằng DOM/browser contract. Context-loss contract dùng extension chuẩn `WEBGL_lose_context` khi Chrome cung cấp, nên nó kiểm tra vòng đời WebGL thật của tab thử nhưng không mô phỏng mọi nguyên nhân GPU reset/driver crash ngoài thực tế.
+
+### Chẩn đoán WebGL trên GitHub Ubuntu
+
+Chromium headless trên runner Ubuntu có thể phát sinh cảnh báo **nội bộ GPU/driver** khi WebGL chạy bằng phần mềm, chẳng hạn cảnh báo deprecation của SwiftShader hoặc `GPU stall due to ReadPixels`. Chúng không phải là `console.warn` do ứng dụng phát ra, và không chứng minh thiết bị GPU thật đã được kiểm thử. Test browser v1.3 ghi riêng các diagnostic này **khi và chỉ khi** khớp đúng mẫu Chromium đã xác minh và không có source URL của page; trường hợp sai mẫu, cảnh báo từ script của website, `console.error` và `pageerror` vẫn làm fail gate. Báo cáo JSON giữ nguyên thông báo GPU và số lần xuất hiện để không tạo kết quả xanh giả. Không bật `--enable-unsafe-swiftshader` để ép software WebGL có quyền kém an toàn trên runner.
