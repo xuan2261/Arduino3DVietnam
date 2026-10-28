@@ -8,26 +8,45 @@ permissions:
   contents: read
 jobs:
   compile:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out the selected ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
       - name: Set up Arduino CLI 1.5.1 on disposable runner
-        uses: arduino/setup-arduino-cli@v2.0.0
+        uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02 # v2.0.0
         with:
           version: '1.5.1'
-      - name: Install Arduino AVR core 1.8.6 on disposable runner
+      - name: Install pinned Arduino dependencies on disposable runner
+        env:
+          ARDUINO_DIRECTORIES_DATA: ${{ runner.temp }}/arduino-data
+          ARDUINO_DIRECTORIES_DOWNLOADS: ${{ runner.temp }}/arduino-downloads
+          ARDUINO_DIRECTORIES_USER: ${{ runner.temp }}/arduino-user
         run: |
           arduino-cli core update-index
           arduino-cli core install arduino:avr@1.8.6
+          arduino-cli lib install Servo@1.3.0
+          test -f "$ARDUINO_DIRECTORIES_USER/libraries/Servo/src/Servo.h"
       - name: Compile 16 bundled Uno Sketches (no upload)
-        run: python scripts/verify_sketches.py --compile --json > arduino-compile.json
+        shell: bash
+        env:
+          ARDUINO_DIRECTORIES_DATA: ${{ runner.temp }}/arduino-data
+          ARDUINO_DIRECTORIES_DOWNLOADS: ${{ runner.temp }}/arduino-downloads
+          ARDUINO_DIRECTORIES_USER: ${{ runner.temp }}/arduino-user
+        run: |
+          python scripts/verify_sketches.py \
+            --compile \
+            --library "$ARDUINO_DIRECTORIES_USER/libraries/Servo" \
+            --json | tee arduino-compile.json
       - name: Keep compile evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: arduino-uno-compile-results
           path: arduino-compile.json

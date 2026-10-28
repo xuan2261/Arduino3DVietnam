@@ -29,6 +29,7 @@ CORE_ID = "arduino:avr"
 COMMAND_TIMEOUT_SECONDS = 45
 PROBE_TIMEOUT_SECONDS = 8
 MAX_OUTPUT_CHARS = 6000
+MAX_LIBRARY_PATHS = 8
 
 _LESSON_PATTERN = re.compile(
     r'\bid:\s*(?P<id>\d+),\s*slug:\s*"(?P<slug>[^"]+)".*?'
@@ -122,6 +123,25 @@ def _clip(text: str) -> str:
     if len(normalized) <= MAX_OUTPUT_CHARS:
         return normalized
     return normalized[:MAX_OUTPUT_CHARS] + "\n…[đã rút gọn]"
+
+
+def _normalize_library_paths(paths: Iterable[Path]) -> tuple[Path, ...]:
+    """Chuẩn hóa các Arduino library root đã có sẵn; không tải/cài thư viện."""
+    normalized: list[Path] = []
+    seen: set[Path] = set()
+    for raw_path in paths:
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_dir() or not (path / "library.properties").is_file():
+            raise ValueError(
+                "--library phải trỏ tới thư mục gốc Arduino library đã có sẵn "
+                "và chứa library.properties"
+            )
+        if path not in seen:
+            normalized.append(path)
+            seen.add(path)
+        if len(normalized) > MAX_LIBRARY_PATHS:
+            raise ValueError(f"Chỉ cho phép tối đa {MAX_LIBRARY_PATHS} đường dẫn --library")
+    return tuple(normalized)
 
 
 def _run_process(
@@ -238,7 +258,12 @@ def probe_compiler(cli: Path | None = None) -> dict[str, Any]:
     }
 
 
-def compile_sketch(sketch: Sketch, cli: Path) -> dict[str, Any]:
+def compile_sketch(
+    sketch: Sketch,
+    cli: Path,
+    *,
+    libraries: Iterable[Path] = (),
+) -> dict[str, Any]:
     """Biên dịch một Sketch allowlist trong thư mục tạm; tuyệt đối không upload."""
     if (
         sketch.lesson_id not in EXPECTED_IDS
@@ -246,6 +271,7 @@ def compile_sketch(sketch: Sketch, cli: Path) -> dict[str, Any]:
         or len(sketch.source.encode("utf-8")) > 16000
     ):
         raise ValueError("Sketch không thuộc phạm vi đường dẫn/kích thước cho phép")
+    library_paths = _normalize_library_paths(libraries)
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix=f"arduino3dvn-{sketch.lesson_id:02d}-") as tmp:
         temp_root = Path(tmp).resolve()
@@ -266,8 +292,10 @@ def compile_sketch(sketch: Sketch, cli: Path) -> dict[str, Any]:
             "all",
             "--build-path",
             str(build_dir),
-            str(sketch_dir),
         ]
+        for library_path in library_paths:
+            command.extend(["--library", str(library_path)])
+        command.append(str(sketch_dir))
         try:
             result = _run_process(
                 command,
@@ -293,6 +321,7 @@ def compile_sketch(sketch: Sketch, cli: Path) -> dict[str, Any]:
         "return_code": return_code,
         "duration_ms": round((time.monotonic() - started) * 1000),
         "detail": detail,
+        "libraries": [str(path) for path in library_paths],
     }
 
 
@@ -302,6 +331,7 @@ def verify(
     lesson_ids: list[int] | None = None,
     lessons_path: Path = LESSONS_FILE,
     cli: Path | None = None,
+    libraries: Iterable[Path] = (),
 ) -> tuple[dict[str, Any], int]:
     sketches = extract_sketches(lessons_path)
     selected_ids = sorted(set(lesson_ids or EXPECTED_IDS))
@@ -309,6 +339,7 @@ def verify(
     if invalid:
         raise ValueError(f"ID bài học ngoài allowlist 1..16: {invalid!r}")
     selected = [sketch for sketch in sketches if sketch.lesson_id in selected_ids]
+    library_paths = _normalize_library_paths(libraries) if compile_requested else ()
     compiler = probe_compiler(cli)
     compile_ready = compiler["available"] and compiler["core_available"]
 
@@ -338,6 +369,7 @@ def verify(
             },
         },
         "compiler": compiler,
+        "compile_libraries": [str(path) for path in library_paths],
         "results": [],
     }
 
@@ -364,7 +396,10 @@ def verify(
         return report, 2
 
     resolved_cli = Path(compiler["path"])
-    report["results"] = [compile_sketch(sketch, resolved_cli) for sketch in selected]
+    report["results"] = [
+        compile_sketch(sketch, resolved_cli, libraries=library_paths)
+        for sketch in selected
+    ]
     failed = [row for row in report["results"] if row["status"] != "compiled"]
     return report, 1 if failed else 0
 
@@ -415,6 +450,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="In JSON máy đọc được cho UI/CI.",
     )
+    parser.add_argument(
+        "--library",
+        action="append",
+        type=Path,
+        default=[],
+        dest="libraries",
+        help=(
+            "Chỉ định thư mục gốc của Arduino library đã cài sẵn cho lệnh compile; "
+            "có thể lặp lại, tối đa 8."
+        ),
+    )
     return parser
 
 
@@ -433,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
         report, exit_code = verify(
             compile_requested=args.compile,
             lesson_ids=args.lesson_ids,
+            libraries=args.libraries,
         )
     except (OSError, ValueError) as exc:
         if args.json:

@@ -5,7 +5,7 @@ Website hiện có ba lớp khác nhau. Cần hiển thị đúng lớp để ng
 | Lớp | Trạng thái | Ý nghĩa |
 | --- | --- | --- |
 | Mô phỏng trong trình duyệt | Có | `src/simulator.js` tính các trạng thái LED, ADC, PWM, servo... bằng quy tắc JavaScript. Sketch C++ không được thực thi. |
-| Biên dịch Arduino C++ | Tùy máy | `scripts/verify_sketches.py --compile` chỉ gọi `arduino-cli` và Arduino AVR core đã tồn tại trên máy. |
+| Biên dịch Arduino C++ | Tùy máy | `scripts/verify_sketches.py --compile` chỉ gọi `arduino-cli`, Arduino AVR core và các library đã tồn tại trên máy. |
 | Arduino vật lý | Không hỗ trợ | Không mở cổng serial/USB, không chạy `upload`, không nạp firmware và không điều khiển bo thật. |
 
 ## Kiểm tra compiler hiện có
@@ -18,17 +18,20 @@ python scripts/verify_sketches.py
 python scripts/verify_sketches.py --json
 ```
 
-Script chỉ tìm `arduino-cli` trên `PATH` và các vị trí cài Arduino IDE phổ biến. Nó không quét toàn bộ ổ đĩa, không tải package index, không chạy `core update-index`, `core install` hay `lib install`.
+Script chỉ tìm `arduino-cli` trên `PATH` và các vị trí cài Arduino IDE phổ biến. Nó không quét toàn bộ ổ đĩa, không tải package index, không chạy `core update-index`, `core install` hay `lib install`. Nếu cần chỉ rõ một library đã có sẵn cho compiler, dùng `--library <thư-mục-gốc-library>`; đường dẫn phải là thư mục Arduino library có `library.properties`.
 
 Khi `arduino-cli` và core `arduino:avr` đã có sẵn, có thể biên dịch thật 16 Sketch:
 
 ```powershell
 python scripts/verify_sketches.py --compile
 python scripts/verify_sketches.py --compile --lesson 2 --lesson 12
+python scripts/verify_sketches.py --compile --lesson 12 --library "C:\duong-dan\Arduino\libraries\Servo"
 python scripts/verify_sketches.py --compile --json
 ```
 
-Board được cố định ở `arduino:avr:uno`. Đầu vào chỉ là 16 Sketch được đóng gói trong `src/lessons.js`; CLI không nhận đường dẫn Sketch tùy ý. Mỗi Sketch được chép vào thư mục tạm riêng và chỉ chạy lệnh `arduino-cli compile` với timeout 45 giây. Thư mục tạm bị xóa sau mỗi lần kiểm tra.
+Board được cố định ở `arduino:avr:uno`. Đầu vào Sketch chỉ là 16 Sketch được đóng gói trong `src/lessons.js`; CLI không nhận đường dẫn Sketch tùy ý. `--library` chỉ bổ sung tối đa 8 thư mục library đã có sẵn cho bước compile. Mỗi Sketch được chép vào thư mục tạm riêng và chỉ chạy lệnh `arduino-cli compile` với timeout 45 giây. Thư mục tạm bị xóa sau mỗi lần kiểm tra.
+
+Bài 12 dùng `#include <Servo.h>`, nên môi trường compile phải có thư viện Servo tương thích. Arduino CLI 1.5.1 có một regression đang được theo dõi (`arduino/arduino-cli#3253`) khiến library đã cài trong `directories.user` có thể không được tự phát hiện; tham số `--library` truyền library root trực tiếp cho `arduino-cli compile` để tránh phụ thuộc vào cơ chế discovery đó.
 
 Mã thoát:
 
@@ -47,7 +50,11 @@ Nếu sau này Arduino CLI đã được cài hợp lệ từ trước, chạy l
 ## Kiểm thử biên dịch trên GitHub Actions khi chủ repository chủ động chạy
 
 Tệp `.github/workflows/arduino-compile-manual.yml` là **workflow thủ công duy nhất** (chỉ có `workflow_dispatch`).
-Nó không tự động tải/cài compiler vào máy Windows và không chạy khi đẩy code. Chỉ khi người quản trị vào GitHub Actions và chọn **Run workflow**, runner GitHub tạm thời mới dùng action chính thức `arduino/setup-arduino-cli@v2.0.0`, Arduino CLI **1.5.1**, core `arduino:avr@1.8.6` để thử compile tất cả 16 Sketch cho `arduino:avr:uno`; không upload/flash phần cứng. Kết quả được lưu dưới dạng artifact JSON. Chưa có run và chưa thể tuyên bố đạt compile ở thời điểm tạo workflow.
+Nó không tự động tải/cài compiler vào máy Windows và không chạy khi đẩy code. Chỉ khi người quản trị vào GitHub Actions và chọn **Run workflow**, runner `ubuntu-24.04` tạm thời mới dùng các action đã khóa theo commit SHA, Arduino CLI **1.5.1**, core `arduino:avr@1.8.6` và library chính thức `Servo@1.3.0` để thử compile tất cả 16 Sketch cho `arduino:avr:uno`; không upload/flash phần cứng. Workflow đặt các thư mục dữ liệu/user của Arduino CLI trong `runner.temp`, cài Servo bằng `arduino-cli lib install Servo@1.3.0`, sau đó truyền chính library root đó qua `--library` để không phụ thuộc vào regression discovery của CLI 1.5.1. Kết quả được lưu dưới dạng artifact JSON.
+
+Mức tái lập hiện tại là **pin theo phiên bản/commit**: action dùng commit SHA và Arduino CLI/core/Servo dùng phiên bản cố định. GitHub-hosted image `ubuntu-24.04` và Arduino package/library index vẫn là đầu vào mạng do bên ngoài quản lý, nên workflow chưa phải build hermetic hay tái lập byte-for-byte.
+
+Run GitHub Actions `40627906769` ngày 28/10/2026 đã cho bằng chứng compiler thật đầu tiên: **15/16 Sketch compile thành công** với Arduino CLI 1.5.1 và AVR core 1.8.6; riêng bài 12 thất bại vì `Servo.h: No such file or directory`. Workflow hiện tại đã bổ sung Servo 1.3.0 và đường dẫn library tường minh để xử lý đúng nguyên nhân đó. Cần một run mới của workflow đã sửa trước khi tuyên bố 16/16 compile thành công.
 
 ## Review 16 Sketch hiện tại
 
@@ -66,13 +73,13 @@ Review này kiểm tra logic mẫu, mối quan hệ với sơ đồ dây và cá
 | 09 | Đã đồng bộ mã mẫu với bàn đàn: bảy nút INPUT_PULLUP D2–D8 về GND, buzzer thụ động ở D9. Sketch đọc từng nút và phát nốt tương ứng; cần thử trên bo thật khi toolchain có sẵn. |
 | 10 | Điều khiển cầu H hợp lý: D9 PWM cho ENA, D7/D8 chọn chiều. Mẫu cố định chiều thuận và PWM 160; nguồn động cơ/driver vẫn phải theo phần cứng thật. |
 | 11 | Công thức LM35 đúng khi ADC tham chiếu 5 V như tiêu đề Sketch giả định. Nếu thay reference/board thì công thức phải đổi. |
-| 12 | Logic Servo hợp lý nhưng compile phụ thuộc thư viện `Servo.h` đã có trong môi trường Arduino. Servo thực cần nguồn đủ dòng và GND chung. |
+| 12 | Logic Servo hợp lý; run 40627906769 xác nhận thiếu `Servo.h` là dependency môi trường, nên workflow đã pin `Servo@1.3.0` và truyền library root tường minh. Servo thực cần nguồn đủ dòng và GND chung. |
 | 13 | Đã chỉnh phát đúng một lượt 50 xung trong setup(), loop() không phát thêm xung. Đây là lượng quay tương đối 90° với 200 bước/vòng, không phải đặt vị trí tuyệt đối qua phản hồi cảm biến. |
 | 14 | Sketch ghi rõ giả định ADC tăng theo độ ẩm. Hướng ADC của cảm biến thực phải được hiệu chuẩn; hệ tưới thật nên có hysteresis/thời gian nghỉ như nội dung đã cảnh báo. |
 | 15 | Dùng raw ADC và ngưỡng 650 là hợp lý cho ví dụ; không đổi thẳng sang Newton vì FSR phi tuyến. Với sơ đồ FSR phía 5 V, lực tăng thường làm raw tăng. |
 | 16 | Logic cảm biến và cảnh báo tách độc lập hợp lý. Wiring hiện đã ghi rõ `INPUT_PULLUP`: nút đóng D2 xuống GND, LED có điện trở 220 Ω và LDR/LM35 có đường nguồn/mass tương ứng. |
 
-Hai điểm lệch bài 09 và 13 đã được chỉnh trong nguồn v1.1. Những Sketch còn lại là ví dụ mẫu và chưa được compiler AVR thật xác nhận trong môi trường hiện tại. Không được suy luận compile thành công từ việc công cụ trích xuất đủ 16 Sketch.
+Hai điểm lệch bài 09 và 13 đã được chỉnh trong nguồn v1.1. Run 40627906769 đã xác nhận 15 Sketch compile thật trên Uno; bài 12 đang chờ rerun sau khi bổ sung dependency Servo. Không được suy luận compile thành công từ việc công cụ trích xuất đủ 16 Sketch hoặc từ mô phỏng.
 
 ## Contract gợi ý cho UI
 

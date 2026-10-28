@@ -106,6 +106,55 @@ class VerifySketchesTests(unittest.TestCase):
         self.assertTrue(sketch_path.name.startswith("lesson_01_"))
         self.assertIn("arduino3dvn-01-", str(sketch_path))
 
+    def test_compile_can_pin_an_existing_library_root(self):
+        sketch = verifier.Sketch(
+            lesson_id=12,
+            slug="dong-co-servo",
+            source="#include <Servo.h>\nvoid setup() {}\nvoid loop() {}\n",
+        )
+        captured: list[list[str]] = []
+
+        def fake_run(command, *, timeout, cwd=verifier.ROOT):
+            captured.append(command)
+            return subprocess.CompletedProcess(command, 0, "Sketch uses 100 bytes", "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            servo = Path(temp) / "Servo"
+            servo.mkdir()
+            (servo / "library.properties").write_text(
+                "name=Servo\nversion=1.3.0\narchitectures=avr\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(verifier, "_run_process", side_effect=fake_run):
+                result = verifier.compile_sketch(
+                    sketch,
+                    Path("C:/Arduino/arduino-cli.exe"),
+                    libraries=[servo],
+                )
+
+        self.assertEqual(result["status"], "compiled")
+        command = captured[0]
+        library_index = command.index("--library")
+        self.assertEqual(Path(command[library_index + 1]), servo.resolve())
+        self.assertEqual(result["libraries"], [str(servo.resolve())])
+
+    def test_rejects_non_library_path_before_compile(self):
+        sketch = verifier.Sketch(
+            lesson_id=12,
+            slug="dong-co-servo",
+            source="#include <Servo.h>\nvoid setup() {}\nvoid loop() {}\n",
+        )
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            verifier, "_run_process"
+        ) as process:
+            with self.assertRaisesRegex(ValueError, "library.properties"):
+                verifier.compile_sketch(
+                    sketch,
+                    Path("C:/Arduino/arduino-cli.exe"),
+                    libraries=[Path(temp)],
+                )
+        process.assert_not_called()
+
     def test_lesson_selection_cannot_escape_allowlist(self):
         with self.assertRaisesRegex(ValueError, "allowlist"):
             verifier.verify(compile_requested=False, lesson_ids=[17])
