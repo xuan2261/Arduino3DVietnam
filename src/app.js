@@ -189,6 +189,20 @@ function explorerSelectTerminal(id) {
   refreshLabExplorer();
   return true;
 }
+function inspectTerminalReadOnly(id){
+  if(!supportedWiringLessons().includes(state.lessonId) ||
+      !listTerminals(state.lessonId).some(terminal=>terminal.id===id))return false;
+  // Inspect is not a wiring gesture. Revoke any pending 3D terminal and
+  // exit editor explicitly without touching the canonical learner circuit.
+  state.labEditorUI?.closeEditor?.();
+  state.stageTab="3d";
+  renderStage();
+  const accepted=explorerSelectTerminal(id);
+  if(accepted)$("sceneInspectionStatus")?.scrollIntoView?.({
+    block:"nearest",behavior:"auto",
+  });
+  return accepted;
+}
 function explorerConnect(from,to) {
   if(!supportedWiringLessons().includes(state.lessonId))
     throw new RangeError("Bài này không có netlist đấu dây ngoài.");
@@ -331,6 +345,12 @@ function renderUnoPinReference() {
     ["i2c", "Header I²C · chức năng trùng A4/A5"],
     ["power", "Nguồn, reset và tham chiếu"],
   ];
+  // Only canonical endpoints of the *current lesson* can be inspected in
+  // the conceptual scene. Official aliases/other physical header pins remain
+  // documentation, never guessed to occupy 3D positions.
+  const viewable=new Set(supportedWiringLessons().includes(state.lessonId)
+    ? listTerminals(state.lessonId).map(item=>item.id)
+    : []);
   for (const [group, heading] of groups) {
     const field = el("div", "uno-pin-group");
     field.append(el("h5", "", heading));
@@ -343,7 +363,17 @@ function renderUnoPinReference() {
     for (const pin of listUnoPinReferences().filter(item => item.group === group)) {
       const row = el("tr");
       row.setAttribute("data-uno-pin-id", pin.id);
-      row.append(el("th", "", pin.id), el("td", "", pin.functionLabel));
+      const role=el("td","",pin.functionLabel);
+      if(viewable.has(pin.id)){
+        const action=el("button","uno-pin-inspect","Xem trong 3D");
+        action.type="button";
+        action.dataset.unoPinInspect=pin.id;
+        action.setAttribute("aria-label",
+          "Xem chân "+pin.id+" của bài hiện tại trong 3D / Inspector");
+        action.setAttribute("aria-describedby","unoPinReferenceBoundary");
+        role.append(action);
+      }
+      row.append(el("th", "", pin.id),role);
       tbody.append(row);
     }
     table.append(thead, tbody);
@@ -354,6 +384,7 @@ function renderUnoPinReference() {
     "Nhãn chức năng theo tài liệu hãng không chứng minh bố trí chân/đầu cắm 3D " +
     "hay liên thông lỗ breadboard. Dây trong bài chỉ do circuit-router đánh giá.");
   note.setAttribute("data-uno-physical-boundary", "");
+  note.id="unoPinReferenceBoundary";
   region.append(note);
   const link = el("a", "uno-pin-link", "Tài liệu pinout Arduino Uno R3 (PDF chính thức)");
   link.href = "https://content.arduino.cc/assets/A000066-full-pinout.pdf";
@@ -456,6 +487,11 @@ function renderInfo() {
           refreshLabExplorer();
           recordPracticeAction("view-3d");
           $("stageTab3d").focus({preventScroll:true});
+        },
+        onInspectMissingTerminal(terminalId){
+          return lesson.id===state.lessonId
+            ? inspectTerminalReadOnly(terminalId)
+            : false;
         },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
@@ -935,6 +971,11 @@ function wireEvents(){
     }
   });
   $("infoContent").addEventListener("click",event=>{
+    const pinButton=event.target.closest("[data-uno-pin-inspect]");
+    if(pinButton && state.infoTab==="pinout"){
+      inspectTerminalReadOnly(pinButton.dataset.unoPinInspect);
+      return;
+    }
     const control=event.target.closest("[data-coach-action]");
     if(!control || state.infoTab!=="practice")return;
     const lesson=currentLesson();
@@ -1137,6 +1178,15 @@ async function init(){
   const hash=location.hash.match(/^#bai-(\d{1,2})$/);
   setLesson(hash && lessonById(Number(hash[1]))?Number(hash[1]):1);
   document.documentElement.dataset.ready="content";
+  // Scene WebGL can lose context while a first wiring terminal is armed.
+  // The visual ghost then disappears, so revoke the controller gesture too:
+  // otherwise the next post-restore click could silently become terminal #2.
+  // Capture on the stable host also catches non-bubbling canvas loss events.
+  $("sceneMount").addEventListener("webglcontextlost", event=>{
+    if(event.target?.tagName==="CANVAS"){
+      if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
+    }
+  },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
   try{
     const {mountScene}=await import("./scene3d.js");

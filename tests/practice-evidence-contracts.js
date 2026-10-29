@@ -144,11 +144,16 @@ export function runPracticeEvidenceContracts() {
           "source-step integration " + lesson.id + "/" + stepIndex);
         assert(evidence.guidance === evidence.checkpoint.guidance,
           "guidance integration " + lesson.id + "/" + stepIndex);
+        assert(evidence.wireGuidance && evidence.wireGuidance.checkpointId === evidence.checkpoint.id,
+          "wire guidance checkpoint integration " + lesson.id + "/" + stepIndex);
         if (evidence.checkpoint.kind === "manual") {
           assert(
             evidence.status === "manual-checkpoint" && evidence.required === 0 && evidence.matched === 0,
             "manual integration " + lesson.id + "/" + stepIndex,
           );
+          assert(evidence.wireGuidance.status === "not-applicable-manual-checkpoint" &&
+            evidence.wireGuidance.inspectTerminalId === null,
+          "manual wire guidance boundary " + lesson.id + "/" + stepIndex);
         } else {
           assert(
             evidence.required === evidence.checkpoint.requiredPairs.length &&
@@ -156,6 +161,10 @@ export function runPracticeEvidenceContracts() {
             ["topology-match", "signal-topology-match"].includes(evidence.status),
             "wiring integration " + lesson.id + "/" + stepIndex,
           );
+          assert(evidence.wireGuidance.status === "checkpoint-reference-covered" &&
+            evidence.wireGuidance.nextMissingPair === null &&
+            evidence.wireGuidance.inspectTerminalId === null,
+          "full reference has no missing-terminal guidance " + lesson.id + "/" + stepIndex);
         }
         assert(
           evidence.claims.teacherValidated === false &&
@@ -166,6 +175,66 @@ export function runPracticeEvidenceContracts() {
         );
       }
     }
+  });
+
+  check("wiring-checkpoints-expose-exact-next-missing-pair-from-canonical-evidence", () => {
+    for (const lesson of lessons) {
+      if (lesson.id === 1) continue;
+      for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+        const sample = createSampleCircuit(lesson.id);
+        const empty = createCircuit(lesson.id);
+        const evidence = inspectPracticeEvidence({
+          lesson,
+          stepIndex,
+          circuit: empty,
+          referenceCircuit: sample,
+          analysis: analyzeCircuit(lesson.id, empty),
+          hasLearnerDraft: true,
+        });
+        if (evidence.checkpoint.kind === "manual") {
+          assert(evidence.wireGuidance.status === "not-applicable-manual-checkpoint",
+            "manual no wire guidance " + lesson.id + "/" + stepIndex);
+          continue;
+        }
+        assert(evidence.status === "incomplete", "empty authored wiring draft incomplete " + lesson.id + "/" + stepIndex);
+        assert(evidence.missingPairs.length > 0, "missing evidence exists " + lesson.id + "/" + stepIndex);
+        assert(evidence.wireGuidance.status === "missing-canonical-pair",
+          "wire guidance missing status " + lesson.id + "/" + stepIndex);
+        const evidenceMissingKey = [...evidence.missingPairs[0]].sort().join("\u0000");
+        const guidanceMissingKey = [...evidence.wireGuidance.nextMissingPair].sort().join("\u0000");
+        assert(guidanceMissingKey === evidenceMissingKey,
+          "next pair must match first canonical evidence missing unordered pair " + lesson.id + "/" + stepIndex);
+        assert(evidence.wireGuidance.inspectTerminalId === evidence.wireGuidance.nextMissingPair[0] &&
+          evidence.missingPairs[0].includes(evidence.wireGuidance.inspectTerminalId),
+        "inspect terminal comes from exact authored missing pair " + lesson.id + "/" + stepIndex);
+        assert(evidence.wireGuidance.claims.wireCreated === false &&
+          evidence.wireGuidance.claims.learnerActionProven === false &&
+          evidence.wireGuidance.claims.mastery === false &&
+          evidence.wireGuidance.claims.autoCompletion === false,
+        "wire guidance negative semantics " + lesson.id + "/" + stepIndex);
+      }
+    }
+  });
+
+  check("needs-correction-keeps-missing-pair-guidance-and-topology-only-extra-review", () => {
+    const lesson = lessonById(2);
+    const circuit = connectCircuit(createCircuit(2), "D13", "GND");
+    const evidence = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    assert(evidence.status === "needs-correction", "extra learner edge remains needs-correction");
+    assert(evidence.wireGuidance.status === "missing-canonical-pair" &&
+      evidence.wireGuidance.nextMissingPair &&
+      evidence.wireGuidance.reviewExtraPairs.length === 1,
+    "missing guidance coexists with extra topology review");
+    assert(/topology review/i.test(evidence.wireGuidance.reviewExplanation) &&
+      /không suy ra lỗi điện/i.test(evidence.wireGuidance.reviewExplanation),
+    "extra review stays topology-only");
   });
 
   check("lesson02-authored-wiring-only-on-step-1", () => {
@@ -777,7 +846,11 @@ export function runPracticeEvidenceContracts() {
       Object.isFrozen(evidence.claims) &&
       Object.isFrozen(evidence.checkpoint) &&
       Object.isFrozen(evidence.checkpoint.requiredPairs) &&
-      Object.isFrozen(evidence.checkpoint.provenance),
+      Object.isFrozen(evidence.checkpoint.provenance) &&
+      Object.isFrozen(evidence.wireGuidance) &&
+      Object.isFrozen(evidence.wireGuidance.missingPairs) &&
+      Object.isFrozen(evidence.wireGuidance.reviewExtraPairs) &&
+      Object.isFrozen(evidence.wireGuidance.claims),
       "deep freeze top-level",
     );
     assert(evidence.issues.every(Object.isFrozen), "issue objects frozen");

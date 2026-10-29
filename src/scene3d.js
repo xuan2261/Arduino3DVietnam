@@ -45,6 +45,14 @@ const createSharedMaterials = () => ({
     color: 0x6274d9, transparent: true, opacity: .76,
     depthWrite: false, side: T.DoubleSide,
   }),
+  pendingTerminalHaloMat: new T.MeshBasicMaterial({
+    color: palette.coral, transparent: true, opacity: .88,
+    depthWrite: false, side: T.DoubleSide,
+  }),
+  pendingWireLineMat: new T.LineBasicMaterial({
+    color: palette.coral, transparent: true, opacity: .56,
+    depthWrite: false,
+  }),
   hitMat: new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   selectionLineMat: new T.LineBasicMaterial({ color: palette.amber, transparent: true, opacity: .96 }),
   focusLineMat: new T.LineBasicMaterial({ color: palette.teal, transparent: true, opacity: .92 }),
@@ -728,6 +736,7 @@ export function mountScene(host, onSelect = () => {}) {
   let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
   let activeLabLayer=null,activeLabLayout=null,lastWiringModel=null,selectedLabComponentId=null;
   let inspectedLabTerminalId=null,inspectedLabTerminalMode="none",inspectionBadge=null;
+  let pendingWireTerminalId=null,pendingWireHoverTerminalId=null,pendingWirePreviewLine=null;
   let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0;
   let labWireLayer=null;
   let lodInitialized=false,lastViewportWidth=0,lastViewportHeight=0;
@@ -862,6 +871,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
+    if(pendingWireTerminalId){
+      parts.push(`Terminal đầu đang chờ nối: ${pendingWireTerminalId}. Đây chỉ là xem trước trực quan; chưa tạo dây hoặc kết nối điện.`);
+    }
     canvas.setAttribute("aria-label",parts.join(" "));
     canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
       ? baseShortcuts+" W A S D Q E Escape"
@@ -893,6 +905,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labTerminalHighlightCount="0";
     canvas.dataset.labInspectedTerminal="";
     canvas.dataset.labInspectionFeedback="none";
+    canvas.dataset.labPendingWireTerminal="";
+    canvas.dataset.labPendingWireHoverTerminal="";
+    canvas.dataset.labPendingWirePreview="none";
     updateInspectionBadge();
   }
   resetLabMetadata();
@@ -952,6 +967,55 @@ export function mountScene(host, onSelect = () => {}) {
   function canonicalLabComponent(componentId){
     return activeLabLayout?.components?.find(item=>item.id===componentId)||null;
   }
+  function clearPendingWireHover(redraw=false){
+    const changed=pendingWireHoverTerminalId!==null||pendingWirePreviewLine?.visible===true||
+      canvas.dataset.labPendingWirePreview==="ghost";
+    pendingWireHoverTerminalId=null;
+    if(pendingWirePreviewLine)pendingWirePreviewLine.visible=false;
+    canvas.dataset.labPendingWireHoverTerminal="";
+    canvas.dataset.labPendingWirePreview="none";
+    if(redraw&&changed)invalidate();
+  }
+  function clearPendingWireState(redraw=false){
+    pendingWireTerminalId=null;
+    clearPendingWireHover(false);
+    canvas.dataset.labPendingWireTerminal="";
+    if(redraw){
+      refreshLabInteractionFeedback();
+      refreshCanvasAccessibility();
+      invalidate();
+    }
+  }
+  function ensurePendingWirePreviewLine(){
+    if(pendingWirePreviewLine||!activeLabLayer)return pendingWirePreviewLine;
+    const geometry=new T.BufferGeometry();
+    geometry.setAttribute("position",new T.Float32BufferAttribute(9,3));
+    pendingWirePreviewLine=new T.Line(geometry,sharedMaterials.pendingWireLineMat);
+    pendingWirePreviewLine.visible=false;
+    pendingWirePreviewLine.userData={
+      kind:"lab-pending-wire-preview",committed:false,
+      physicalLocation:false,physicalVerified:false,electricalState:false,
+    };
+    activeLabLayer.add(pendingWirePreviewLine);
+    return pendingWirePreviewLine;
+  }
+  function updatePendingWirePreviewGeometry(){
+    if(!pendingWirePreviewLine||!pendingWireTerminalId||!pendingWireHoverTerminalId)return;
+    const from=labTerminals.get(pendingWireTerminalId)?.marker;
+    const to=labTerminals.get(pendingWireHoverTerminalId)?.marker;
+    if(!from||!to){clearPendingWireHover(false);return;}
+    scene.updateMatrixWorld(true);
+    const start=new T.Vector3(),end=new T.Vector3();
+    from.getWorldPosition(start);to.getWorldPosition(end);
+    const mid=start.clone().lerp(end,.5);
+    mid.y=Math.max(start.y,end.y)+.20;
+    const position=pendingWirePreviewLine.geometry.getAttribute("position");
+    position.setXYZ(0,start.x,start.y,start.z);
+    position.setXYZ(1,mid.x,mid.y,mid.z);
+    position.setXYZ(2,end.x,end.y,end.z);
+    position.needsUpdate=true;
+    pendingWirePreviewLine.geometry.computeBoundingSphere();
+  }
   function refreshLabInteractionFeedback(){
     let highlightedTerminals=0;
     for(const [id,entry] of labComponents){
@@ -967,9 +1031,11 @@ export function mountScene(host, onSelect = () => {}) {
     for(const [terminalId,item] of labTerminals){
       const highlighted=labEdit.enabled&&item.componentId===selectedLabComponentId;
       const inspected=haloInspection&&terminalId===inspectedLabTerminalId;
+      const pending=labEdit.enabled&&terminalId===pendingWireTerminalId;
       if(item.halo)item.halo.visible=highlighted;
       if(item.inspectionHalo)item.inspectionHalo.visible=inspected;
-      item.marker.scale.setScalar(inspected?1.32:highlighted?1.18:1);
+      if(item.pendingHalo)item.pendingHalo.visible=pending;
+      item.marker.scale.setScalar(pending?1.42:inspected?1.32:highlighted?1.18:1);
       if(highlighted)highlightedTerminals+=1;
     }
     canvas.dataset.labSelectionFeedback=selectedLabComponentId?"outline":"none";
@@ -979,6 +1045,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labInspectedTerminal=inspectedLabTerminalId||"";
     canvas.dataset.labInspectionFeedback=inspectedLabTerminalMode==="lab-halo"
       ? "highlight" : inspectedLabTerminalMode==="read-only-label" ? "label" : "none";
+    canvas.dataset.labPendingWireTerminal=pendingWireTerminalId||"";
     updateInspectionBadge();
   }
   function setLabVisualTransform(entry,x,z,quarterTurns){
@@ -986,6 +1053,7 @@ export function mountScene(host, onSelect = () => {}) {
     entry.root.position.set(x*LAB_WORLD_SCALE,0,z*LAB_WORLD_SCALE);
     entry.root.rotation.y=-entry.quarterTurns*Math.PI/2;
     updateLabWireGeometry();
+    updatePendingWirePreviewGeometry();
     invalidate();
   }
   function restoreLabComponent(componentId){
@@ -1019,6 +1087,7 @@ export function mountScene(host, onSelect = () => {}) {
     activeLabLayout=null;
     labComponents.clear();labTerminals.clear();labPickables.length=0;selectedLabComponentId=null;focusedLabComponentId=null;
     inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
+    clearPendingWireState(false);pendingWirePreviewLine=null;
     if(hadFocus)zoom=1;
     if(board?.board)board.board.visible=true;
     if(breadboard)breadboard.visible=true;
@@ -1141,6 +1210,37 @@ export function mountScene(host, onSelect = () => {}) {
       physicalVerified:false,
     });
   }
+  function setPendingWireTerminal(terminalId){
+    if(disposed)return Object.freeze({terminalId:null,active:false,mode:"none",physicalVerified:false});
+    if(terminalId===null){
+      clearPendingWireState(false);
+      refreshLabInteractionFeedback();
+      refreshCanvasAccessibility();
+      invalidate();
+      return Object.freeze({terminalId:null,active:false,mode:"none",physicalVerified:false});
+    }
+    if(typeof terminalId!=="string"||!terminalId||terminalId.trim()!==terminalId){
+      throw new TypeError("terminalId pending-wire phải là ID canonical không rỗng hoặc null");
+    }
+    if(terminalId.length>80)throw new RangeError("terminalId pending-wire vượt giới hạn 80 ký tự");
+    if(!labEdit.enabled||!activeLabLayout){
+      throw new RangeError("Pending-wire preview chỉ khả dụng trong edit lab layout đang mount");
+    }
+    if(!labTerminals.has(terminalId)){
+      throw new RangeError("Terminal pending-wire không thuộc lab layout đang chỉnh sửa: "+terminalId);
+    }
+    pendingWireTerminalId=terminalId;
+    clearPendingWireHover(false);
+    refreshLabInteractionFeedback();
+    refreshCanvasAccessibility();
+    invalidate();
+    return Object.freeze({
+      terminalId:pendingWireTerminalId,
+      active:true,
+      mode:"first-terminal-preview",
+      physicalVerified:false,
+    });
+  }
   function setLabLayout(layout){
     if(disposed)return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
     if(layout==null)return clearLabLayout(true);
@@ -1237,6 +1337,18 @@ export function mountScene(host, onSelect = () => {}) {
           physicalLocation:false,physicalVerified:false,readOnly:true,
         };
         root.add(inspectionHalo);
+        const pendingHalo=new T.Mesh(
+          new T.RingGeometry(.13,.22,24),
+          sharedMaterials.pendingTerminalHaloMat,
+        );
+        pendingHalo.rotation.x=-Math.PI/2;
+        pendingHalo.position.set(marker.position.x,marker.position.y+.088,marker.position.z);
+        pendingHalo.visible=false;
+        pendingHalo.userData={
+          kind:"lab-terminal-pending-wire-affordance",terminalId,componentId:component.id,
+          committed:false,physicalLocation:false,physicalVerified:false,electricalState:false,
+        };
+        root.add(pendingHalo);
         const terminalHit=new T.Mesh(
           new T.SphereGeometry(LAB_TERMINAL_HIT_RADIUS,10,8),
           sharedMaterials.hitMat,
@@ -1253,7 +1365,7 @@ export function mountScene(host, onSelect = () => {}) {
           root,terminalId.slice(0,22),
           marker.position.x,visual.height+.12,marker.position.z+.09,.72,23,"#355f4b"
         );
-        labTerminals.set(terminalId,{marker,halo,inspectionHalo,hit:terminalHit,componentId:component.id,anchor});
+        labTerminals.set(terminalId,{marker,halo,inspectionHalo,pendingHalo,hit:terminalHit,componentId:component.id,anchor});
       }
       setLabVisualTransform(entry,component.x,component.z,component.quarterTurns);
     }
@@ -1322,7 +1434,10 @@ export function mountScene(host, onSelect = () => {}) {
       onTerminalSelect:options.onTerminalSelect===undefined
         ? labEdit.onTerminalSelect : options.onTerminalSelect,
     };
-    if(editTransition){inspectedLabTerminalId=null;inspectedLabTerminalMode="none";}
+    if(editTransition){
+      inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
+      clearPendingWireState(false);
+    }
     canvas.dataset.labEdit=labEdit.enabled?"on":"off";
     canvas.style.touchAction=labEdit.enabled?"none":"";
     canvas.style.cursor=labEdit.enabled?"grab":"";
@@ -1386,6 +1501,27 @@ export function mountScene(host, onSelect = () => {}) {
     const terminal=hits.find(hit=>hit.object.userData.kind==="lab-terminal");
     return terminal||hits[0];
   }
+  function updatePendingWireHover(event){
+    if(!pendingWireTerminalId||!labEdit.enabled||!activeLabLayout){
+      clearPendingWireHover(true);
+      return;
+    }
+    const hit=labHit(event);
+    const targetId=hit?.object?.userData?.kind==="lab-terminal"
+      ? hit.object.userData.terminalId : null;
+    if(!targetId||targetId===pendingWireTerminalId||!labTerminals.has(targetId)){
+      clearPendingWireHover(true);
+      return;
+    }
+    pendingWireHoverTerminalId=targetId;
+    const line=ensurePendingWirePreviewLine();
+    if(!line){clearPendingWireHover(true);return;}
+    updatePendingWirePreviewGeometry();
+    line.visible=true;
+    canvas.dataset.labPendingWireHoverTerminal=targetId;
+    canvas.dataset.labPendingWirePreview="ghost";
+    invalidate();
+  }
   function labGroundPoint(event){
     const ray=pointerRay(event);
     if(!ray)return null;
@@ -1425,6 +1561,7 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function down(event){
     if(event.button!==0||drag)return;
+    clearPendingWireHover(false);
     moved=false;
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
@@ -1464,7 +1601,11 @@ export function mountScene(host, onSelect = () => {}) {
     try{canvas.setPointerCapture?.(event.pointerId);}catch{}
   }
   function move(event){
-    if(!drag||event.pointerId!==drag.pointerId)return;
+    if(!drag){
+      updatePendingWireHover(event);
+      return;
+    }
+    if(event.pointerId!==drag.pointerId)return;
     const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
     const totalDx=event.clientX-drag.startClientX;
     const totalDy=event.clientY-drag.startClientY;
@@ -1492,6 +1633,7 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    clearPendingWireHover(false);
     const finished=drag;
     drag=null;
     try{canvas.releasePointerCapture?.(event.pointerId);}catch{}
@@ -1535,7 +1677,8 @@ export function mountScene(host, onSelect = () => {}) {
     if(select&&!moved&&finished.legacySelect)onSelect("Arduino Uno R3");
   }
   const up=event=>finishPointer(event,true);
-  const cancel=event=>finishPointer(event,false);
+  const cancel=event=>{clearPendingWireHover(true);finishPointer(event,false);};
+  const leave=()=>{if(!drag)clearPendingWireHover(true);};
   function wheel(event) {
     event.preventDefault();
     zoom=Math.min(maxZoom,Math.max(minZoom,zoom+Math.sign(event.deltaY)*.10));
@@ -1604,6 +1747,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.setAttribute("aria-busy","true");
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
+    clearPendingWireState(false);
+    refreshLabInteractionFeedback();
+    refreshCanvasAccessibility();
     if(raf){cancelAnimationFrame(raf);raf=0;}
     // Three r180 recreates its WebGL caches on restore. Dispatching resource
     // disposal while the old context is already lost removes the old cache
@@ -1624,6 +1770,7 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.addEventListener("pointerup",up);
   canvas.addEventListener("pointercancel",cancel);
   canvas.addEventListener("lostpointercapture",cancel);
+  canvas.addEventListener("pointerleave",leave);
   canvas.addEventListener("wheel",wheel,{passive:false});
   canvas.addEventListener("keydown",onKey);
   canvas.addEventListener("webglcontextlost",onContextLost,false);
@@ -1721,7 +1868,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -1735,6 +1882,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.removeEventListener("pointerup",up);
     canvas.removeEventListener("pointercancel",cancel);
     canvas.removeEventListener("lostpointercapture",cancel);
+    canvas.removeEventListener("pointerleave",leave);
     canvas.removeEventListener("wheel",wheel);
     canvas.removeEventListener("keydown",onKey);
     canvas.removeEventListener("webglcontextlost",onContextLost,false);
@@ -1758,8 +1906,14 @@ export function mountScene(host, onSelect = () => {}) {
     focusedLabComponentId=null;
     inspectedLabTerminalId=null;
     inspectedLabTerminalMode="none";
+    pendingWireTerminalId=null;
+    pendingWireHoverTerminalId=null;
+    pendingWirePreviewLine=null;
     canvas.dataset.labInspectedTerminal="";
     canvas.dataset.labInspectionFeedback="none";
+    canvas.dataset.labPendingWireTerminal="";
+    canvas.dataset.labPendingWireHoverTerminal="";
+    canvas.dataset.labPendingWirePreview="none";
     if(inspectionBadge){inspectionBadge.remove();inspectionBadge=null;}
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}

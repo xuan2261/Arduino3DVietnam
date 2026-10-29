@@ -1,7 +1,12 @@
 import { renderPracticeEvidence } from "../src/practice-evidence-ui.js";
 import { lessons } from "../src/lessons.js";
 import { inspectPracticeEvidence } from "../src/practice-evidence.js";
-import { analyzeCircuit, createSampleCircuit } from "../src/circuit-router.js";
+import {
+  analyzeCircuit,
+  connectCircuit,
+  createCircuit,
+  createSampleCircuit,
+} from "../src/circuit-router.js";
 
 function assert(condition, message) {
   if (!condition) throw new Error("practice-evidence-ui contract: " + message);
@@ -223,6 +228,129 @@ export function runPracticeEvidenceUiContracts() {
     assert(opened2d === 1 && opened3d === 1 && rechecked === 1,
       "callbacks should fire once from native buttons");
     assert(JSON.stringify(input) === before, "renderer must not mutate evidence/circuit-facing input");
+  });
+
+  check("missing-terminal-inspector-callback-fires-only-on-explicit-click", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const circuit = createCircuit(2);
+    const value = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const before = JSON.stringify(value);
+    const inspected = [];
+    const section = render(value, {
+      onInspectMissingTerminal: terminalId => inspected.push(terminalId),
+    });
+    const button = section.querySelector("[data-practice-inspect-missing-terminal]");
+    assert(button?.tagName === "BUTTON", "missing pair should expose native inspector button");
+    assert(button.type === "button", "inspector control must not submit forms");
+    assert(button.getAttribute("data-practice-inspect-terminal") === "D13",
+      "button must bind exact canonical terminal ID");
+    assert(/Xem chân cần nối trong 3D \/ Inspector/.test(button.textContent), "inspector label drift");
+    assert(inspected.length === 0, "render must never auto-inspect missing terminal");
+    assert(/D13 ↔ R1:A/.test(section.textContent), "exact next missing pair should be visible");
+    assert(section.querySelector("[data-practice-wire-guidance]"), "wire guidance block missing");
+    button.click();
+    assert(JSON.stringify(inspected) === JSON.stringify(["D13"]),
+      "explicit click must invoke callback once with exact canonical terminal");
+    assert(JSON.stringify(value) === before, "inspector navigation must not mutate evidence");
+  });
+
+  check("inspector-button-appears-only-for-proven-authored-missing-canonical-pair-across-48-steps", () => {
+    let rendered = 0;
+    let clicked = 0;
+    for (const lesson of lessons) {
+      for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+        const circuit = lesson.id === 1 ? null : createCircuit(lesson.id);
+        const value = inspectPracticeEvidence({
+          lesson,
+          stepIndex,
+          circuit,
+          referenceCircuit: lesson.id === 1 ? null : createSampleCircuit(lesson.id),
+          analysis: lesson.id === 1 ? null : analyzeCircuit(lesson.id, circuit),
+          hasLearnerDraft: lesson.id !== 1,
+        });
+        const inspected = [];
+        const section = render(value, {
+          onInspectMissingTerminal: terminalId => inspected.push(terminalId),
+        });
+        rendered += 1;
+        const button = section.querySelector("[data-practice-inspect-missing-terminal]");
+        const shouldExist = value.checkpoint.kind === "wiring" &&
+          value.wireGuidance.status === "missing-canonical-pair" && value.missingPairs.length > 0;
+        assert(Boolean(button) === shouldExist,
+          "button gating drift " + lesson.id + "/" + stepIndex);
+        assert(inspected.length === 0, "no implicit inspect callback " + lesson.id + "/" + stepIndex);
+        if (button) {
+          assert(button.getAttribute("data-practice-inspect-terminal") === value.wireGuidance.inspectTerminalId,
+            "terminal binding drift " + lesson.id + "/" + stepIndex);
+          button.click();
+          clicked += 1;
+          assert(JSON.stringify(inspected) === JSON.stringify([value.wireGuidance.inspectTerminalId]),
+            "explicit inspect callback drift " + lesson.id + "/" + stepIndex);
+        }
+      }
+    }
+    assert(rendered === 48, "expected all 48 authored steps rendered");
+    assert(clicked > 0, "expected authored wiring checkpoints to expose inspector controls");
+  });
+
+  check("covered-extra-only-and-forged-guidance-never-expose-missing-inspector-button", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const full = createSampleCircuit(2);
+    const covered = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit: full,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, full),
+      hasLearnerDraft: true,
+    });
+    assert(!render(covered, { onInspectMissingTerminal: () => {} })
+      .querySelector("[data-practice-inspect-missing-terminal]"),
+    "covered checkpoint must not expose missing-terminal button");
+
+    const extraOnlyCircuit = connectCircuit(full, "D13", "GND");
+    const extraOnly = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit: extraOnlyCircuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, extraOnlyCircuit),
+      hasLearnerDraft: true,
+    });
+    const extraOnlySection = render(extraOnly, { onInspectMissingTerminal: () => {} });
+    assert(extraOnly.wireGuidance.status === "review-extra-pairs", "fixture must be extra-only review");
+    assert(!extraOnlySection.querySelector("[data-practice-inspect-missing-terminal]"),
+      "extra-only review must not invent missing-terminal button");
+    assert(extraOnlySection.querySelector("[data-practice-wire-review]"), "extra topology review should be visible");
+    assert(/không suy ra lỗi điện/i.test(extraOnlySection.textContent), "extra review electrical caveat missing");
+
+    const missingCircuit = createCircuit(2);
+    const genuineMissing = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit: missingCircuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, missingCircuit),
+      hasLearnerDraft: true,
+    });
+    const forgedPair = {
+      ...genuineMissing,
+      wireGuidance: {
+        ...genuineMissing.wireGuidance,
+        nextMissingPair: ["GND", "LED:K"],
+        inspectTerminalId: "GND",
+      },
+    };
+    assert(!render(forgedPair, { onInspectMissingTerminal: () => {} })
+      .querySelector("[data-practice-inspect-missing-terminal]"),
+    "guidance pair inconsistent with first evidence missing pair must not expose button");
   });
 
   // legacy expectation retired by requested authored checkpoint behavior, check absence
@@ -510,6 +638,11 @@ export function runPracticeEvidenceUiContracts() {
       () => renderPracticeEvidence(new FakeDocument(), evidence(), { onOpen3D: "bad" }),
       /onOpen3D.*function/i,
       "bad 3D callback",
+    );
+    expectThrow(
+      () => renderPracticeEvidence(new FakeDocument(), evidence(), { onInspectMissingTerminal: "bad" }),
+      /onInspectMissingTerminal.*function/i,
+      "bad missing-terminal inspector callback",
     );
   });
 

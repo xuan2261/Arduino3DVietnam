@@ -33,6 +33,40 @@ export async function runScene3DContracts() {
     /read-only-label/.test(inspectionSource) &&
     /lab-halo/.test(inspectionSource));
 
+  const pendingStart = sceneSource.indexOf("function setPendingWireTerminal");
+  const pendingEnd = sceneSource.indexOf("function setLabLayout", pendingStart);
+  const pendingSource = pendingStart >= 0 && pendingEnd > pendingStart
+    ? sceneSource.slice(pendingStart, pendingEnd)
+    : "";
+  check("pending-wire-source-requires-mounted-edit-layout",
+    /setPendingWireTerminal\(terminalId\)/.test(pendingSource) &&
+    /!labEdit\.enabled\|\|!activeLabLayout/.test(pendingSource) &&
+    /labTerminals\.has\(terminalId\)/.test(pendingSource) &&
+    /terminalId\.length>80/.test(pendingSource));
+  check("pending-wire-source-is-visual-only",
+    /first-terminal-preview/.test(pendingSource) &&
+    !/onTerminalSelect|onMoveComponent|refreshLabWireLayer|labWireObjects\.push|setWiring\(/.test(pendingSource));
+  const ghostStart = sceneSource.indexOf("function ensurePendingWirePreviewLine");
+  const ghostEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", ghostStart);
+  const ghostSource = ghostStart >= 0 && ghostEnd > ghostStart
+    ? sceneSource.slice(ghostStart, ghostEnd)
+    : "";
+  check("pending-wire-ghost-is-uncommitted-canonical-hover-only",
+    /kind:"lab-pending-wire-preview",committed:false/.test(ghostSource) &&
+    !/labWireObjects\.push|onTerminalSelect|setWiring\(/.test(ghostSource) &&
+    /targetId===pendingWireTerminalId/.test(sceneSource) &&
+    /!labTerminals\.has\(targetId\)/.test(sceneSource) &&
+    /labPendingWirePreview="ghost"/.test(sceneSource) &&
+    /clearPendingWireHover\(true\);finishPointer\(event,false\)/.test(sceneSource));
+  const contextLostStart = sceneSource.indexOf("const onContextLost=");
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextHandlersEnd = sceneSource.indexOf('canvas.addEventListener("pointerdown"', contextRestoredStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const contextRestoredSource = sceneSource.slice(contextRestoredStart, contextHandlersEnd);
+  check("pending-wire-context-reset-is-fail-closed",
+    /clearPendingWireState\(false\)/.test(contextLostSource) &&
+    !/setPendingWireTerminal\(|pendingWireTerminalId\s*=/.test(contextRestoredSource));
+
   const detached = document.createElement("div");
   let detachedRejected = false;
   try { mountScene(detached); } catch (error) { detachedRejected = /3D/.test(error.message); }
@@ -189,6 +223,19 @@ export async function runScene3DContracts() {
       canvas.dataset.labInspectionFeedback === "none" &&
       readOnlyBadge.hidden === true);
 
+    let pendingOutsideEditRejected = false;
+    try { mounted.setPendingWireTerminal("D13"); }
+    catch (error) { pendingOutsideEditRejected = error instanceof RangeError; }
+    check("pending-wire-requires-edit-mode",
+      pendingOutsideEditRejected &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none");
+    const clearedOutsideEdit = mounted.setPendingWireTerminal(null);
+    check("pending-wire-null-clear-is-idempotent-outside-edit",
+      clearedOutsideEdit.active === false &&
+      clearedOutsideEdit.mode === "none" &&
+      canvas.dataset.labPendingWireTerminal === "");
+
     const beforeInspectionState = mounted.getLabViewState();
     const wireCountBeforeInspection = canvas.dataset.labWireCount;
     const inspected = mounted.setInspectedTerminal("D13");
@@ -251,12 +298,47 @@ export async function runScene3DContracts() {
       canvas.dataset.labSelectionFeedback === "outline" &&
       canvas.dataset.labTerminalFeedback === "selected-component" &&
       Number(canvas.dataset.labTerminalHighlightCount) > 0);
+    const beforePendingState = mounted.getLabViewState();
+    const wireCountBeforePending = canvas.dataset.labWireCount;
+    const pending = mounted.setPendingWireTerminal("D13");
+    const afterPendingState = mounted.getLabViewState();
+    check("pending-wire-first-terminal-visual-prompt",
+      pending.active === true &&
+      pending.terminalId === "D13" &&
+      pending.mode === "first-terminal-preview" &&
+      pending.physicalVerified === false &&
+      canvas.dataset.labPendingWireTerminal === "D13" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      /D13/.test(canvas.getAttribute("aria-label") || "") &&
+      /chưa tạo dây/i.test(canvas.getAttribute("aria-label") || ""));
+    check("pending-wire-prompt-is-visual-only",
+      editTerminalEvents.length === 0 &&
+      canvas.dataset.labWireCount === wireCountBeforePending &&
+      afterPendingState.selectedComponentId === beforePendingState.selectedComponentId &&
+      afterPendingState.focusedComponentId === beforePendingState.focusedComponentId &&
+      JSON.stringify(afterPendingState.camera) === JSON.stringify(beforePendingState.camera) &&
+      afterPendingState.claims.physicalVerified === false &&
+      afterPendingState.claims.breadboardHoleMapping === false &&
+      afterPendingState.claims.electricalPower === false);
+
+    let invalidPendingRejected = false;
+    try { mounted.setPendingWireTerminal("NOT_A_TERMINAL"); }
+    catch (error) { invalidPendingRejected = error instanceof RangeError; }
+    check("pending-wire-invalid-id-is-transactional",
+      invalidPendingRejected &&
+      canvas.dataset.labPendingWireTerminal === "D13" &&
+      canvas.dataset.labPendingWirePreview === "none");
+
+    mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    check("pending-wire-survives-same-edit-state-refresh",
+      canvas.dataset.labPendingWireTerminal === "D13");
     mounted.setInspectedTerminal("D13");
     check("inspection-feedback-distinct-from-edit-feedback",
       canvas.dataset.labInspectedTerminal === "D13" &&
       canvas.dataset.labInspectionFeedback === "highlight" &&
       canvas.dataset.labTerminalFeedback === "selected-component" &&
       canvas.dataset.labSelectedComponent === "arduino" &&
+      canvas.dataset.labPendingWireTerminal === "D13" &&
       editTerminalEvents.length === 0);
     mounted.focusLabComponent("arduino");
     check("lab-focus-feedback-metadata", canvas.dataset.labFocusFeedback === "outline");
@@ -274,7 +356,18 @@ export async function runScene3DContracts() {
     check("edit-exit-clears-inspection",
       canvas.dataset.labInspectedTerminal === "" &&
       canvas.dataset.labInspectionFeedback === "none");
+    check("edit-exit-clears-pending-wire-preview",
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWireHoverTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none");
+    mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    mounted.setPendingWireTerminal("D13");
     mounted.setLabLayout(null);
+    check("layout-stage-clear-resets-pending-wire-preview",
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWireHoverTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none");
+    mounted.setLabEdit({ enabled: false });
     const readOnlyBeforeContext = mounted.setInspectedTerminal("D13", layout);
     check("read-only-label-before-context-loss",
       readOnlyBeforeContext.mode === "read-only-label" &&
@@ -339,6 +432,10 @@ export async function runScene3DContracts() {
       canvas.dataset.labInspectedTerminal === "" &&
       canvas.dataset.labInspectionFeedback === "none" &&
       !readOnlyBadge.isConnected);
+    check("dispose-clears-pending-wire-metadata",
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWireHoverTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none");
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     check("dispose-detaches-context-listeners", queuedFrames.size === 0);
 
@@ -356,12 +453,24 @@ export async function runScene3DContracts() {
     await waitTask();
     flushFrames();
     const lossCanvas = host.querySelector("canvas");
+    lossDispose.setLesson({ id: 2 });
+    lossDispose.setLabLayout(layout);
+    lossDispose.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    lossDispose.setPendingWireTerminal("D13");
+    check("pending-wire-armed-before-context-reset",
+      lossCanvas.dataset.labPendingWireTerminal === "D13" &&
+      lossCanvas.dataset.labPendingWirePreview === "none");
     const lossGl = lossCanvas.getContext("webgl2");
     const lossExtension = lossGl?.getExtension("WEBGL_lose_context");
     const lossPromise = waitEvent(lossCanvas, "webglcontextlost");
     if (lossExtension) lossExtension.loseContext();
     else lossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
     await lossPromise;
+    check("context-reset-clears-pending-wire-preview",
+      lossCanvas.dataset.labPendingWireTerminal === "" &&
+      lossCanvas.dataset.labPendingWireHoverTerminal === "" &&
+      lossCanvas.dataset.labPendingWirePreview === "none" &&
+      !/Terminal đầu đang chờ nối/.test(lossCanvas.getAttribute("aria-label") || ""));
     lossDispose.dispose();
     check("dispose-while-context-lost-removes-canvas", !lossCanvas.isConnected && !host.querySelector("canvas"));
     check("dispose-while-context-lost-no-render", queuedFrames.size === 0);

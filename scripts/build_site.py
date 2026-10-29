@@ -81,6 +81,13 @@ POST_V16_INTERACTION_FILES = [
     "docs/PRACTICE_OBSERVATION_NEXT.md",
     "docs/RESISTIVE_VISUAL_STUDY_NEXT.md",
 ]
+POST_V16_GUIDED_WIRING_FILES = [
+    "src/breadboard-hole-grid.js",
+    "src/practice-wire-guidance.js",
+    "docs/BREADBOARD_HOLE_PICKER_NEXT.md",
+    "docs/PRACTICE_WIRE_GUIDANCE_NEXT.md",
+    "docs/SCENE_WIRE_PREVIEW_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -133,6 +140,7 @@ FILES = [
     *PRACTICE_RELEASE_FILES,
     *POST_V16_LAB_FILES,
     *POST_V16_INTERACTION_FILES,
+    *POST_V16_GUIDED_WIRING_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

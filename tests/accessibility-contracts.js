@@ -416,8 +416,12 @@ export async function runAccessibilityContracts() {
   const practiceButtons = [
     practiceEvidence?.querySelector("[data-practice-open-wiring]"),
     practiceEvidence?.querySelector("[data-practice-open-3d]"),
+    practiceEvidence?.querySelector("[data-practice-inspect-missing-terminal]"),
     practiceEvidence?.querySelector("[data-practice-recheck]"),
   ];
+  const practiceMissingInspect = practiceEvidence?.querySelector(
+    "[data-practice-inspect-missing-terminal]",
+  );
   const practiceProvenance = practiceEvidence?.querySelector("[data-practice-provenance-note]");
   const practiceBoundary = practiceEvidence?.querySelector(".practice-evidence-boundary")?.textContent || "";
   record("post-v16-practice-evidence-named-accessible-physical-boundary",
@@ -432,6 +436,8 @@ export async function runAccessibilityContracts() {
     practiceStatus?.getAttribute("aria-live") === "polite" &&
     practiceProvenance?.getAttribute("role") === "note" &&
     /không phải xác nhận của giáo viên|không chứng minh người học/i.test(practiceProvenance?.textContent || "") &&
+    practiceMissingInspect?.getAttribute("data-practice-inspect-terminal") === "D13" &&
+    /D13.*3D.*Inspector/i.test(accessibleName(practiceMissingInspect)) &&
     practiceButtons.every(button =>
       button && button.tagName === "BUTTON" && Boolean(accessibleName(button)) &&
       button.getBoundingClientRect().height >= 44) &&
@@ -452,10 +458,31 @@ export async function runAccessibilityContracts() {
     }),
     "Bằng chứng thực hành từng bước cần region/status có tên, nút native >=44px và tuyên bố rõ không đo/không tự xác nhận hoàn thành.", "P1");
 
+  record("post-v16-practice-missing-terminal-inspector-accessible-explicit-only",
+    practiceMissingInspect?.tagName === "BUTTON" &&
+    practiceMissingInspect.type === "button" &&
+    practiceMissingInspect.getAttribute("data-practice-inspect-terminal") === "D13" &&
+    /Xem terminal D13.*cặp còn thiếu.*3D Inspector/i.test(
+      practiceMissingInspect.getAttribute("aria-label") || "") &&
+    practiceMissingInspect.getBoundingClientRect().height >= 44 &&
+    practiceMissingInspect.getBoundingClientRect().width >= 44 &&
+    /D13 ↔ R1:A/.test(practiceEvidence?.textContent || "") &&
+    /không.*phần cứng|không.*hoàn thành/i.test(practiceBoundary),
+    JSON.stringify({
+      name: accessibleName(practiceMissingInspect),
+      target: practiceMissingInspect?.getAttribute("data-practice-inspect-terminal"),
+      height: practiceMissingInspect?.getBoundingClientRect().height,
+      width: practiceMissingInspect?.getBoundingClientRect().width,
+    }),
+    "Action xem terminal còn thiếu phải là nút explicit >=44px, gắn đúng ID canonical và không mang ngữ nghĩa tự nối/hoàn thành.", "P1");
+
   const practiceObservation = coach?.querySelector("[data-practice-observation]");
   const observationBoundary = practiceObservation?.querySelector("[data-observation-boundary]")?.textContent || "";
   const observationAttribution = practiceObservation?.querySelector(
     "[data-observation-attribution-note]",
+  )?.textContent || "";
+  const observationRecorded = practiceObservation?.querySelector(
+    "[data-observation-recorded]",
   )?.textContent || "";
   record("post-v16-practice-observation-accessible-no-attribution-or-mastery",
     Boolean(practiceObservation && accessibleName(practiceObservation)) &&
@@ -471,6 +498,9 @@ export async function runAccessibilityContracts() {
     Boolean(practiceObservation.querySelector("[data-observation-overlap]")) &&
     /không lưu stepIndex hay timestamp/i.test(observationAttribution) &&
     /không chứng minh event.*bước hiện tại/i.test(observationAttribution) &&
+    /caller báo cho module|báo cho module/i.test(observationRecorded) &&
+    !/host-only|host app đã ghi nhận|người dùng đã thực hiện/i.test(
+      observationRecorded + " " + observationAttribution) &&
     /không đo mastery/i.test(observationBoundary) &&
     /không tự hoàn thành bài/i.test(observationBoundary) &&
     /không phải điều kiện để chuyển bước/i.test(observationBoundary),
@@ -481,10 +511,40 @@ export async function runAccessibilityContracts() {
       lesson: practiceObservation?.getAttribute("data-observation-lesson") || "",
       step: practiceObservation?.getAttribute("data-observation-step") || "",
       checkpoint: practiceObservation?.getAttribute("data-observation-checkpoint") || "",
+      recorded: observationRecorded,
       attribution: observationAttribution,
       boundary: observationBoundary,
     }),
     "Practice observation phải là live status có tên, giữ phạm vi lesson-event và nói rõ không step attribution/mastery/completion.", "P1");
+
+  document.querySelector("#infoTabPinout")?.click();
+  await nextTask();
+  const unoPinRegion = document.querySelector("[data-uno-pin-reference]");
+  const unoD13Inspect = document.querySelector('[data-uno-pin-inspect="D13"]');
+  const unoAliasInspect = document.querySelectorAll(
+    '[data-uno-pin-inspect="AREF"], [data-uno-pin-inspect="SDA"], [data-uno-pin-inspect="SCL"]',
+  );
+  const unoBoundary = document.querySelector("#unoPinReferenceBoundary");
+  record("post-v16-uno-pinout-canonical-3d-inspect-button-accessible",
+    unoPinRegion?.getAttribute("role") === "region" &&
+    Boolean(accessibleName(unoPinRegion)) &&
+    unoD13Inspect?.tagName === "BUTTON" &&
+    unoD13Inspect.type === "button" &&
+    /D13.*3D.*Inspector/i.test(accessibleName(unoD13Inspect)) &&
+    unoD13Inspect.getAttribute("aria-describedby") === "unoPinReferenceBoundary" &&
+    unoD13Inspect.getBoundingClientRect().height >= 44 &&
+    unoD13Inspect.getBoundingClientRect().width >= 44 &&
+    unoAliasInspect.length === 0 &&
+    /không chứng minh.*3D|không.*liên thông lỗ breadboard/i.test(unoBoundary?.textContent || ""),
+    JSON.stringify({
+      regionName: accessibleName(unoPinRegion),
+      d13Name: accessibleName(unoD13Inspect),
+      d13Height: unoD13Inspect?.getBoundingClientRect().height,
+      d13Width: unoD13Inspect?.getBoundingClientRect().width,
+      aliasActions: unoAliasInspect.length,
+      boundary: unoBoundary?.textContent?.trim() || "",
+    }),
+    "Pinout chỉ được đưa nút 3D cho terminal ID tồn tại chính xác trong lesson; alias AREF/SDA/SCL không được tự suy map sang chân khác.", "P1");
 
   const sketchReview = document.querySelector("#sketchReviewMount [data-sketch-review]");
   const sketchReviewStatus = sketchReview?.querySelector("[data-sketch-review-status-label]");
@@ -677,6 +737,45 @@ export async function runAccessibilityContracts() {
     }),
     "UI gán lỗ phải có legend/label/live status và nói rõ đây là khai báo trong phiên, không phải đo/kết nối điện/vị trí 3D đã xác minh.", "P1");
 
+  const holePicker = document.querySelector("#bbHolePicker");
+  const holeGrid = document.querySelector("#bbHoleGrid");
+  const holeGridButtons = [...document.querySelectorAll(
+    "#bbHoleGrid .breadboard-hole-grid-button",
+  )];
+  const holeGridColumns = [...document.querySelectorAll(
+    "#bbHoleGrid [data-bb-grid-column]",
+  )];
+  const holeGridStatus = document.querySelector("#bbGridStatus");
+  const holeGridPage = document.querySelector("#bbGridPage");
+  const holePickerNav = ["#bbGridPrev", "#bbGridNext"].map(selector =>
+    document.querySelector(selector));
+  const genericRailControls = ["#bbGridRail", "#bbGridRailHole", "#bbPickRail"].map(
+    selector => document.querySelector(selector));
+  record("post-v16-breadboard-hole-picker-accessible-eight-column-input-only",
+    holePicker?.getAttribute("role") === "group" && Boolean(accessibleName(holePicker)) &&
+    holeGrid?.getAttribute("role") === "group" && Boolean(accessibleName(holeGrid)) &&
+    holeGridColumns.length === 8 && holeGridButtons.length === 80 &&
+    holeGridButtons.every(button => button.tagName === "BUTTON" &&
+      Boolean(accessibleName(button)) && button.getAttribute("aria-pressed") !== null &&
+      button.getBoundingClientRect().width >= 44 && button.getBoundingClientRect().height >= 44) &&
+    holePickerNav.every(button => button?.tagName === "BUTTON" && Boolean(accessibleName(button))) &&
+    holeGridPage?.getAttribute("aria-live") === "polite" &&
+    holeGridStatus?.getAttribute("role") === "status" &&
+    holeGridStatus?.getAttribute("aria-live") === "polite" &&
+    genericRailControls.every(control => control?.disabled === true) &&
+    /chỉ điền ô|không tự gán|chưa tạo placement/i.test(holeGridStatus?.textContent || ""),
+    JSON.stringify({
+      pickerName: accessibleName(holePicker),
+      gridName: accessibleName(holeGrid),
+      columns: holeGridColumns.length,
+      buttons: holeGridButtons.length,
+      minWidth: Math.min(...holeGridButtons.map(button => button.getBoundingClientRect().width)),
+      minHeight: Math.min(...holeGridButtons.map(button => button.getBoundingClientRect().height)),
+      railDisabled: genericRailControls.map(control => control?.disabled),
+      status: holeGridStatus?.textContent?.trim() || "",
+    }),
+    "Hole picker phải là group có tên, 8 cột/80 nút native >=44px, live status và rail generic bị khóa fail-closed.", "P1");
+
   const resistiveStudy = document.querySelector("#resistiveStudy");
   const resistiveControls = ["#resistiveV", "#resistiveR1", "#resistiveR2", "#resistiveSolve"]
     .map(selector => document.querySelector(selector));
@@ -754,6 +853,14 @@ export async function runAccessibilityContracts() {
   } else {
     skip("reduced-motion-live-computed", "Browser context hiện tại không bật prefers-reduced-motion: reduce; static CSS contract vẫn chạy.");
   }
+
+  // The UNO pinout accessibility contract above intentionally navigates away
+  // from Practice and replaces #infoContent. Restore Practice before sampling
+  // contrast so .learning-coach p is a real rendered text node rather than a
+  // stale/missing selector. Keep the contrast gate strict: every sample must
+  // still resolve to a non-null ratio and meet >=4.5:1.
+  document.querySelector("#infoTabPractice")?.click();
+  await nextTask();
 
   const contrastSelectors = [
     ".lesson-metadata",

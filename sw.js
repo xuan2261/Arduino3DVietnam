@@ -53,7 +53,11 @@ const ASSETS = [
   "./src/practice-observation.js", "./src/practice-observation-ui.js",
   "./src/breadboard-placement-session.js",
   "./docs/PRACTICE_OBSERVATION_NEXT.md",
-  "./docs/RESISTIVE_VISUAL_STUDY_NEXT.md"
+  "./docs/RESISTIVE_VISUAL_STUDY_NEXT.md",
+  "./src/breadboard-hole-grid.js", "./src/practice-wire-guidance.js",
+  "./docs/BREADBOARD_HOLE_PICKER_NEXT.md",
+  "./docs/PRACTICE_WIRE_GUIDANCE_NEXT.md",
+  "./docs/SCENE_WIRE_PREVIEW_NEXT.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

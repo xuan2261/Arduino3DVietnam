@@ -12,6 +12,7 @@ import {
   supportedWiringLessons,
 } from "./circuit-router.js";
 import { getPracticeCheckpoint } from "./practice-checkpoints.js";
+import { inspectPracticeWireGuidance } from "./practice-wire-guidance.js";
 
 const MAX_WIRES = 64;
 const MAX_ISSUES = 32;
@@ -274,7 +275,7 @@ function result(value) {
   return deepFreeze(value);
 }
 
-function manualEvidence(lesson, stepIndex, checkpoint, signalOnly = false) {
+function manualEvidence(lesson, stepIndex, checkpoint, wireGuidance, signalOnly = false) {
   return result({
     lessonId: lesson.id,
     stepIndex,
@@ -289,6 +290,7 @@ function manualEvidence(lesson, stepIndex, checkpoint, signalOnly = false) {
     nextAction: checkpoint.guidance,
     guidance: checkpoint.guidance,
     checkpoint,
+    wireGuidance,
     claims: claims("manual", checkpoint, signalOnly),
   });
 }
@@ -319,7 +321,12 @@ export function inspectPracticeEvidence(input) {
     ) {
       throw new RangeError("Bài 01 không có external wiring evidence.");
     }
-    return manualEvidence(lesson, stepIndex, checkpoint);
+    return manualEvidence(
+      lesson,
+      stepIndex,
+      checkpoint,
+      inspectPracticeWireGuidance({ lesson, stepIndex, circuit: null }),
+    );
   }
 
   if (!supportedWiringLessons().includes(lesson.id)) {
@@ -364,7 +371,13 @@ export function inspectPracticeEvidence(input) {
   const canonicalAnalysis = requireAnalysis(source.analysis, lesson.id, source.circuit);
   const circuitScope = canonicalAnalysis.scope === "signal-only" ? "signal-only" : "topology";
   if (checkpoint.kind === "manual") {
-    return manualEvidence(lesson, stepIndex, checkpoint, circuitScope === "signal-only");
+    return manualEvidence(
+      lesson,
+      stepIndex,
+      checkpoint,
+      inspectPracticeWireGuidance({ lesson, stepIndex, circuit: source.circuit }),
+      circuitScope === "signal-only",
+    );
   }
 
   const referenceByKey = new Map(canonicalReference.wires.map(wire => [wire.key, wire]));
@@ -437,6 +450,7 @@ export function inspectPracticeEvidence(input) {
     nextAction,
     guidance: checkpoint.guidance,
     checkpoint,
+    wireGuidance: inspectPracticeWireGuidance({ lesson, stepIndex, circuit: source.circuit }),
     claims: claims(circuitScope, checkpoint, circuitScope === "signal-only"),
   });
 }

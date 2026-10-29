@@ -49,6 +49,13 @@ export function mountLabEditor({
   let renderedScene = null, renderedLayout = null;
 
   const lessonSupported = () => supported.has(lessonId);
+  // Pending two-terminal wiring intent belongs to this controller only.
+  // The Three.js overlay mirrors it for feedback; it cannot create a wire.
+  const syncPendingScenePreview = () => {
+    const current = lessonSupported() && editing && stage === "3d"
+      ? firstTerminal : null;
+    scene?.setPendingWireTerminal?.(current);
+  };
   const layoutFor = () => {
     if (!lessonSupported()) return null;
     let layout = layouts.get(lessonId);
@@ -161,6 +168,7 @@ export function mountLabEditor({
       const base = getCircuit(lessonId) ?? createCircuit(lessonId);
       const next = connectCircuit(base,from,to);
       firstTerminal = null;
+      syncPendingScenePreview();
       applyCircuit(next, "Đã nối " + from + " → " + to + " trên netlist.");
     } catch (error) {
       announce("Không thể nối: " + (error?.message || "đường nối không hợp lệ"),"error");
@@ -175,10 +183,12 @@ export function mountLabEditor({
       fromSelect.value = terminalId;
       terminalNote.textContent = "Đã chọn " + terminalId + ". Chọn chân thứ hai trên 3D để nối cùng netlist 2D.";
       announce("Chờ chân thứ hai; chưa thay đổi mạch.");
+      syncPendingScenePreview();
     } else if (firstTerminal === terminalId) {
       firstTerminal = null;
       terminalNote.textContent = "Đã hủy chọn chân; không có dây mới.";
       announce("Hủy chọn chân.");
+      syncPendingScenePreview();
     } else {
       const from=firstTerminal;
       toSelect.value = terminalId;
@@ -281,6 +291,7 @@ export function mountLabEditor({
       enabled:editing && sceneVisible,
       selectedComponentId:editing && sceneVisible ? selectedId : null,
     });
+    syncPendingScenePreview();
     showAvrEvidence();
   }
   const onToggle=()=>{
@@ -364,12 +375,25 @@ export function mountLabEditor({
       }
       return true;
     },
+    closeEditor(){
+      // Read-only learning actions may intentionally leave the editor without
+      // discarding the canonical learner graph or any committed layout.
+      if(!editing)return false;
+      editing=false;
+      firstTerminal=null;
+      terminalNote.textContent="Đã hủy thao tác nối dây đang chờ; bản mạch học viên được giữ nguyên.";
+      lastMessage="";
+      render();
+      onEditModeChange();
+      return true;
+    },
     selectComponent(id){selectComponent(id);return selectedId;},
     selectTerminal(id){onTerminalSelect(id);return firstTerminal;},
     connectTerminals(from,to){connectTerminals(from,to);},
     clearTerminalSelection(){
       if(firstTerminal===null)return false;
       firstTerminal=null;
+      syncPendingScenePreview();
       terminalNote.textContent="Đã hủy chọn chân đầu tiên sau khi netlist thay đổi.";
       return true;
     },
@@ -384,6 +408,7 @@ export function mountLabEditor({
     dispose(){
       if(disposed)return;
       disposed=true;
+      scene?.setPendingWireTerminal?.(null);
       for(const [node,event,fn] of listeners) node.removeEventListener(event,fn);
       scene?.setLabEdit?.({...sceneCallbacks,enabled:false});
       layouts.clear();

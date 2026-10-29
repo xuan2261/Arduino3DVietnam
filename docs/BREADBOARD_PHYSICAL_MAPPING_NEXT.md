@@ -119,6 +119,14 @@ Hành vi authored placement:
 - <code>getAuthoredPlacement()</code> trả placement immutable đã validate hoặc <code>null</code>; object này vẫn có <code>circuitRouterMutated:false</code>, <code>sceneCoordinateMapped:false</code> và các physical/electrical claims fail-closed;
 - bản nháp chỉ tồn tại trong phiên của UI; không ghi progress, local storage, netlist hay scene.
 
+### Hole picker tương tác
+
+Phase kế tiếp bổ sung `src/breadboard-hole-grid.js` và UI picker nhưng **không thay đổi commit boundary** của authored placement. Grid A–J được phân trang 8 cột số trên 1..63; click một native hole button chỉ điền hole ID canonical vào `#bbPlaceHole`. Placement chỉ được tạo khi người dùng tiếp tục bấm `#bbAssignHole`.
+
+BB830 có rail picker riêng cho đúng bốn rail `P1+`, `P1-`, `P2+`, `P2-`, index 1..50. Generic profile khóa rail controls vì topology rail chưa được chứng minh. Picker không chứa CAD/scene coordinates và không dùng proximity để suy hole.
+
+Chi tiết contract, pagination, accessibility và fail-closed behavior nằm ở `docs/BREADBOARD_HOLE_PICKER_NEXT.md`.
+
 Phần explorer so sánh hole giữ nguyên các contract trước:
 
 - dùng tri-state diagnostic để phân biệt **unknown** với **known separate**;
@@ -150,5 +158,7 @@ Phần explorer so sánh hole giữ nguyên các contract trước:
 - payload hole không hợp lệ không tạo placement, status/ARIA báo lỗi và renderer không dùng <code>innerHTML</code>;
 - existing compare A1/E1, A1/F1 và generic rail unknown vẫn giữ semantics cũ;
 - dispose tháo listener authored controls.
+
+<code>tests/breadboard-hole-grid-contracts.js</code> kiểm riêng picker model/DOM: bounded 8-column pagination, 44px native buttons, input-only selection, exact BB830 rail allowlist, generic rail disable, invalid page/profile/hole/rail/index fail-closed, lesson/profile reset và cleanup. Các check này không thay thế authored placement validator hoặc circuit-router tests.
 
 Những contract này không thay thế hardware continuity measurement hoặc kiểm chứng kích thước/CAD. Muốn tiến tới physical 3D snapping, bước tiếp theo cần một nguồn cơ khí/CAD có tọa độ hole/header đủ rõ và một transform được kiểm thử độc lập; không được suy transform từ kích thước tổng thể.

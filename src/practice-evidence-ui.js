@@ -125,6 +125,41 @@ function boundedArray(value, limit) {
   return Array.isArray(value) ? value.slice(0, limit) : [];
 }
 
+function unorderedPairKey(pair) {
+  if (!Array.isArray(pair) || pair.length !== 2) return null;
+  const left = typeof pair[0] === "string" ? pair[0] : null;
+  const right = typeof pair[1] === "string" ? pair[1] : null;
+  if (!left || !right || left === right) return null;
+  return left < right ? left + "\u0000" + right : right + "\u0000" + left;
+}
+
+function inspectMissingTarget(evidence, checkpoint) {
+  const guidance = evidence?.wireGuidance;
+  if (!guidance || typeof guidance !== "object" || Array.isArray(guidance)) return null;
+  if (
+    guidance.status !== "missing-canonical-pair" ||
+    checkpoint?.kind !== "wiring" ||
+    checkpoint?.provenance?.scheme !== "human-authored-from-lesson-text" ||
+    guidance?.claims?.topologyAuthority !== "circuit-router" ||
+    guidance?.claims?.authoredCheckpoint !== true ||
+    guidance?.claims?.physicalVerified !== false ||
+    guidance?.claims?.wireCreated !== false ||
+    guidance?.claims?.inspectorNavigationOnly !== true
+  ) return null;
+
+  const pair = guidance.nextMissingPair;
+  const key = unorderedPairKey(pair);
+  if (!key || typeof guidance.inspectTerminalId !== "string" || guidance.inspectTerminalId !== pair[0]) return null;
+  const evidenceMissing = Array.isArray(evidence.missingPairs) &&
+    evidence.missingPairs.length > 0 && unorderedPairKey(evidence.missingPairs[0]) === key;
+  const guidanceMissing = Array.isArray(guidance.missingPairs) &&
+    guidance.missingPairs.length > 0 && unorderedPairKey(guidance.missingPairs[0]) === key;
+  const checkpointRequired = Array.isArray(checkpoint.requiredPairs) &&
+    checkpoint.requiredPairs.some(item => unorderedPairKey(item) === key);
+  if (!evidenceMissing || !guidanceMissing || !checkpointRequired) return null;
+  return Object.freeze({ terminalId: pair[0], pair: Object.freeze([pair[0], pair[1]]) });
+}
+
 function appendPairBlock(doc, section, {
   attribute,
   className,
@@ -162,12 +197,14 @@ function appendPairBlock(doc, section, {
 export function renderPracticeEvidence(doc, evidence, {
   onOpenWiring,
   onOpen3D,
+  onInspectMissingTerminal,
   onRecheck,
 } = {}) {
   requireDocument(doc);
   requireEvidence(evidence);
   requireCallback(onOpenWiring, "onOpenWiring");
   requireCallback(onOpen3D, "onOpen3D");
+  requireCallback(onInspectMissingTerminal, "onInspectMissingTerminal");
   requireCallback(onRecheck, "onRecheck");
 
   const lessonId = Number.isInteger(evidence.lessonId) && evidence.lessonId >= 1 && evidence.lessonId <= 16
@@ -199,6 +236,7 @@ export function renderPracticeEvidence(doc, evidence, {
     : (isManual ? "manual" : "unknown");
   const provenanceScheme = safeText(checkpoint?.provenance?.scheme, "unknown");
   const hasExternalWiring = lessonId !== 1;
+  const missingInspectTarget = inspectMissingTarget(evidence, checkpoint);
 
   const section = make(doc, "section", "practice-evidence");
   section.setAttribute("data-practice-evidence", "");
@@ -266,6 +304,36 @@ export function renderPracticeEvidence(doc, evidence, {
     const guidanceNode = make(doc, "p", "practice-evidence-guidance", "Gợi ý thực hành: " + guidance);
     guidanceNode.setAttribute("data-practice-guidance", "");
     section.append(guidanceNode);
+  }
+
+  const wireGuidance = evidence.wireGuidance && typeof evidence.wireGuidance === "object" &&
+    !Array.isArray(evidence.wireGuidance) ? evidence.wireGuidance : null;
+  if (wireGuidance && wireGuidance.status !== "not-applicable-manual-checkpoint") {
+    const wireNode = make(
+      doc,
+      "p",
+      "practice-evidence-wire-guidance",
+      "Hướng dẫn cạnh dây: " + safeText(
+        wireGuidance.explanation,
+        "Chưa có hướng dẫn cạnh dây cho checkpoint này.",
+      ),
+    );
+    wireNode.setAttribute("data-practice-wire-guidance", "");
+    section.append(wireNode);
+    if (Array.isArray(wireGuidance.reviewExtraPairs) && wireGuidance.reviewExtraPairs.length) {
+      const reviewNode = make(
+        doc,
+        "p",
+        "practice-evidence-wire-review",
+        "Review topology: " + safeText(
+          wireGuidance.reviewExplanation,
+          "Có cạnh ngoài canonical reference sample cần đối chiếu lại.",
+        ),
+      );
+      reviewNode.setAttribute("data-practice-wire-review", "");
+      reviewNode.setAttribute("role", "note");
+      section.append(reviewNode);
+    }
   }
 
   if (isSignalOnly) {
@@ -389,6 +457,33 @@ export function renderPracticeEvidence(doc, evidence, {
     open3D.addEventListener("click", () => onOpen3D());
   }
 
+  let inspectMissing = null;
+  if (missingInspectTarget) {
+    inspectMissing = make(
+      doc,
+      "button",
+      "practice-evidence-button",
+      "Xem chân cần nối trong 3D / Inspector",
+    );
+    inspectMissing.type = "button";
+    inspectMissing.setAttribute("data-practice-inspect-missing-terminal", "");
+    inspectMissing.setAttribute("data-practice-inspect-terminal", missingInspectTarget.terminalId);
+    inspectMissing.setAttribute(
+      "aria-label",
+      "Xem terminal " + missingInspectTarget.terminalId +
+      " của cặp còn thiếu " + missingInspectTarget.pair[0] + " và " + missingInspectTarget.pair[1] +
+      " trong 3D Inspector",
+    );
+    if (typeof onInspectMissingTerminal !== "function") {
+      inspectMissing.disabled = true;
+      inspectMissing.setAttribute("aria-disabled", "true");
+    } else {
+      inspectMissing.addEventListener("click", () => {
+        onInspectMissingTerminal(missingInspectTarget.terminalId);
+      });
+    }
+  }
+
   const recheck = make(
     doc,
     "button",
@@ -404,7 +499,7 @@ export function renderPracticeEvidence(doc, evidence, {
     recheck.addEventListener("click", () => onRecheck());
   }
 
-  actions.append(openWiring, open3D, recheck);
+  actions.append(...[openWiring, open3D, inspectMissing, recheck].filter(Boolean));
   section.append(actions);
   return section;
 }

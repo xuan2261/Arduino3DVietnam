@@ -244,16 +244,27 @@ class ReleaseContractTests(unittest.TestCase):
             "docs/PRACTICE_OBSERVATION_NEXT.md",
             "docs/RESISTIVE_VISUAL_STUDY_NEXT.md",
         ]
+        expected_post_v16_guided_wiring = [
+            "src/breadboard-hole-grid.js",
+            "src/practice-wire-guidance.js",
+            "docs/BREADBOARD_HOLE_PICKER_NEXT.md",
+            "docs/PRACTICE_WIRE_GUIDANCE_NEXT.md",
+            "docs/SCENE_WIRE_PREVIEW_NEXT.md",
+        ]
         self.assertTrue(hasattr(build_site, "POST_V16_LAB_FILES"),
                         "build must expose the exact post-v1.6 authored-lab release suffix")
         self.assertTrue(hasattr(build_site, "POST_V16_INTERACTION_FILES"),
                         "build must expose the exact post-v1.6 interaction release suffix")
+        self.assertTrue(hasattr(build_site, "POST_V16_GUIDED_WIRING_FILES"),
+                        "build must expose the exact post-v1.6 guided-wiring release suffix")
         self.assertEqual(build_site.POST_V16_LAB_FILES, expected_post_v16_lab)
         self.assertEqual(build_site.POST_V16_INTERACTION_FILES, expected_post_v16_interaction)
-        self.assertEqual(len(build_site.FILES), 102,
-                         "candidate must remain 97 protected files + exactly 5 interaction files")
+        self.assertEqual(build_site.POST_V16_GUIDED_WIRING_FILES, expected_post_v16_guided_wiring)
+        self.assertEqual(len(build_site.FILES), 107,
+                         "candidate must remain 102 protected files + exactly 5 guided-wiring files")
         self.assertEqual(build_site.FILES[87:97], expected_post_v16_lab)
-        self.assertEqual(build_site.FILES[97:], expected_post_v16_interaction)
+        self.assertEqual(build_site.FILES[97:102], expected_post_v16_interaction)
+        self.assertEqual(build_site.FILES[102:], expected_post_v16_guided_wiring)
 
         # Hash the ordered path prefixes, not source bytes. These pins make it
         # impossible to silently reorder/replace an older public asset while
@@ -266,6 +277,9 @@ class ReleaseContractTests(unittest.TestCase):
         ).hexdigest()
         protected_authored_lab = sha256(
             ("\n".join(build_site.FILES[:97]) + "\n").encode("utf-8")
+        ).hexdigest()
+        protected_interaction = sha256(
+            ("\n".join(build_site.FILES[:102]) + "\n").encode("utf-8")
         ).hexdigest()
         self.assertEqual(
             protected_v16,
@@ -282,8 +296,17 @@ class ReleaseContractTests(unittest.TestCase):
             "48db3b0923e6c4fd178e865fa8954976e152256e324345a504345cacdaa9626f",
             "the protected 97-file authored-lab path prefix changed",
         )
+        self.assertEqual(
+            protected_interaction,
+            "d6eafc58683be16f50559fa5af1bf212537578b16b846b86973777ad8944ce87",
+            "the protected 102-file interaction path prefix changed",
+        )
 
-        for filename in [*expected_post_v16_lab, *expected_post_v16_interaction]:
+        for filename in [
+            *expected_post_v16_lab,
+            *expected_post_v16_interaction,
+            *expected_post_v16_guided_wiring,
+        ]:
             source = build_site._release_source(filename)
             self.assertTrue(source.is_file(), filename)
             self.assertFalse(source.is_symlink(), filename)
@@ -297,8 +320,10 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('from "./sketch-review.js"', app)
         self.assertIn('from "./sketch-review-ui.js"', app)
         self.assertIn('from "./practice-checkpoints.js"', practice)
+        self.assertIn('from "./practice-wire-guidance.js"', practice)
         self.assertIn('from "./breadboard-placement.js"', breadboard_ui)
         self.assertIn('from "./breadboard-placement-session.js"', breadboard_ui)
+        self.assertIn('from "./breadboard-hole-grid.js"', breadboard_ui)
         self.assertIn('from "./practice-observation.js"', app)
         self.assertIn('from "./practice-observation-ui.js"', app)
         self.assertIn(".uno-pin-reference", css)
@@ -308,6 +333,8 @@ class ReleaseContractTests(unittest.TestCase):
         observation_ui = (ROOT / "src/practice-observation-ui.js").read_text(encoding="utf-8")
         placement_session = (ROOT / "src/breadboard-placement-session.js").read_text(encoding="utf-8")
         resistive_ui = (ROOT / "src/resistive-study-ui.js").read_text(encoding="utf-8")
+        hole_grid = (ROOT / "src/breadboard-hole-grid.js").read_text(encoding="utf-8")
+        wire_guidance = (ROOT / "src/practice-wire-guidance.js").read_text(encoding="utf-8")
         self.assertIn('from "./practice-checkpoints.js"', observation)
         self.assertNotRegex(observation, r'(?m)^\s*import\s+.*circuit-router',
                             "practice observation must not import learner-graph authority")
@@ -323,13 +350,26 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('from "./dc-resistor-network.js"', resistive_ui)
         self.assertNotRegex(resistive_ui, r'(?m)^\s*import\s+.*circuit-router',
                             "resistive study remains independent of the learner netlist")
+        self.assertIn('from "./breadboard-topology.js"', hole_grid)
+        self.assertNotRegex(hole_grid, r'(?m)^\s*import\s+.*circuit-router',
+                            "hole picker must only fill canonical input IDs, never mutate netlist")
+        self.assertNotRegex(hole_grid, r'(?m)^\s*import\s+.*scene3d',
+                            "hole picker must not infer authored holes from scene geometry")
+        self.assertIn('from "./circuit-router.js"', wire_guidance)
+        self.assertIn('from "./practice-checkpoints.js"', wire_guidance)
+        self.assertNotRegex(wire_guidance, r'(?m)^\s*import\s+.*scene3d',
+                            "practice guidance must not own scene navigation")
+        self.assertNotRegex(wire_guidance, r'(?m)^\s*import\s+.*breadboard',
+                            "practice guidance must remain canonical-topology guidance only")
+        self.assertNotIn("document.", wire_guidance,
+                         "pure practice guidance must not mutate DOM state")
 
         worker = (ROOT / "sw.js").read_text(encoding="utf-8")
         expected_assets = ["./", *[f"./{name}" for name in build_site.FILES if name != "sw.js"]]
         self.assertEqual(
             build_site._service_worker_assets(worker),
             expected_assets,
-            "service-worker precache must exactly mirror the 102-file release order",
+            "service-worker precache must exactly mirror the 107-file release order",
         )
 
         with tempfile.TemporaryDirectory(prefix="arduino3d-authored-lab-release-") as temporary:
@@ -347,6 +387,22 @@ class ReleaseContractTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
+    def test_post_v16_guided_wiring_release_fails_closed_when_runtime_source_is_missing(self):
+        for missing in ("src/breadboard-hole-grid.js", "src/practice-wire-guidance.js"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory(
+                prefix="arduino3d-guided-wiring-missing-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                (fixture_root / missing).unlink()
+                fixture_dist = (fixture_root / "dist").resolve()
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", fixture_dist
+                ):
+                    with self.assertRaises(FileNotFoundError):
+                        build_site.build()
 
     def test_post_v16_interaction_release_fails_closed_when_runtime_source_is_missing(self):
         runtime_sources = (

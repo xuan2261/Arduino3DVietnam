@@ -559,7 +559,18 @@ def main() -> None:
                       and "inspection-read-only-label-mode" in scene_lifecycle_names
                       and "inspection-read-only-label-does-not-mount-or-move-scene" in
                           scene_lifecycle_names
-                      and "inspection-read-only-dataset" in scene_lifecycle_names,
+                      and "inspection-read-only-dataset" in scene_lifecycle_names
+                      and "pending-wire-source-requires-mounted-edit-layout" in scene_lifecycle_names
+                      and "pending-wire-source-is-visual-only" in scene_lifecycle_names
+                      and "pending-wire-ghost-is-uncommitted-canonical-hover-only" in
+                          scene_lifecycle_names
+                      and "pending-wire-first-terminal-visual-prompt" in scene_lifecycle_names
+                      and "pending-wire-prompt-is-visual-only" in scene_lifecycle_names
+                      and "pending-wire-invalid-id-is-transactional" in scene_lifecycle_names
+                      and "edit-exit-clears-pending-wire-preview" in scene_lifecycle_names
+                      and "layout-stage-clear-resets-pending-wire-preview" in
+                          scene_lifecycle_names
+                      and "context-reset-clears-pending-wire-preview" in scene_lifecycle_names,
                       f"{scene_lifecycle['passed']} passed")
                 scene_lab = run_page_contract(
                     page, "./tests/scene3d-lab-contracts.js", "runScene3DLabContracts")
@@ -704,6 +715,25 @@ def main() -> None:
                       and placement_contracts["passed"] == len(placement_contracts["checks"])
                       and placement_contracts["total"] == 30,
                       f"{placement_contracts['passed']}/{placement_contracts['total']} passed")
+                hole_grid_contracts = run_page_contract(
+                    page, "./tests/breadboard-hole-grid-contracts.js",
+                    "runBreadboardHoleGridContracts")
+                hole_grid_contract_names = set(hole_grid_contracts.get("checks", []))
+                check("post-v16-breadboard-hole-grid-direct-contracts",
+                      hole_grid_contracts["passed"] == hole_grid_contracts["total"]
+                      and hole_grid_contracts["passed"] == len(hole_grid_contracts["checks"])
+                      and hole_grid_contracts["total"] == 47
+                      and "page-size-fixed-at-eight" in hole_grid_contract_names
+                      and "generic-rails-stay-disabled" in hole_grid_contract_names
+                      and "bb830-exposes-exact-four-signed-rails" in hole_grid_contract_names
+                      and "dom-strip-click-only-fills-input" in hole_grid_contract_names
+                      and "dom-explicit-assign-remains-only-placement-gate" in
+                          hole_grid_contract_names
+                      and "negative-dom-forged-rail-name-does-not-change-input" in
+                          hole_grid_contract_names
+                      and "negative-dom-partial-picker-controls-rejected" in
+                          hole_grid_contract_names,
+                      f"{hole_grid_contracts['passed']}/{hole_grid_contracts['total']} passed")
                 breadboard_profile = page.evaluate("""async () => {
                     const module = await import('./src/breadboard-topology.js');
                     const generic = module.createBreadboardTopology();
@@ -753,6 +783,89 @@ def main() -> None:
                       and breadboard_profile["triState"]["separate"] == ["separate", False, False]
                       and breadboard_profile["triState"]["unknown"] == ["unknown", None, False],
                       json.dumps(breadboard_profile["triState"], ensure_ascii=False))
+                hole_grid_contract = page.evaluate("""async () => {
+                    const grid = await import('./src/breadboard-hole-grid.js');
+                    const first = grid.createBreadboardHoleGridPage({
+                        profileId: 'generic-63x10-terminal-strips', page: 1,
+                    });
+                    const last = grid.createBreadboardHoleGridPage({
+                        profileId: 'generic-63x10-terminal-strips', page: 8,
+                    });
+                    const genericRails = grid.listBreadboardRailChoices(
+                        'generic-63x10-terminal-strips');
+                    const bb830Rails = grid.listBreadboardRailChoices('busboard-bb830-rev7');
+                    const stripPick = grid.pickBreadboardGridHole({
+                        profileId: 'generic-63x10-terminal-strips', page: 1, holeId: 'a1',
+                    });
+                    const railPick = grid.pickBreadboardRailHole({
+                        profileId: 'busboard-bb830-rev7', railId: 'P1+', index: '50',
+                    });
+                    let genericRailRejected = false;
+                    try {
+                        grid.pickBreadboardRailHole({
+                            profileId: 'generic-63x10-terminal-strips', railId: 'P1+', index: 1,
+                        });
+                    } catch { genericRailRejected = true; }
+                    const unsafe = ['<img src=x onerror=1>', 'constructor', '__proto__', 'A1\u0000'];
+                    const rejected = [];
+                    for (const id of unsafe) {
+                        let strip = false;
+                        let rail = false;
+                        try {
+                            grid.pickBreadboardGridHole({
+                                profileId: 'generic-63x10-terminal-strips', page: 1, holeId: id,
+                            });
+                        } catch { strip = true; }
+                        try {
+                            grid.pickBreadboardRailHole({
+                                profileId: 'busboard-bb830-rev7', railId: id, index: 1,
+                            });
+                        } catch { rail = true; }
+                        rejected.push({id, strip, rail});
+                    }
+                    return {
+                        pageSize: first.pageSize,
+                        pageCount: first.pageCount,
+                        firstColumns: first.columns,
+                        firstHoles: first.holes.length,
+                        lastColumns: last.columns,
+                        lastHoles: last.holes.length,
+                        genericRailsEnabled: genericRails.enabled,
+                        genericRailReason: genericRails.reason,
+                        bb830RailCount: bb830Rails.rails.length,
+                        bb830All50: bb830Rails.rails.every(item => item.holes === 50),
+                        stripPick,
+                        railPick,
+                        genericRailRejected,
+                        rejected,
+                    };
+                }""")
+                check("post-v16-breadboard-hole-grid-eight-column-profile-contract",
+                      hole_grid_contract["pageSize"] == 8
+                      and hole_grid_contract["pageCount"] == 8
+                      and hole_grid_contract["firstColumns"] == list(range(1, 9))
+                      and hole_grid_contract["firstHoles"] == 80
+                      and hole_grid_contract["lastColumns"] == list(range(57, 64))
+                      and hole_grid_contract["lastHoles"] == 70
+                      and not hole_grid_contract["genericRailsEnabled"]
+                      and hole_grid_contract["genericRailReason"] == "profile-rails-unverified"
+                      and hole_grid_contract["bb830RailCount"] == 4
+                      and hole_grid_contract["bb830All50"]
+                      and hole_grid_contract["stripPick"]["holeId"] == "A1"
+                      and hole_grid_contract["stripPick"]["selectionKind"] ==
+                          "terminal-strip-input-only"
+                      and hole_grid_contract["stripPick"]["claims"]["placementCreated"] is False
+                      and hole_grid_contract["railPick"]["holeId"] == "P1+50"
+                      and hole_grid_contract["railPick"]["selectionKind"] ==
+                          "bb830-rail-input-only"
+                      and hole_grid_contract["railPick"]["claims"]["circuitRouterMutated"] is False
+                      and hole_grid_contract["genericRailRejected"],
+                      json.dumps(hole_grid_contract, ensure_ascii=False))
+                check("post-v16-breadboard-hole-grid-unsafe-ids-fail-closed",
+                      len(hole_grid_contract["rejected"]) == 4
+                      and all(row["strip"] and row["rail"]
+                              for row in hole_grid_contract["rejected"]),
+                      json.dumps(hole_grid_contract["rejected"], ensure_ascii=False))
                 authored_placement = page.evaluate("""async () => {
                     const placement = await import('./src/breadboard-placement.js');
                     const router = await import('./src/circuit-router.js');
@@ -886,17 +999,62 @@ def main() -> None:
                 check("post-v16-practice-evidence-16-lesson-pure-contracts",
                       practice_contracts["passed"] == practice_contracts["total"]
                       and practice_contracts["passed"] == len(practice_contracts["checks"])
-                      and practice_contracts["total"] == 52,
+                      and practice_contracts["total"] == 54,
                       f"{practice_contracts['passed']}/{practice_contracts['total']} passed")
                 practice_ui_contracts = run_page_contract(
                     page, "./tests/practice-evidence-ui-contracts.js",
                     "runPracticeEvidenceUiContracts")
+                practice_ui_names = set(practice_ui_contracts.get("checks", []))
                 check("post-v16-practice-evidence-dom-aria-contracts",
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] == 18,
+                      and practice_ui_contracts["total"] == 21
+                      and "missing-terminal-inspector-callback-fires-only-on-explicit-click" in
+                          practice_ui_names
+                      and "inspector-button-appears-only-for-proven-authored-missing-canonical-pair-across-48-steps" in
+                          practice_ui_names
+                      and "covered-extra-only-and-forged-guidance-never-expose-missing-inspector-button" in
+                          practice_ui_names,
                       f"{practice_ui_contracts['passed']}/{practice_ui_contracts['total']} passed")
+                practice_wire_contracts = run_page_contract(
+                    page, "./tests/practice-wire-guidance-contracts.js",
+                    "runPracticeWireGuidanceContracts")
+                practice_wire_names = set(practice_wire_contracts.get("checks", []))
+                check("post-v16-practice-wire-guidance-direct-contracts",
+                      practice_wire_contracts["passed"] == practice_wire_contracts["total"]
+                      and practice_wire_contracts["passed"] == len(practice_wire_contracts["checks"])
+                      and practice_wire_contracts["total"] == 12
+                      and "all-48-authored-checkpoints-have-bounded-source-truthful-guidance" in
+                          practice_wire_names
+                      and "foreign-or-forged-circuit-inputs-fail-closed" in practice_wire_names
+                      and "exact-terminal-ids-come-from-router-terminal-set" in practice_wire_names,
+                      f"{practice_wire_contracts['passed']}/{practice_wire_contracts['total']} passed")
+                practice_wire_unsafe = page.evaluate("""async () => {
+                    const [guide, router, lessonModule] = await Promise.all([
+                        import('./src/practice-wire-guidance.js'),
+                        import('./src/circuit-router.js'),
+                        import('./src/lessons.js'),
+                    ]);
+                    const lesson = lessonModule.lessonById(2);
+                    const payloads = ['<img src=x onerror=1>', 'constructor', '__proto__', 'D13 '];
+                    const rows = [];
+                    for (const terminalId of payloads) {
+                        const circuit = JSON.parse(JSON.stringify(router.createCircuit(2)));
+                        circuit.wires.push({id:'w1',from:terminalId,to:'GND'});
+                        circuit.nextWireId = 2;
+                        let rejected = false;
+                        try {
+                            guide.inspectPracticeWireGuidance({lesson,stepIndex:0,circuit});
+                        } catch { rejected = true; }
+                        rows.push({terminalId,rejected});
+                    }
+                    return rows;
+                }""")
+                check("post-v16-practice-wire-guidance-unsafe-terminal-ids-fail-closed",
+                      len(practice_wire_unsafe) == 4
+                      and all(row["rejected"] for row in practice_wire_unsafe),
+                      json.dumps(practice_wire_unsafe, ensure_ascii=False))
                 observation_contracts = run_page_contract(
                     page, "./tests/practice-observation-contracts.js",
                     "runPracticeObservationContracts")
@@ -1910,6 +2068,23 @@ def main() -> None:
                     f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
                 ).locator("circle").click()
                 svg_first_terminal_note = page.locator("#labSelectedTerminal").inner_text()
+                check("post-v16-3d-pending-wire-first-terminal-visual-only",
+                      canvas.get_attribute("data-lab-pending-wire-terminal") ==
+                          first_reference_wire["from"]
+                      and canvas.get_attribute("data-lab-pending-wire-hover-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-preview") == "none"
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and first_reference_wire["from"] in
+                          (canvas.get_attribute("aria-label") or "")
+                      and "chưa tạo dây" in (canvas.get_attribute("aria-label") or "").lower()
+                      and "chọn chân thứ hai" in svg_first_terminal_note.lower(),
+                      json.dumps({
+                          "pending": canvas.get_attribute("data-lab-pending-wire-terminal"),
+                          "hover": canvas.get_attribute("data-lab-pending-wire-hover-terminal"),
+                          "preview": canvas.get_attribute("data-lab-pending-wire-preview"),
+                          "wires": canvas.get_attribute("data-lab-wire-count"),
+                          "note": svg_first_terminal_note,
+                      }, ensure_ascii=False))
                 selected_terminal_nodes = explorer.locator(
                     f'[data-explorer-terminal="{first_reference_wire["from"]}"]'
                 )
@@ -1940,6 +2115,9 @@ def main() -> None:
                       and explorer.get_attribute("data-explorer-source") == "learner-draft"
                       and learner_wire_list.count() == 1
                       and canvas.get_attribute("data-lab-wire-count") == "1"
+                      and canvas.get_attribute("data-lab-pending-wire-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-hover-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-preview") == "none"
                       and explorer.locator(".lab-explorer-schematic-svg [data-explorer-reference-wire]").count()
                           == lesson2_reference_count,
                       json.dumps({
@@ -2012,6 +2190,9 @@ def main() -> None:
                 check("v16-explorer-canonical-mutation-clears-stale-terminal",
                       stale_terminal_precondition
                       and explorer.get_attribute("data-explorer-selected-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-hover-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-preview") == "none"
                       and explorer.locator(
                           "[data-explorer-selected-terminal-status='none']").count() == 1
                       and all(
@@ -2172,6 +2353,53 @@ def main() -> None:
                           (page.locator("#bbTopologyDiagram").get_attribute("aria-label") or "").lower()
                       and page.locator("#bbTopologyDiagram [data-bb-diagram='conceptual-strips']").count() == 1)
                 page.locator("#bbProfile").select_option("generic-63x10-terminal-strips")
+                grid_holes = page.locator("#bbHoleGrid .breadboard-hole-grid-button")
+                grid_columns = page.locator("#bbHoleGrid [data-bb-grid-column]")
+                check("post-v16-breadboard-hole-picker-eight-column-page-is-input-only",
+                      page.locator("#bbHoleGrid").get_attribute("data-state") == "ready"
+                      and page.locator("#bbHoleGrid").get_attribute("data-page") == "1"
+                      and page.locator("#bbGridPage").get_attribute("data-page") == "1"
+                      and page.locator("#bbGridPage").get_attribute("data-page-count") == "8"
+                      and grid_columns.count() == 8
+                      and grid_holes.count() == 80
+                      and page.locator('#bbHoleGrid [data-bb-grid-column="1"]').count() == 1
+                      and page.locator('#bbHoleGrid [data-bb-grid-column="8"]').count() == 1
+                      and page.locator("#bbGridPrev").is_disabled()
+                      and not page.locator("#bbGridNext").is_disabled()
+                      and page.locator("#bbGridRail").is_disabled()
+                      and page.locator("#bbGridRailHole").is_disabled()
+                      and page.locator("#bbPickRail").is_disabled(),
+                      json.dumps({
+                          "columns": grid_columns.count(),
+                          "holes": grid_holes.count(),
+                          "page": page.locator("#bbGridPage").inner_text(),
+                          "railDisabled": page.locator("#bbPickRail").is_disabled(),
+                      }, ensure_ascii=False))
+                first_grid_hole = page.locator('#bbHoleGrid [data-bb-grid-hole="A1"]')
+                first_grid_hole.focus()
+                first_grid_hole.press("Enter")
+                check("post-v16-breadboard-hole-picker-keyboard-select-does-not-place-or-wire",
+                      page.locator("#bbPlaceHole").input_value() == "A1"
+                      and first_grid_hole.get_attribute("aria-pressed") == "true"
+                      and page.locator("#bbGridStatus").get_attribute("data-result") == "selected"
+                      and "chưa tạo placement" in page.locator("#bbGridStatus").inner_text().lower()
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
+                      page.locator("#bbGridStatus").inner_text())
+                page.locator("#bbGridNext").focus()
+                page.locator("#bbGridNext").press("Enter")
+                check("post-v16-breadboard-hole-picker-page-navigation-bounded",
+                      page.locator("#bbHoleGrid").get_attribute("data-page") == "2"
+                      and page.locator("#bbGridPage").get_attribute("data-page") == "2"
+                      and page.locator("#bbHoleGrid [data-bb-grid-column='9']").count() == 1
+                      and page.locator("#bbHoleGrid [data-bb-grid-column='16']").count() == 1
+                      and page.locator("#bbHoleGrid .breadboard-hole-grid-button").count() == 80
+                      and not page.locator("#bbGridPrev").is_disabled())
+                page.locator("#bbGridPrev").press("Enter")
+                check("post-v16-breadboard-hole-picker-prev-restores-first-page",
+                      page.locator("#bbHoleGrid").get_attribute("data-page") == "1"
+                      and page.locator("#bbGridPrev").is_disabled()
+                      and page.locator("#bbPlaceHole").input_value() == "A1")
                 page.locator("#bbTerminal").select_option("D13")
                 page.locator("#bbPlaceHole").fill("a12")
                 page.locator("#bbAssignHole").click()
@@ -2200,6 +2428,18 @@ def main() -> None:
                       and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
                       and page.locator("#bbPlacedList [data-bb-placement-empty]").count() == 1
                       and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires)
+                page.locator("#bbGridRail").select_option("P1+")
+                page.locator("#bbGridRailHole").fill("1")
+                page.locator("#bbPickRail").focus()
+                page.locator("#bbPickRail").press("Enter")
+                check("post-v16-breadboard-bb830-rail-picker-selects-input-without-placement",
+                      page.locator("#bbGridRail option").count() == 4
+                      and page.locator("#bbPlaceHole").input_value() == "P1+1"
+                      and page.locator("#bbGridStatus").get_attribute("data-result") == "selected"
+                      and "chưa tạo placement" in page.locator("#bbGridStatus").inner_text().lower()
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
+                      page.locator("#bbGridStatus").inner_text())
                 page.locator("#bbTerminal").select_option("D13")
                 page.locator("#bbPlaceHole").fill("P1+1")
                 page.locator("#bbAssignHole").click()
@@ -2737,13 +2977,20 @@ def main() -> None:
                             const section = document.querySelector('#breadboardStudy');
                             const controls = [
                               '#bbProfile','#bbHoleA','#bbHoleB','#bbCompare',
-                              '#bbTerminal','#bbPlaceHole','#bbAssignHole','#bbRemoveHole'
+                              '#bbTerminal','#bbPlaceHole','#bbAssignHole','#bbRemoveHole',
+                              '#bbGridPrev','#bbGridNext'
                             ]
                               .map(selector => document.querySelector(selector))
                               .filter(node => node && !node.disabled);
                             const rows = controls.map(node => {
                               const rect = node.getBoundingClientRect();
                               return {id: node.id, width: rect.width, height: rect.height};
+                            });
+                            const holeButtons = [...document.querySelectorAll(
+                              '#bbHoleGrid .breadboard-hole-grid-button')];
+                            const holeRows = holeButtons.map(node => {
+                              const rect = node.getBoundingClientRect();
+                              return {id: node.dataset.bbGridHole, width: rect.width, height: rect.height};
                             });
                             const rect = section?.getBoundingClientRect();
                             return {
@@ -2752,6 +2999,22 @@ def main() -> None:
                               controlCount: rows.length,
                               minimumHeight: Math.min(...rows.map(row => row.height)),
                               tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
+                              gridColumns: document.querySelectorAll('#bbHoleGrid [data-bb-grid-column]').length,
+                              gridButtons: holeButtons.length,
+                              gridButtonMinWidth: Math.min(...holeRows.map(row => row.width)),
+                              gridButtonMinHeight: Math.min(...holeRows.map(row => row.height)),
+                              gridButtonsTooSmall: holeRows.filter(row => row.width < 44 || row.height < 44),
+                              gridRole: document.querySelector('#bbHoleGrid')?.getAttribute('role') || '',
+                              gridName: document.querySelector('#bbHoleGrid')?.getAttribute('aria-label') || '',
+                              gridStatusRole: document.querySelector('#bbGridStatus')?.getAttribute('role') || '',
+                              gridStatusLive: document.querySelector('#bbGridStatus')?.getAttribute('aria-live') || '',
+                              genericRailLocked: Boolean(
+                                document.querySelector('#bbGridRail')?.disabled &&
+                                document.querySelector('#bbGridRailHole')?.disabled &&
+                                document.querySelector('#bbPickRail')?.disabled
+                              ),
+                              documentWidth: document.documentElement.scrollWidth,
+                              viewport: innerWidth,
                               mapped: document.querySelector('#bbMappingWarning')?.dataset.mapped || '',
                               authoredStatusRole: document.querySelector('#bbPlacementStatus')?.getAttribute('role') || '',
                               authoredStatusLive: document.querySelector('#bbPlacementStatus')?.getAttribute('aria-live') || '',
@@ -2764,12 +3027,37 @@ def main() -> None:
                               and breadboard_mobile["controlCount"] >= 8
                               and breadboard_mobile["minimumHeight"] >= 40
                               and not breadboard_mobile["tooSmall"]
+                              and breadboard_mobile["gridColumns"] == 8
+                              and breadboard_mobile["gridButtons"] == 80
+                              and breadboard_mobile["gridButtonMinWidth"] >= 44
+                              and breadboard_mobile["gridButtonMinHeight"] >= 44
+                              and not breadboard_mobile["gridButtonsTooSmall"]
+                              and breadboard_mobile["gridRole"] == "group"
+                              and "cột 1 đến 8" in breadboard_mobile["gridName"].lower()
+                              and breadboard_mobile["gridStatusRole"] == "status"
+                              and breadboard_mobile["gridStatusLive"] == "polite"
+                              and breadboard_mobile["genericRailLocked"]
+                              and breadboard_mobile["documentWidth"] <= breadboard_mobile["viewport"]
                               and breadboard_mobile["mapped"] == "false"
                               and breadboard_mobile["authoredStatusRole"] == "status"
                               and breadboard_mobile["authoredStatusLive"] == "polite"
                               and "do người dùng khai báo trong phiên" in
                                   breadboard_mobile["authoredBoundary"],
                               json.dumps(breadboard_mobile, ensure_ascii=False))
+                        mobile_hole = small.locator('#bbHoleGrid [data-bb-grid-hole="A1"]')
+                        mobile_hole.focus()
+                        mobile_hole.press("Enter")
+                        check("post-v16-mobile-breadboard-hole-picker-keyboard-input-only-375",
+                              small.locator("#bbPlaceHole").input_value() == "A1"
+                              and mobile_hole.get_attribute("aria-pressed") == "true"
+                              and small.locator("#bbGridStatus").get_attribute(
+                                  "data-result") == "selected"
+                              and small.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                              and small.locator("#sceneMount canvas").get_attribute(
+                                  "data-lab-wire-count") == "0"
+                              and small.evaluate(
+                                  "document.documentElement.scrollWidth <= innerWidth"),
+                              small.locator("#bbGridStatus").inner_text())
                         small.locator("#resistiveSolve").click()
                         resistive_mobile = small.evaluate("""() => {
                             const section = document.querySelector('#resistiveStudy');
@@ -2936,6 +3224,10 @@ def main() -> None:
                           and observation_after_handler.get_attribute(
                               "data-observation-matching-events") == "1"
                           and "view-wiring" in observation_handler_text
+                          and "caller báo cho module" in observation_handler_text
+                          and "host-only" not in observation_handler_text.lower()
+                          and "host app đã ghi nhận" not in observation_handler_text.lower()
+                          and "người dùng đã thực hiện" not in observation_handler_text.lower()
                           and "không chứng minh event đã xảy ra tại bước hiện tại" in
                               observation_handler_text
                           and "không đo mastery" in observation_handler_text
@@ -2956,6 +3248,68 @@ def main() -> None:
                                   "#sceneMount canvas").get_attribute("data-lab-wire-count"),
                           }, ensure_ascii=False))
                     practice_page.locator("#stageTab3d").click()
+                    # The explicit missing-terminal action is navigation/inspection
+                    # only. Prove it revokes an already armed first-terminal gesture
+                    # before selecting the exact canonical missing endpoint.
+                    missing_terminal_button = practice_page.locator(
+                        "#learningCoach [data-practice-inspect-missing-terminal]")
+                    missing_terminal_target = missing_terminal_button.get_attribute(
+                        "data-practice-inspect-terminal")
+                    missing_terminal_is_canonical = practice_page.evaluate(
+                        """id => import('./src/circuit-router.js').then(m =>
+                          m.listTerminals(2).some(item => item.id === id))""",
+                        missing_terminal_target,
+                    )
+                    practice_page.locator("#labEditToggle").click()
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="D13"]'
+                    ).click()
+                    pending_before_missing_inspect = practice_page.locator(
+                        "#sceneMount canvas").get_attribute("data-lab-pending-wire-terminal")
+                    missing_terminal_button.focus()
+                    missing_terminal_button.press("Enter")
+                    practice_explorer = practice_page.locator("#labExplorer .lab-explorer")
+                    practice_learner_wires = practice_explorer.locator(
+                        '[data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    )
+                    check("post-v16-practice-missing-terminal-inspector-keyboard-readonly-no-wire",
+                          missing_terminal_target == "D13"
+                          and missing_terminal_is_canonical
+                          and pending_before_missing_inspect == "D13"
+                          and practice_page.locator("#stageTab3d").get_attribute(
+                              "aria-selected") == "true"
+                          and practice_page.locator("#labEditToggle").get_attribute(
+                              "aria-pressed") == "false"
+                          and practice_page.locator("#labEditor").is_hidden()
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-pending-wire-terminal") == ""
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-pending-wire-preview") == "none"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-inspected-terminal") == missing_terminal_target
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-inspection-feedback") == "label"
+                          and practice_explorer.get_attribute(
+                              "data-explorer-selected-terminal") == missing_terminal_target
+                          and practice_learner_wires.count() == 0
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-wire-count") == "0"
+                          and practice_page.locator("#sceneInspectionStatus").is_visible()
+                          and missing_terminal_target in
+                              practice_page.locator("#sceneInspectionStatus").inner_text()
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          json.dumps({
+                              "target": missing_terminal_target,
+                              "pendingBefore": pending_before_missing_inspect,
+                              "pendingAfter": practice_page.locator(
+                                  "#sceneMount canvas").get_attribute(
+                                      "data-lab-pending-wire-terminal"),
+                              "inspected": practice_page.locator(
+                                  "#sceneMount canvas").get_attribute(
+                                      "data-lab-inspected-terminal"),
+                              "learnerWires": practice_learner_wires.count(),
+                          }, ensure_ascii=False))
                     # A half-completed 3D terminal gesture must be cancelled
                     # when the learner navigates to 2D through Practice. The
                     # first click after returning to 3D must not create a
@@ -2967,11 +3321,15 @@ def main() -> None:
                     armed_before_stage_switch = practice_page.locator(
                         "#labExplorer .lab-explorer").get_attribute(
                             "data-explorer-selected-terminal")
+                    pending_before_stage_switch = practice_page.locator(
+                        "#sceneMount canvas").get_attribute("data-lab-pending-wire-terminal")
                     practice_page.locator(
                         "#learningCoach [data-practice-open-wiring]").click()
                     selected_on_2d = practice_page.locator(
                         "#labExplorer .lab-explorer").get_attribute(
                             "data-explorer-selected-terminal")
+                    pending_on_2d = practice_page.locator(
+                        "#sceneMount canvas").get_attribute("data-lab-pending-wire-terminal")
                     practice_page.locator("#stageTab3d").click()
                     selected_on_return = practice_page.locator(
                         "#labExplorer .lab-explorer").get_attribute(
@@ -2981,17 +3339,122 @@ def main() -> None:
                     ).click()
                     check("post-v16-practice-3d-pending-terminal-revoked-on-2d-stage-switch",
                           armed_before_stage_switch == "D13"
+                          and pending_before_stage_switch == "D13"
                           and selected_on_2d in ("", None)
+                          and pending_on_2d in ("", None)
                           and selected_on_return in ("", None)
                           and practice_page.locator(
                               "#labExplorer .lab-explorer").get_attribute(
                                   "data-explorer-selected-terminal") == "R1:A"
                           and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-pending-wire-terminal") == "R1:A"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-pending-wire-preview") == "none"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
                               "data-lab-wire-count") == "0",
                           json.dumps({
                               "armed": armed_before_stage_switch,
+                              "pendingBefore": pending_before_stage_switch,
                               "in2D": selected_on_2d,
+                              "pending2D": pending_on_2d,
                               "back3D": selected_on_return,
+                          }, ensure_ascii=False))
+                    # Regression: a REAL WebGL context loss clears both scene
+                    # preview and LabEditor firstTerminal. Synthetic restoration
+                    # without losing the underlying GL context is not equivalent:
+                    # it can make Three.js upload against invalid GL texture state
+                    # and produce misleading INVALID_OPERATION warnings. Require
+                    # WEBGL_lose_context, await actual loss + restore events, then
+                    # prove the next terminal is a new first (never a stale wire).
+                    practice_page.locator("#labEditToggle").click()
+                    practice_page.locator("#labEditToggle").click()
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="D13"]'
+                    ).click()
+                    context_canvas = practice_page.locator("#sceneMount canvas")
+                    context_pending_before = context_canvas.get_attribute(
+                        "data-lab-pending-wire-terminal")
+                    context_wires_before = practice_page.locator(
+                        '#labExplorer .lab-explorer [data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    ).count()
+                    context_cycle = practice_page.evaluate("""async () => {
+                        const canvas = document.querySelector('#sceneMount canvas');
+                        const context = canvas?.getContext('webgl2');
+                        const extension = context?.getExtension('WEBGL_lose_context');
+                        if (!extension) {
+                            throw new Error('Real WebGL context-loss extension unavailable; cannot certify context restoration');
+                        }
+                        const waitCanvasEvent = name => new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => reject(new Error('Timeout awaiting '+name)), 10000);
+                            canvas.addEventListener(name, event => {
+                                clearTimeout(timeout);
+                                resolve(event);
+                            }, {once:true});
+                        });
+                        const lost = waitCanvasEvent('webglcontextlost');
+                        extension.loseContext();
+                        const lostEvent = await lost;
+                        const loss = {
+                            defaultPrevented: lostEvent.defaultPrevented,
+                            context: canvas.dataset.sceneContext,
+                            pending: canvas.dataset.labPendingWireTerminal,
+                            hover: canvas.dataset.labPendingWireHoverTerminal,
+                            preview: canvas.dataset.labPendingWirePreview,
+                            note: document.getElementById('labSelectedTerminal')?.textContent || '',
+                        };
+                        // The lost-event listener resolves while event dispatch
+                        // may still be unwinding. WebGL restoration must wait for
+                        // a new browser task, as in existing scene contracts.
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                        const restored = waitCanvasEvent('webglcontextrestored');
+                        extension.restoreContext();
+                        await restored;
+                        return {
+                            realContextCycle:true,
+                            loss,
+                            restoredContext:canvas.dataset.sceneContext,
+                        };
+                    }""")
+                    context_loss = context_cycle["loss"]
+                    context_note_after_loss = context_loss["note"]
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="R1:A"]'
+                    ).click()
+                    context_wires_after = practice_page.locator(
+                        '#labExplorer .lab-explorer [data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    ).count()
+                    check("post-v16-webgl-context-loss-revokes-pending-first-terminal-no-false-connection",
+                          context_cycle["realContextCycle"]
+                          and context_cycle["restoredContext"] == "ready"
+                          and context_pending_before == "D13"
+                          and context_loss["defaultPrevented"]
+                          and context_loss["context"] == "lost"
+                          and context_loss["pending"] == ""
+                          and context_loss["hover"] == ""
+                          and context_loss["preview"] == "none"
+                          and "hủy chọn chân đầu tiên" in context_note_after_loss.lower()
+                          and context_canvas.get_attribute("data-scene-context") == "ready"
+                          and context_canvas.get_attribute(
+                              "data-lab-pending-wire-terminal") == "R1:A"
+                          and context_canvas.get_attribute(
+                              "data-lab-pending-wire-preview") == "none"
+                          and practice_page.locator(
+                              "#labExplorer .lab-explorer").get_attribute(
+                                  "data-explorer-selected-terminal") == "R1:A"
+                          and "chọn chân thứ hai" in practice_page.locator(
+                              "#labSelectedTerminal").inner_text().lower()
+                          and context_wires_before == context_wires_after == 0
+                          and context_canvas.get_attribute("data-lab-wire-count") == "0",
+                          json.dumps({
+                              "pendingBefore": context_pending_before,
+                              "loss": context_loss,
+                              "noteAfterLoss": context_note_after_loss,
+                              "pendingAfterNext": context_canvas.get_attribute(
+                                  "data-lab-pending-wire-terminal"),
+                              "wiresBefore": context_wires_before,
+                              "wiresAfter": context_wires_after,
                           }, ensure_ascii=False))
                     practice_page.locator("#labEditToggle").click()
                     evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
@@ -3165,6 +3628,8 @@ def main() -> None:
                     mobile_evidence = practice_page.evaluate("""() => {
                         const root = document.querySelector('[data-practice-evidence]');
                         const controls = Array.from(root?.querySelectorAll('button') || []);
+                        const inspect = root?.querySelector('[data-practice-inspect-missing-terminal]');
+                        const inspectRect = inspect?.getBoundingClientRect();
                         return {
                             innerWidth,
                             documentWidth: document.documentElement.scrollWidth,
@@ -3174,13 +3639,77 @@ def main() -> None:
                                 return rect.height < 44 || rect.width < 44;
                             }).length,
                             status: root?.dataset.practiceStatus || '',
+                            inspectTarget: inspect?.getAttribute('data-practice-inspect-terminal') || '',
+                            inspectWidth: inspectRect?.width ?? 0,
+                            inspectHeight: inspectRect?.height ?? 0,
                         };
                     }""")
                     check("post-v16-practice-mobile375-no-overflow-touch-targets",
                           mobile_evidence["documentWidth"] <= mobile_evidence["innerWidth"]
-                          and mobile_evidence["buttons"] >= 3
-                          and mobile_evidence["smallButtons"] == 0,
+                          and mobile_evidence["buttons"] >= 4
+                          and mobile_evidence["smallButtons"] == 0
+                          and mobile_evidence["inspectTarget"] == "D13"
+                          and mobile_evidence["inspectWidth"] >= 44
+                          and mobile_evidence["inspectHeight"] >= 44,
                           json.dumps(mobile_evidence, ensure_ascii=False))
+                    # At 375px, the official pinout may expose a read-only 3D
+                    # action only for an exact current-lesson terminal. Arm a
+                    # transient first terminal first so the action must revoke it.
+                    practice_page.locator("#stageTab3d").click()
+                    if practice_page.locator("#labEditToggle").get_attribute("aria-pressed") != "true":
+                        practice_page.locator("#labEditToggle").click()
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="D13"]'
+                    ).click()
+                    pinout_pending_before = practice_page.locator(
+                        "#sceneMount canvas").get_attribute("data-lab-pending-wire-terminal")
+                    pinout_explorer = practice_page.locator("#labExplorer .lab-explorer")
+                    pinout_wire_list = pinout_explorer.locator(
+                        '[data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    )
+                    pinout_wires_before = pinout_wire_list.count()
+                    practice_page.locator("#infoTabPinout").click()
+                    d13_pin_button = practice_page.locator('[data-uno-pin-inspect="D13"]')
+                    d13_pin_rect = d13_pin_button.bounding_box()
+                    alias_pin_buttons = practice_page.locator(
+                        '[data-uno-pin-inspect="AREF"], [data-uno-pin-inspect="SDA"], '
+                        '[data-uno-pin-inspect="SCL"]'
+                    )
+                    d13_pin_button.focus()
+                    d13_pin_button.press("Enter")
+                    pinout_wire_list_after = practice_page.locator(
+                        '#labExplorer .lab-explorer [data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    )
+                    check("post-v16-mobile-uno-pinout-inspect-keyboard-readonly-preserves-graph-375",
+                          d13_pin_rect is not None
+                          and d13_pin_rect["width"] >= 44
+                          and d13_pin_rect["height"] >= 44
+                          and alias_pin_buttons.count() == 0
+                          and pinout_pending_before == "D13"
+                          and practice_page.locator("#labEditToggle").get_attribute(
+                              "aria-pressed") == "false"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-pending-wire-terminal") == ""
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-inspected-terminal") == "D13"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-inspection-feedback") == "label"
+                          and practice_page.locator("#sceneInspectionStatus").is_visible()
+                          and "D13" in practice_page.locator("#sceneInspectionStatus").inner_text()
+                          and pinout_wire_list_after.count() == pinout_wires_before
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          json.dumps({
+                              "button": d13_pin_rect,
+                              "aliases": alias_pin_buttons.count(),
+                              "pendingBefore": pinout_pending_before,
+                              "pendingAfter": practice_page.locator(
+                                  "#sceneMount canvas").get_attribute(
+                                      "data-lab-pending-wire-terminal"),
+                              "wiresBefore": pinout_wires_before,
+                              "wiresAfter": pinout_wire_list_after.count(),
+                          }, ensure_ascii=False))
                 finally:
                     practice_context.close()
 
@@ -3512,6 +4041,32 @@ def main() -> None:
                 check("post-v16-interaction-runtime-and-docs-available-offline",
                       all(interaction_offline.values()),
                       json.dumps(interaction_offline, ensure_ascii=False))
+                guided_wiring_offline = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [holeGrid, guidance, holeDoc, guidanceDoc, previewDoc] =
+                      await Promise.all([
+                        import(new URL('./src/breadboard-hole-grid.js', baseUrl).href),
+                        import(new URL('./src/practice-wire-guidance.js', baseUrl).href),
+                        fetch(new URL('./docs/BREADBOARD_HOLE_PICKER_NEXT.md', baseUrl)),
+                        fetch(new URL('./docs/PRACTICE_WIRE_GUIDANCE_NEXT.md', baseUrl)),
+                        fetch(new URL('./docs/SCENE_WIRE_PREVIEW_NEXT.md', baseUrl)),
+                      ]);
+                    const page1 = holeGrid.createBreadboardHoleGridPage({
+                        profileId:'generic-63x10-terminal-strips',page:1,
+                    });
+                    return {
+                        holeGrid: typeof holeGrid.createBreadboardHoleGridPage === 'function'
+                            && typeof holeGrid.pickBreadboardGridHole === 'function'
+                            && page1.pageSize === 8 && page1.holes.length === 80,
+                        guidance: typeof guidance.inspectPracticeWireGuidance === 'function',
+                        holeDoc: holeDoc.ok,
+                        guidanceDoc: guidanceDoc.ok,
+                        previewDoc: previewDoc.ok,
+                    };
+                }""")
+                check("post-v16-guided-wiring-runtime-and-docs-available-offline",
+                      all(guided_wiring_offline.values()),
+                      json.dumps(guided_wiring_offline, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

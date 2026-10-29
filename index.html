@@ -114,6 +114,31 @@
                 <label for="bbPlaceHole">Lỗ dành cho đầu dây hoặc linh kiện</label>
                 <input id="bbPlaceHole" type="text" maxlength="12" value="A12" autocapitalize="characters" spellcheck="false" aria-describedby="bbFormat bbAuthoredBoundary">
               </div>
+              <div class="breadboard-hole-picker" id="bbHolePicker" role="group" aria-labelledby="bbGridHeading">
+                <h3 id="bbGridHeading">Chọn lỗ trực quan theo profile</h3>
+                <p>Chọn một vị trí ở bảng A–J hoặc thanh nguồn BB830 để điền mã lỗ. <strong>Bấm “Gán lỗ trong bản nháp” riêng</strong> mới ghi nhận vị trí; không có dây điện mới và không suy ra tọa độ chân 3D.</p>
+                <div class="breadboard-hole-page-nav">
+                  <button id="bbGridPrev" type="button" class="button button-soft" aria-controls="bbHoleGrid">← Cột trước</button>
+                  <output id="bbGridPage" aria-live="polite">Cột 1–8 / 63</output>
+                  <button id="bbGridNext" type="button" class="button button-soft" aria-controls="bbHoleGrid">Cột tiếp →</button>
+                </div>
+                <div class="breadboard-hole-grid-scroller" role="region" tabindex="0" aria-label="Lưới lỗ A đến J, chia từng tám cột; có thể cuộn ngang khi màn hình hẹp">
+                  <div id="bbHoleGrid" class="breadboard-hole-grid" role="group" aria-label="Các nút chọn lỗ dải tiếp xúc A–E, rãnh giữa, F–J"></div>
+                </div>
+                <div class="breadboard-rail-picker">
+                  <label for="bbGridRail">Thanh nguồn BB830 (ký hiệu, không tự cấp điện)</label>
+                  <select id="bbGridRail" aria-describedby="bbAuthoredBoundary">
+                    <option value="P1+">P1+ · rail 1</option>
+                    <option value="P1-">P1− · rail 2</option>
+                    <option value="P2+">P2+ · rail 3</option>
+                    <option value="P2-">P2− · rail 4</option>
+                  </select>
+                  <label for="bbGridRailHole">Lỗ rail (1–50)</label>
+                  <input id="bbGridRailHole" type="number" min="1" max="50" step="1" value="1" inputmode="numeric" aria-describedby="bbAuthoredBoundary">
+                  <button id="bbPickRail" type="button" class="button button-soft">Chọn lỗ trên rail BB830</button>
+                </div>
+                <p id="bbGridStatus" role="status" aria-live="polite" class="breadboard-study-hint">Chọn lỗ để điền mã; không tự gán vị trí hoặc nối dây.</p>
+              </div>
               <div class="breadboard-authored-actions">
                 <button id="bbAssignHole" type="button" class="button button-soft">Gán lỗ trong bản nháp</button>
                 <button id="bbRemoveHole" type="button" class="button button-soft">Bỏ gán chân này</button>

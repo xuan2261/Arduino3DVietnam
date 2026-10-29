@@ -15,6 +15,12 @@ import {
   validateBreadboardPlacement,
 } from "./breadboard-placement.js";
 import { createBreadboardPlacementSession } from "./breadboard-placement-session.js";
+import {
+  createBreadboardHoleGridPage,
+  listBreadboardRailChoices,
+  pickBreadboardGridHole,
+  pickBreadboardRailHole,
+} from "./breadboard-hole-grid.js";
 
 const PROFILES = Object.freeze([
   "generic-63x10-terminal-strips",
@@ -56,16 +62,43 @@ export function mountBreadboardStudy({
   const placedList = $("bbPlacedList");
   const placementStatus = $("bbPlacementStatus");
   const authoredBoundary = $("bbAuthoredBoundary");
+  const holeGrid = $("bbHoleGrid");
+  const gridPrev = $("bbGridPrev");
+  const gridNext = $("bbGridNext");
+  const gridPage = $("bbGridPage");
+  const gridRail = $("bbGridRail");
+  const gridRailHole = $("bbGridRailHole");
+  const pickRail = $("bbPickRail");
+  const gridStatus = $("bbGridStatus");
   if ([
     profile,from,to,compare,result,warning,diagram,
     terminalSelect,placeHole,assignHole,removeHole,placedList,placementStatus,authoredBoundary,
   ].some(node=>!node)) {
     throw new Error("Breadboard study thiếu các điều khiển HTML.");
   }
+  const pickerNodes=[
+    holeGrid,gridPrev,gridNext,gridPage,gridRail,gridRailHole,pickRail,gridStatus,
+  ];
+  const pickerPresent=pickerNodes.filter(Boolean).length;
+  if(pickerPresent>0 && pickerPresent!==pickerNodes.length){
+    throw new Error("Breadboard hole picker thiếu các điều khiển HTML.");
+  }
+  const hasHolePicker=pickerPresent===pickerNodes.length;
+  if(hasHolePicker){
+    gridStatus.setAttribute("role","status");
+    gridStatus.setAttribute("aria-live","polite");
+    gridPage.setAttribute("aria-live","polite");
+    gridRail.setAttribute("aria-describedby","bbGridStatus");
+    gridRailHole.setAttribute("aria-describedby","bbGridStatus");
+    pickRail.setAttribute("aria-describedby","bbGridStatus");
+  }
   const placementSession = createBreadboardPlacementSession();
   let disposed = false;
   let comparison = null;
   let authoredInitialized = false;
+  let holeGridPage=1;
+  let holePickerInitialized=false;
+  let renderedGridButtons=[];
 
   const announce = (message,kind) => {
     result.textContent = message;
@@ -75,6 +108,199 @@ export function mountBreadboardStudy({
     placementStatus.textContent=message;
     placementStatus.dataset.result=kind;
   };
+  const announceGrid = (message,kind) => {
+    if(!hasHolePicker)return;
+    gridStatus.textContent=message;
+    gridStatus.dataset.result=kind;
+  };
+  const clearRenderedGridButtons=()=>{
+    for(const entry of renderedGridButtons){
+      entry.button.removeEventListener("click",entry.listener);
+    }
+    renderedGridButtons=[];
+  };
+  const updateGridButtonSelection=()=>{
+    if(!hasHolePicker)return;
+    const selected=String(placeHole.value||"").trim().toUpperCase();
+    for(const {button} of renderedGridButtons){
+      button.setAttribute("aria-pressed",String(button.dataset.bbGridHole===selected));
+    }
+  };
+  const failClosedHolePicker=error=>{
+    if(!hasHolePicker)return;
+    clearRenderedGridButtons();
+    holeGrid.replaceChildren();
+    holeGrid.dataset.state="error";
+    holeGridPage=1;
+    gridPrev.disabled=true;
+    gridNext.disabled=true;
+    gridPage.textContent="Picker không khả dụng";
+    gridRail.replaceChildren();
+    gridRail.disabled=true;
+    gridRailHole.disabled=true;
+    pickRail.disabled=true;
+    gridRailHole.setAttribute("aria-invalid","true");
+    announceGrid(
+      "Không thể mở bộ chọn lỗ: "+(error?.message||"Profile hoặc trang không hợp lệ")+" Không có placement nào được tạo.",
+      "error",
+    );
+    holePickerInitialized=true;
+  };
+  const selectHoleInput=(selection,label)=>{
+    placeHole.value=selection.holeId;
+    placeHole.setAttribute("aria-invalid","false");
+    updateGridButtonSelection();
+    announceGrid(
+      `${label} ${selection.holeId} đã được điền vào ô lỗ. Chưa tạo placement hay dây; cần bấm “Gán lỗ trong bản nháp” để xác nhận.`,
+      "selected",
+    );
+    return selection;
+  };
+  const renderRailPicker=(state,{reset=false}={})=>{
+    if(!hasHolePicker)return;
+    const authoredEnabled=Boolean(state?.enabled&&state.terminals.length);
+    const rails=listBreadboardRailChoices(profile.value);
+    const previousRail=gridRail.value;
+    gridRail.replaceChildren();
+    if(!rails.enabled){
+      const option=doc.createElement("option");
+      option.value="";
+      option.textContent="Rail chưa được xác minh cho profile này";
+      gridRail.append(option);
+      gridRail.value="";
+      gridRail.disabled=true;
+      gridRailHole.disabled=true;
+      pickRail.disabled=true;
+      gridRailHole.setAttribute("aria-invalid","false");
+      return rails;
+    }
+    for(const rail of rails.rails){
+      const option=doc.createElement("option");
+      option.value=rail.id;
+      option.textContent=`${rail.signedLabel} · 50 lỗ liên tục trong profile`;
+      gridRail.append(option);
+    }
+    const keepPrevious=!reset&&rails.rails.some(rail=>rail.id===previousRail);
+    gridRail.value=keepPrevious?previousRail:rails.rails[0].id;
+    if(reset || !/^(?:[1-9]|[1-4][0-9]|50)$/.test(String(gridRailHole.value||"").trim())){
+      gridRailHole.value="1";
+    }
+    gridRailHole.setAttribute("min","1");
+    gridRailHole.setAttribute("max","50");
+    gridRailHole.setAttribute("step","1");
+    gridRailHole.setAttribute("inputmode","numeric");
+    gridRailHole.setAttribute("aria-invalid","false");
+    gridRail.disabled=!authoredEnabled;
+    gridRailHole.disabled=!authoredEnabled;
+    pickRail.disabled=!authoredEnabled;
+    return rails;
+  };
+  const renderHoleGrid=(state,{reset=false}={})=>{
+    if(!hasHolePicker)return null;
+    const authoredEnabled=Boolean(state?.enabled&&state.terminals.length);
+    if(reset)holeGridPage=1;
+    const model=createBreadboardHoleGridPage({profileId:profile.value,page:holeGridPage});
+    clearRenderedGridButtons();
+    holeGrid.replaceChildren();
+    holeGrid.dataset.state=authoredEnabled?"ready":"disabled";
+    holeGrid.dataset.profile=model.profileId;
+    holeGrid.dataset.page=String(model.page);
+    holeGrid.style.maxWidth="100%";
+    holeGrid.style.boxSizing="border-box";
+    holeGrid.setAttribute("role","group");
+    holeGrid.setAttribute("aria-label",`Chọn lỗ breadboard A-J, cột ${model.columnStart} đến ${model.columnEnd}`);
+    holeGrid.setAttribute("aria-describedby","bbGridStatus");
+    for(const column of model.columns){
+      const heading=doc.createElement("span");
+      heading.className="breadboard-hole-grid-column-label";
+      heading.dataset.bbGridColumn=String(column);
+      heading.textContent=String(column);
+      holeGrid.append(heading);
+    }
+    for(let empty=model.columns.length;empty<model.pageSize;empty+=1){
+      const placeholder=doc.createElement("span");
+      placeholder.className="breadboard-hole-grid-column-label";
+      placeholder.dataset.bbGridColumnEmpty="";
+      placeholder.setAttribute("aria-hidden","true");
+      holeGrid.append(placeholder);
+    }
+    for(const row of model.rows){
+      const holes=model.columns.map(column=>
+        model.holes.find(hole=>hole.row===row&&hole.column===column),
+      );
+      for(const hole of holes){
+        if(!hole)continue;
+        const button=doc.createElement("button");
+        button.type="button";
+        button.className="breadboard-hole-grid-button";
+        button.dataset.bbPickHole=hole.id;
+        button.dataset.bbGridHole=hole.id;
+        button.dataset.bbGridNode=hole.nodeId;
+        button.textContent=hole.id;
+        button.disabled=!authoredEnabled;
+        button.style.minWidth="44px";
+        button.style.minHeight="44px";
+        button.setAttribute("aria-label",`Chọn lỗ ${hole.id} để điền ô gán; chưa tạo placement`);
+        button.setAttribute("aria-pressed",String(String(placeHole.value||"").trim().toUpperCase()===hole.id));
+        const listener=()=>{
+          if(disposed||button.disabled)return;
+          try{
+            const selection=pickBreadboardGridHole({
+              profileId:profile.value,page:holeGridPage,holeId:hole.id,
+            });
+            selectHoleInput(selection,"Lỗ strip");
+          }catch(error){
+            failClosedHolePicker(error);
+          }
+        };
+        button.addEventListener("click",listener);
+        renderedGridButtons.push({button,listener});
+        holeGrid.append(button);
+      }
+      for(let empty=model.columns.length;empty<model.pageSize;empty+=1){
+        const placeholder=doc.createElement("span");
+        placeholder.dataset.bbGridEmpty="";
+        placeholder.setAttribute("aria-hidden","true");
+        holeGrid.append(placeholder);
+      }
+      if(row==="E"){
+        const trench=doc.createElement("div");
+        trench.dataset.bbGridTrench="";
+        trench.setAttribute("role","separator");
+        trench.setAttribute("aria-label","Khe giữa E và F; hai phía không cùng nhóm tiếp xúc");
+        trench.textContent="Khe giữa E ↕ F";
+        holeGrid.append(trench);
+      }
+    }
+    gridPrev.disabled=!authoredEnabled||model.previousPage===null;
+    gridNext.disabled=!authoredEnabled||model.nextPage===null;
+    gridPage.textContent=`Cột ${model.columnStart}–${model.columnEnd} / 1–${model.terminalColumns} · trang ${model.page}/${model.pageCount}`;
+    gridPage.dataset.page=String(model.page);
+    gridPage.dataset.pageCount=String(model.pageCount);
+    renderRailPicker(state,{reset});
+    return model;
+  };
+  function syncHolePicker(state,{reset=false,reason=null}={}){
+    if(!hasHolePicker)return null;
+    try{
+      const model=renderHoleGrid(state,{reset});
+      if(!state?.enabled){
+        announceGrid("Bài 01 không có external breadboard placement; bộ chọn lỗ bị khóa.","disabled");
+      }else if(!state.terminals.length){
+        announceGrid("Bài hiện tại không có terminal canonical; bộ chọn lỗ bị khóa.","disabled");
+      }else if(reset){
+        const changed=reason==="profile"?"profile":reason==="lesson"?"bài học":"ngữ cảnh terminal";
+        announceGrid(`Đã đổi ${changed}; picker trở về trang 1. Chọn lỗ chỉ điền ô, vẫn cần nút Gán lỗ để tạo bản nháp.`,"reset");
+      }else if(!holePickerInitialized){
+        announceGrid("Chọn một lỗ A–J trên trang hiện tại. Thao tác này chỉ điền ô lỗ; nút Gán lỗ mới tạo placement.","ready");
+      }
+      holePickerInitialized=true;
+      return model;
+    }catch(error){
+      failClosedHolePicker(error);
+      return null;
+    }
+  }
   const renderAuthoredList = () => {
     if(disposed)return;
     const doc=placedList.ownerDocument;
@@ -147,6 +373,7 @@ export function mountBreadboardStudy({
       "error",
     );
     renderAuthoredList();
+    failClosedHolePicker(error);
     authoredInitialized=true;
     return null;
   };
@@ -174,6 +401,7 @@ export function mountBreadboardStudy({
         placeHole.setAttribute("aria-invalid","false");
       }
       renderAuthoredList();
+      syncHolePicker(state,{reset:syncResult.reset,reason:syncResult.reason});
       if(!state.enabled){
         announcePlacement(
           "Bài 01 dùng LED L tích hợp trên bo; không có terminal breadboard ngoài bo để khai báo lỗ.",
@@ -372,6 +600,42 @@ export function mountBreadboardStudy({
     }
   }
 
+  function setHoleGridPage(nextPage){
+    if(disposed||!hasHolePicker)return null;
+    try{
+      const state=placementSession.snapshot();
+      const model=createBreadboardHoleGridPage({profileId:profile.value,page:nextPage});
+      holeGridPage=model.page;
+      renderHoleGrid(state);
+      announceGrid(
+        `Đang xem cột ${model.columnStart}–${model.columnEnd}. Chọn lỗ chỉ điền ô; chưa tạo placement.`,
+        "page",
+      );
+      return model;
+    }catch(error){
+      failClosedHolePicker(error);
+      return null;
+    }
+  }
+
+  function pickRailHole(){
+    if(disposed||!hasHolePicker||pickRail.disabled)return null;
+    try{
+      const selection=pickBreadboardRailHole({
+        profileId:profile.value,
+        railId:gridRail.value,
+        index:gridRailHole.value,
+      });
+      gridRailHole.value=String(selection.index);
+      gridRailHole.setAttribute("aria-invalid","false");
+      return selectHoleInput(selection,"Lỗ rail BB830");
+    }catch(error){
+      gridRailHole.setAttribute("aria-invalid","true");
+      announceGrid("Không thể chọn rail: "+(error?.message||"Rail hoặc chỉ số không hợp lệ"),"error");
+      return null;
+    }
+  }
+
   function compareHoles() {
     if(disposed)return null;
     try {
@@ -423,6 +687,13 @@ export function mountBreadboardStudy({
   const onPlaceKeydown=event=>{if(event.key==="Enter"){event.preventDefault();assignAuthoredHole();}};
   const onAssignHole=()=>assignAuthoredHole();
   const onRemoveHole=()=>removeAuthoredHole();
+  const onGridPrev=()=>{if(hasHolePicker&&!gridPrev.disabled)setHoleGridPage(holeGridPage-1);};
+  const onGridNext=()=>{if(hasHolePicker&&!gridNext.disabled)setHoleGridPage(holeGridPage+1);};
+  const onPickRail=()=>pickRailHole();
+  const onGridRailHoleInput=()=>{
+    if(hasHolePicker)gridRailHole.setAttribute("aria-invalid","false");
+  };
+  const onPlaceInput=()=>updateGridButtonSelection();
   const onTerminal=()=>{
     const mapped=placementSession.snapshot().terminalToHole[terminalSelect.value];
     placeHole.value=mapped??"";
@@ -448,6 +719,13 @@ export function mountBreadboardStudy({
   assignHole.addEventListener("click",onAssignHole);
   removeHole.addEventListener("click",onRemoveHole);
   terminalSelect.addEventListener("change",onTerminal);
+  if(hasHolePicker){
+    gridPrev.addEventListener("click",onGridPrev);
+    gridNext.addEventListener("click",onGridNext);
+    pickRail.addEventListener("click",onPickRail);
+    gridRailHole.addEventListener("input",onGridRailHoleInput);
+    placeHole.addEventListener("input",onPlaceInput);
+  }
   syncAuthoredContext();
   refreshMappingBoundary();
   renderDiagram();
@@ -468,6 +746,14 @@ export function mountBreadboardStudy({
       assignHole.removeEventListener("click",onAssignHole);
       removeHole.removeEventListener("click",onRemoveHole);
       terminalSelect.removeEventListener("change",onTerminal);
+      if(hasHolePicker){
+        gridPrev.removeEventListener("click",onGridPrev);
+        gridNext.removeEventListener("click",onGridNext);
+        pickRail.removeEventListener("click",onPickRail);
+        gridRailHole.removeEventListener("input",onGridRailHoleInput);
+        placeHole.removeEventListener("input",onPlaceInput);
+        clearRenderedGridButtons();
+      }
     },
   });
 }
