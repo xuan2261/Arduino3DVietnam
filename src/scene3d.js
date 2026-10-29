@@ -21,6 +21,7 @@ const SCENE_LOD_BREAKPOINT = 560;
 const LAB_TERMINAL_HIT_RADIUS = .20;
 const LAB_TOUCH_TAP_THRESHOLD = 12;
 const LAB_COMMITTED_WIRE_ROUTE_POINTS = 8;
+const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
@@ -75,6 +76,15 @@ const createSharedMaterials = () => ({
   }),
   highlightedWireLineMat: new T.LineBasicMaterial({
     color: 0xffd36a, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false,
+  }),
+  authoredGuideBackdropMat: new T.LineBasicMaterial({
+    color: 0x10272b, transparent: true, opacity: .88,
+    depthWrite: false, depthTest: false,
+  }),
+  authoredGuideDashMat: new T.LineDashedMaterial({
+    color: 0x74d9c8, transparent: true, opacity: .98,
+    dashSize: .18, gapSize: .10,
     depthWrite: false, depthTest: false,
   }),
   contactStripMat: material(0xb7c3bf, { metalness: .16, roughness: .48 }),
@@ -1042,6 +1052,8 @@ export function mountScene(host, onSelect = () => {}) {
   let hoveredLabTerminalId=null;
   let pendingWireTerminalId=null,pendingWireHoverTerminalId=null,pendingWirePreviewLine=null;
   let terminalLinkDragSourceId=null,terminalLinkDragTargetId=null;
+  let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
+  let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0,fineDetailInstanceCount=0;
   let labWireLayer=null;
   let labWireGeometryRevision=0;
@@ -1229,6 +1241,12 @@ export function mountScene(host, onSelect = () => {}) {
     if(highlightedLabWireId){
       parts.push(`Dây đang được đánh dấu: ${highlightedLabWireId}. Đây chỉ là nhấn mạnh đường dây khái niệm đã có trong graph canonical.`);
     }
+    if(authoredPairGuide){
+      parts.push(
+        `Gợi ý cặp terminal authored: ${authoredPairGuide.from} đến ${authoredPairGuide.to}. `+
+        "Đây chỉ là đường hướng dẫn trực quan, không tạo dây, không xác nhận kết nối điện hoặc vị trí vật lý."
+      );
+    }
     canvas.setAttribute("aria-label",parts.join(" "));
     canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
       ? baseShortcuts+" W A S D Q E Escape"
@@ -1270,6 +1288,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labTerminalDragSource="";
     canvas.dataset.labTerminalDragTarget="";
     canvas.dataset.labTerminalDragPreview="none";
+    canvas.dataset.labAuthoredGuideMode="none";
+    canvas.dataset.labAuthoredGuideFrom="";
+    canvas.dataset.labAuthoredGuideTo="";
     canvas.dataset.labHoveredTerminal="";
     canvas.dataset.labTerminalLabelFeedback="none";
     canvas.dataset.labTerminalContrastFeedback="none";
@@ -1472,6 +1493,159 @@ export function mountScene(host, onSelect = () => {}) {
       clearPendingWireHover(false);
     }
   }
+  function authoredGuideResult(){
+    return Object.freeze({
+      active:authoredPairGuide!==null,
+      mode:authoredPairGuide?"view-only":"none",
+      from:authoredPairGuide?.from??null,
+      to:authoredPairGuide?.to??null,
+      physicalVerified:false,
+      electricalAuthority:false,
+    });
+  }
+  function isCanonicalAuthoredGuideTerminal(terminalId,layout=activeLabLayout){
+    if(!layout||typeof terminalId!=="string")return false;
+    const terminalMap=layout.terminalMap;
+    const canonical=terminalMap&&Object.prototype.hasOwnProperty.call(terminalMap,terminalId)
+      ? terminalMap[terminalId] : null;
+    return canonical?.terminalId===terminalId&&labTerminals.has(terminalId);
+  }
+  function clearAuthoredPairGuide(redraw=false){
+    const changed=authoredPairGuide!==null||authoredPairGuideLayer!==null;
+    if(authoredPairGuideLayer){
+      activeLabLayer?.remove(authoredPairGuideLayer);
+      disposeTree(authoredPairGuideLayer,sharedMaterialSet);
+    }
+    authoredPairGuide=null;
+    authoredPairGuideLayer=null;
+    authoredPairGuideBackdropLine=null;
+    authoredPairGuideDashLine=null;
+    authoredPairGuideRestorePair=null;
+    canvas.dataset.labAuthoredGuideMode="none";
+    canvas.dataset.labAuthoredGuideFrom="";
+    canvas.dataset.labAuthoredGuideTo="";
+    if(changed)refreshCanvasAccessibility();
+    if(redraw&&changed)invalidate();
+    return authoredGuideResult();
+  }
+  function updateAuthoredPairGuideGeometry(){
+    if(!authoredPairGuide||!authoredPairGuideBackdropLine||!authoredPairGuideDashLine)return false;
+    const from=labTerminals.get(authoredPairGuide.from)?.marker;
+    const to=labTerminals.get(authoredPairGuide.to)?.marker;
+    if(!from||!to)return false;
+    scene.updateMatrixWorld(true);
+    const start=new T.Vector3(),end=new T.Vector3();
+    from.getWorldPosition(start);to.getWorldPosition(end);
+    const laneY=Math.max(start.y,end.y)+.28;
+    const midX=(start.x+end.x)/2;
+    const points=[
+      start,
+      new T.Vector3(start.x,laneY,start.z),
+      new T.Vector3(midX,laneY,start.z),
+      new T.Vector3(midX,laneY,end.z),
+      new T.Vector3(end.x,laneY,end.z),
+      end,
+    ];
+    const position=authoredPairGuideDashLine.geometry.getAttribute("position");
+    for(let index=0;index<LAB_AUTHORED_GUIDE_ROUTE_POINTS;index+=1){
+      const point=points[index];
+      position.setXYZ(index,point.x,point.y,point.z);
+    }
+    position.needsUpdate=true;
+    authoredPairGuideDashLine.geometry.computeBoundingSphere();
+    authoredPairGuideDashLine.computeLineDistances();
+    return true;
+  }
+  function mountAuthoredPairGuide(pair){
+    if(!activeLabLayer||!isCanonicalAuthoredGuideTerminal(pair.from)||!isCanonicalAuthoredGuideTerminal(pair.to)){
+      return false;
+    }
+    const geometry=new T.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new T.Float32BufferAttribute(LAB_AUTHORED_GUIDE_ROUTE_POINTS*3,3)
+    );
+    authoredPairGuideLayer=new T.Group();
+    authoredPairGuideLayer.userData={
+      kind:"lab-authored-pair-guide",from:pair.from,to:pair.to,
+      viewOnly:true,committed:false,visualOnly:true,
+      physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+    };
+    authoredPairGuideBackdropLine=new T.Line(geometry,sharedMaterials.authoredGuideBackdropMat);
+    authoredPairGuideBackdropLine.renderOrder=3;
+    authoredPairGuideBackdropLine.userData={
+      kind:"lab-authored-pair-guide-contrast",from:pair.from,to:pair.to,
+      viewOnly:true,committed:false,visualOnly:true,
+      physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+    };
+    authoredPairGuideDashLine=new T.Line(geometry,sharedMaterials.authoredGuideDashMat);
+    authoredPairGuideDashLine.renderOrder=4;
+    authoredPairGuideDashLine.userData={
+      kind:"lab-authored-pair-guide-dash",from:pair.from,to:pair.to,
+      viewOnly:true,committed:false,visualOnly:true,
+      physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+    };
+    authoredPairGuideLayer.add(authoredPairGuideBackdropLine);
+    authoredPairGuideLayer.add(authoredPairGuideDashLine);
+    activeLabLayer.add(authoredPairGuideLayer);
+    authoredPairGuide=Object.freeze({from:pair.from,to:pair.to});
+    if(!updateAuthoredPairGuideGeometry()){
+      clearAuthoredPairGuide(false);
+      return false;
+    }
+    canvas.dataset.labAuthoredGuideMode="view-only";
+    canvas.dataset.labAuthoredGuideFrom=pair.from;
+    canvas.dataset.labAuthoredGuideTo=pair.to;
+    refreshCanvasAccessibility();
+    invalidate();
+    return true;
+  }
+  function normalizeAuthoredPairGuide(pair){
+    if(!pair||typeof pair!=="object"||Array.isArray(pair)){
+      throw new TypeError("Authored terminal pair phải là object {from,to} hoặc null");
+    }
+    const prototype=Object.getPrototypeOf(pair);
+    if(prototype!==Object.prototype&&prototype!==null){
+      throw new TypeError("Authored terminal pair phải dùng own properties");
+    }
+    const ownKeys=Reflect.ownKeys(pair);
+    if(ownKeys.length!==2||
+      !Object.prototype.hasOwnProperty.call(pair,"from")||
+      !Object.prototype.hasOwnProperty.call(pair,"to")){
+      throw new TypeError("Authored terminal pair phải có đúng own fields from và to");
+    }
+    const from=pair.from,to=pair.to;
+    for(const [label,terminalId] of [["from",from],["to",to]]){
+      if(typeof terminalId!=="string"||!terminalId||terminalId.trim()!==terminalId){
+        throw new TypeError(label+" authored terminal phải là canonical ID không rỗng");
+      }
+      if(terminalId.length>80)throw new RangeError(label+" authored terminal vượt giới hạn 80 ký tự");
+      if(["__proto__","prototype","constructor"].includes(terminalId)){
+        throw new RangeError(label+" authored terminal không phải canonical own ID");
+      }
+    }
+    if(from===to)throw new RangeError("Authored terminal pair phải gồm hai terminal khác nhau");
+    if(contextLost)throw new RangeError("Authored terminal guide không khả dụng khi WebGL context đang mất");
+    if(!activeLabLayout)throw new RangeError("Authored terminal guide cần active conceptual lab layout");
+    if(labEdit.enabled)throw new RangeError("Authored terminal guide chỉ khả dụng khi lab edit đang tắt");
+    if(drag?.kind==="terminal"||terminalLinkDragSourceId!==null||terminalLinkDragTargetId!==null){
+      throw new RangeError("Authored terminal guide không khả dụng trong terminal gesture đang hoạt động");
+    }
+    if(!isCanonicalAuthoredGuideTerminal(from)||!isCanonicalAuthoredGuideTerminal(to)){
+      throw new RangeError("Authored terminal pair không thuộc active canonical lab layout");
+    }
+    return Object.freeze({from,to});
+  }
+  function setAuthoredPairGuide(pair){
+    if(disposed)return authoredGuideResult();
+    if(pair===null)return clearAuthoredPairGuide(true);
+    const normalized=normalizeAuthoredPairGuide(pair);
+    clearAuthoredPairGuide(false);
+    if(!mountAuthoredPairGuide(normalized)){
+      throw new RangeError("Không thể dựng authored terminal guide trên active lab layout");
+    }
+    return authoredGuideResult();
+  }
   function refreshLabInteractionFeedback(){
     let highlightedTerminals=0;
     let committedEndpointFeedback=0;
@@ -1548,6 +1722,7 @@ export function mountScene(host, onSelect = () => {}) {
     entry.root.rotation.y=-entry.quarterTurns*Math.PI/2;
     updateLabWireGeometry();
     updatePendingWirePreviewGeometry();
+    updateAuthoredPairGuideGeometry();
     invalidate();
   }
   function restoreLabComponent(componentId){
@@ -1573,6 +1748,7 @@ export function mountScene(host, onSelect = () => {}) {
   function clearLabLayout(redraw=true,preserveWireHighlight=false,preserveWireRevision=false){
     const hadFocus=focusedLabComponentId!==null;
     cancelTerminalLinkPointer(false);
+    clearAuthoredPairGuide(false);
     clearLabWireLayer(!preserveWireHighlight,preserveWireRevision);
     if(activeLabLayer){
       scene.remove(activeLabLayer);
@@ -1787,6 +1963,9 @@ export function mountScene(host, onSelect = () => {}) {
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
+    const previousAuthoredGuide=authoredPairGuide
+      ? Object.freeze({from:authoredPairGuide.from,to:authoredPairGuide.to}) : null;
+    const previousAuthoredGuideLesson=activeLabLayout?.lessonId??null;
     // A same-lesson logical placement rebuild must not revoke inspection of an
     // unchanged committed canonical edge. The route will be rebuilt from the
     // new terminal marker world positions below; stage/lesson/null clears still
@@ -1972,6 +2151,12 @@ export function mountScene(host, onSelect = () => {}) {
     if(activeModule?.module)activeModule.module.visible=false;
     if(activeWiringLayer)activeWiringLayer.visible=false;
     refreshLabWireLayer(true);
+    if(previousAuthoredGuide&&previousAuthoredGuideLesson===layout.lessonId&&
+      !labEdit.enabled&&!drag?.kind&&
+      isCanonicalAuthoredGuideTerminal(previousAuthoredGuide.from)&&
+      isCanonicalAuthoredGuideTerminal(previousAuthoredGuide.to)){
+      mountAuthoredPairGuide(previousAuthoredGuide);
+    }
     const nextSelection=previousSelection&&labComponents.has(previousSelection)
       ? previousSelection : null;
     selectLabComponent(nextSelection,"layout",false);
@@ -2044,6 +2229,7 @@ export function mountScene(host, onSelect = () => {}) {
       hoveredLabTerminalId=null;
       clearPendingWireState(false);
       cancelTerminalLinkPointer(false);
+      if(nextEditEnabled)clearAuthoredPairGuide(false);
     }
     canvas.dataset.labEdit=labEdit.enabled?"on":"off";
     canvas.style.touchAction=labEdit.enabled?"none":"";
@@ -2470,6 +2656,10 @@ export function mountScene(host, onSelect = () => {}) {
     clearTerminalLinkDragState(false);
     clearLabTerminalHover(false);
     clearPendingWireState(false);
+    const guideBeforeContextLoss=authoredPairGuide
+      ? Object.freeze({from:authoredPairGuide.from,to:authoredPairGuide.to}) : null;
+    clearAuthoredPairGuide(false);
+    authoredPairGuideRestorePair=guideBeforeContextLoss;
     highlightedLabWireId=null;
     labWireGeometryRevision=0;
     canvas.dataset.labWireGeometryRevision="0";
@@ -2488,6 +2678,13 @@ export function mountScene(host, onSelect = () => {}) {
     contextLost=false;
     canvas.dataset.sceneContext="ready";
     canvas.removeAttribute("aria-busy");
+    const guideToRestore=authoredPairGuideRestorePair;
+    authoredPairGuideRestorePair=null;
+    if(guideToRestore&&!labEdit.enabled&&!drag?.kind&&activeLabLayout&&
+      isCanonicalAuthoredGuideTerminal(guideToRestore.from)&&
+      isCanonicalAuthoredGuideTerminal(guideToRestore.to)){
+      mountAuthoredPairGuide(guideToRestore);
+    }
     refreshLabInteractionFeedback();
     resize(true);
   };
@@ -2601,7 +2798,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setAuthoredPairGuide,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -2620,6 +2817,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.removeEventListener("keydown",onKey);
     canvas.removeEventListener("webglcontextlost",onContextLost,false);
     canvas.removeEventListener("webglcontextrestored",onContextRestored,false);
+    clearAuthoredPairGuide(false);
     // In Three r180, resources may retain dispose listeners from a pre-restore
     // WebGL context. Losing the owned context first releases GPU resources as a
     // unit and prevents stale listeners from deleting handles in the new
@@ -2645,6 +2843,11 @@ export function mountScene(host, onSelect = () => {}) {
     pendingWirePreviewLine=null;
     terminalLinkDragSourceId=null;
     terminalLinkDragTargetId=null;
+    authoredPairGuide=null;
+    authoredPairGuideRestorePair=null;
+    authoredPairGuideLayer=null;
+    authoredPairGuideBackdropLine=null;
+    authoredPairGuideDashLine=null;
     highlightedLabWireId=null;
     labWireGeometryRevision=0;
     canvas.dataset.labInspectedTerminal="";
@@ -2655,6 +2858,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labTerminalDragSource="";
     canvas.dataset.labTerminalDragTarget="";
     canvas.dataset.labTerminalDragPreview="none";
+    canvas.dataset.labAuthoredGuideMode="none";
+    canvas.dataset.labAuthoredGuideFrom="";
+    canvas.dataset.labAuthoredGuideTo="";
     canvas.dataset.labHighlightedWire="";
     canvas.dataset.labWireRouteMode="none";
     canvas.dataset.labWireRoutePointCount="0";

@@ -1,9 +1,11 @@
 # Practice 48-step checkpoint trail — model/UI contract
 
 Date: 2026-10-29 (Asia/Bangkok). Scope: source-only trail over the existing
-human-authored practice checkpoints. This phase adds no app hook, CSS, service
-worker/build entry, browser test, persistence, lesson completion, or learner
-progress mutation.
+human-authored practice checkpoints plus the post-9719 read-only 3D missing-pair
+suggestion surface documented below. The trail phase itself added no app hook;
+the post-9719 follow-up adds renderer/CSS contracts only. App callback wiring,
+scene behavior, browser E2E, SW/build integration and learner state remain owned
+by the prime integration phase.
 
 ## Product boundary
 
@@ -113,6 +115,58 @@ bounded so CSS can stack or grid it responsively without changing semantics.
 CSS classes use the `.practice-checkpoint-trail*` prefix. CSS itself is owned by
 the host integration phase.
 
+## Post-9719: read-only 3D visual suggestion for authored missing pairs
+
+`renderPracticeEvidence()` keeps its existing callbacks and adds one optional
+host hook alongside `onPreviewMissingPairIn2D`:
+
+```js
+renderPracticeEvidence(document, evidence, {
+  // existing hooks ...
+  onPreviewMissingPairIn2D,
+  onPreviewMissingPairIn3D,
+  // existing hooks ...
+})
+```
+
+For each authored checklist row whose validated status is exactly `missing`, the
+renderer can expose a native button `[data-practice-preview-pair-3d]`. It also
+carries `data-practice-preview-from`, `data-practice-preview-to` and
+`data-practice-checklist-order`. The visible/accessible wording identifies the
+action as a **read-only 3D visual suggestion** and explicitly says it does not
+create a wire or confirm physical hardware / teacher validation.
+
+The 3D action deliberately has a stricter trust gate than ordinary presentation:
+
+- the existing `validatedWireChecklist()` must accept the authored checklist;
+- the evidence, claims, checkpoint, checkpoint provenance, missing/extra pair
+  arrays, wire guidance, checklist rows/pairs and guidance claims must be the
+  deeply frozen model output shape;
+- lesson/step/checkpoint IDs and provenance must match the authored contract;
+- the checkpoint object must be the exact current registry checkpoint resolved
+  from `lessonById()` + `getPracticeCheckpoint()`, so a deep-frozen clone with
+  forged pairs cannot acquire a 3D action;
+- evidence authority must remain `learner-circuit-vs-reference-sample` /
+  `circuit-router`, with teacher/physical/mastery/auto-completion claims false.
+
+Consequently there is no 3D missing-pair button for a matched row, manual
+checkpoint, extra-review row, forged checklist/checkpoint, or evidence whose
+reference authority is unknown. Valid missing rows can still coexist with an
+extra-review block; only the authored required missing rows receive actions.
+
+If `onPreviewMissingPairIn3D` is omitted, each otherwise-valid 3D suggestion
+button stays visible but disabled with `aria-disabled="true"`. If supplied, it
+fires only after an explicit native-button click and receives a newly created
+frozen `[from, to]` pair. Render never calls it automatically, mutates evidence,
+creates/commits a wire, advances progress, or changes physical/teacher claims.
+
+`styles/app.css` owns the post-9719 presentation for
+`.practice-evidence-pair-preview-3d-button`: full-row grid placement, full width,
+explicit `min-width:44px` / `min-height:44px`, dashed read-only suggestion
+styling, and a mobile `max-width:580px` rule that preserves the 44px target.
+The renderer continues to use `createElement`/`textContent`; no untrusted model
+string is inserted with `innerHTML`.
+
 ## Suggested host wiring
 
 The app already owns lesson selection and the lesson-local learning-step index.
@@ -158,7 +212,12 @@ Nearby upstream contracts were also rerun after the new modules were in place:
 
 - `tests/practice-checkpoints-contracts.js`: **37/37 PASS**;
 - `tests/practice-evidence-contracts.js`: **55/55 PASS**;
-- `tests/practice-evidence-ui-contracts.js`: **30/30 PASS**.
+- `tests/practice-evidence-ui-contracts.js`: **36/36 PASS**. The six post-9719
+  additions cover explicit-click + frozen-pair 3D callback behavior, disabled
+  no-hook behavior and bad callback rejection, independent 2D/3D callbacks,
+  matched/manual/extra/reference-unknown/deep-frozen forged checkpoint
+  fail-closed behavior, poisoned text/XSS safety, and a complete 48-step sweep
+  proving 3D actions appear only for strict real authored missing rows.
 
 No browser is required for these module contracts. The prime integration owns
 real-app layout/accessibility E2E, CSS, SW/build inclusion and app event wiring.

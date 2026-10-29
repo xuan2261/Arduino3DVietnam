@@ -80,3 +80,57 @@ same-full-SHA manual Chromium CI to validate the exact committed package.
 Feature-branch compiler, Chromium and read-only preflight are the only
 pre-publication CI workflows authorized here. **Passing them will not
 automatically authorize merging `main`, publishing a release or Pages.**
+
+## Post-`9719fcb` product extension — authored 3D missing-pair guidance
+
+This appendix documents the **next phase after** the 34-file commit
+`9719fcbdc24f0608417bc259ab9f517e64b0973a`. The old ledger above
+remains a dated receipt of the previous phase; its "Not yet done" commit/CI
+row must not be read as the status of that already-pushed commit.
+
+**User-visible feature:** Practice Evidence now exposes native, accessible
+"Xem gợi ý trực quan 3D (chỉ đọc)" buttons only on canonical, human-authored
+missing terminal-pair rows. Host integration revalidates the active lesson,
+current learning step, exact authored checkpoint, the circuit-router terminal
+IDs, and the **current learner draft's absence** of the pair before showing
+anything. The Three.js guide is a separate dashed conceptual line over the
+existing component/terminal layout, not a committed jumper or a physical
+breadboard-hole mapping. A named 44 px dismiss control revokes the guide;
+lesson/step/stage/editor changes, actual graph mutation and WebGL context
+loss also clear its stale intent. No student progress, observation, mastery,
+teacher validation or firmware state changes occur on preview.
+
+This preserves the 16-lesson/48-checkpoint source, including **lesson 10 as
+manual-only** and **lesson 14 as signal-only authored wiring**. No sample edge
+is copied to the learner graph; only `src/circuit-router.js` remains the
+electrical authority. The 3D layout's X/Z is logical, not measured mm/CAD,
+and the A000066 lower-left X remains unknown.
+
+### Verified development candidate gates
+
+| Gate | Observed result |
+| --- | --- |
+| Native module/UI contracts | Bun **902/902 PASS**, 36 model/UI suites, including new Practice Evidence UI 36/36; Lab Editor precision 6/6 |
+| Three.js browser-native contract | **175/175 scene runtime checks PASS**, expanded from 149; source checks also cover canonical guide membership, visual-only route, lifecycle and setWiring coexistence |
+| Python/release | Python full discovery **100/100 PASS**; release **29/29 PASS** after source CSS update |
+| Source packaging | **136** public allowlist/Service Worker assets, **137** generated `dist/` files; no new dependency, firmware, license or upstream-vendor modification |
+| Chromium real browser | **454/454 PASS**, 0 failures, 0 console errors, 0 unexpected warnings, 0 GPU diagnostics; `screenshots/post-9719-authored-3d-guide-final-full-20261029.json`, SHA-256 `8888ad130e36af31ce6542fcdf67d8c0216794b98ea20516aaaac4b9a2063321` |
+| Mobile/touch targets | Real viewport width **375 px**: native preview and dismiss targets at least **44×44 px**, no document horizontal overflow, real click/dismiss and zero learner wires |
+| Historical E2E checks | Python AST compared `f682fce` **269 static +20 dynamic**, `09d8635` **283+20** and `9719fcb` **309+20** against the new source; all previous check expressions preserved, no repeated current static IDs |
+| Independent P0/P1 | Auditor30 reviewed current live diff read-only after fixing an intercepted dismiss click and reported **no remaining scoped P0/P1**, static GO only |
+
+Actual browser QA caught a real pointer-events problem: the existing
+`.viewport-corner` was pass-through, so the new dismiss button's pointer
+events initially reached the canvas. The final candidate enables hit-testing
+only for `[data-authored-guide="view-only"]` and its native button. Browser
+revalidation used ordinary clicks, never forced clicks. A separate test-only
+assumption about lesson 10 was corrected against the authored source (lesson
+10 has no wiring checkpoint; lesson 14 does). Earlier failed attempts were
+not counted as PASS.
+
+The final 454-check local Chromium report predates **this appendix only**;
+the application JavaScript, CSS, HTML, Service Worker and E2E script are
+unchanged after that run. The committed exact SHA will still require fresh
+manual compiler, Ubuntu Chromium and read-only preflight CI receipts.
+**No CI readiness statement in this appendix authorizes Pages, main, tag,
+Draft Release, release publication, backup replacement or physical upload.**

@@ -5,6 +5,8 @@
  * a lesson, executes firmware, or upgrades a topology/reference match into a
  * physical-wiring or learner-mastery claim.
  */
+import { lessonById } from "./lessons.js";
+import { getPracticeCheckpoint } from "./practice-checkpoints.js";
 
 const STATUS_PRESENTATION = Object.freeze({
   "manual-checkpoint": Object.freeze({
@@ -302,6 +304,82 @@ function validatedWireChecklist(evidence, checkpoint) {
   });
 }
 
+function validated3DPreviewChecklist(evidence, checkpoint) {
+  const checklist = validatedWireChecklist(evidence, checkpoint);
+  if (!checklist || checklist.manual) return null;
+  const guidance = evidence?.wireGuidance;
+  const lessonId = evidence?.lessonId;
+  const stepIndex = evidence?.stepIndex;
+  let canonicalCheckpoint = null;
+  try {
+    const lesson = lessonById(lessonId);
+    if (!lesson) return null;
+    canonicalCheckpoint = getPracticeCheckpoint(lesson, stepIndex);
+  } catch {
+    return null;
+  }
+  const expectedId = Number.isInteger(lessonId) && Number.isInteger(stepIndex)
+    ? "lesson-" + String(lessonId).padStart(2, "0") + "-step-" + String(stepIndex + 1).padStart(2, "0")
+    : null;
+  const requiredPairsFrozen = Array.isArray(checkpoint?.requiredPairs) &&
+    Object.isFrozen(checkpoint.requiredPairs) &&
+    checkpoint.requiredPairs.every(pair => Array.isArray(pair) && Object.isFrozen(pair));
+  const evidenceMissingFrozen = Array.isArray(evidence?.missingPairs) &&
+    Object.isFrozen(evidence.missingPairs) &&
+    evidence.missingPairs.every(pair => Array.isArray(pair) && Object.isFrozen(pair));
+  const evidenceExtraFrozen = Array.isArray(evidence?.extraPairs) &&
+    Object.isFrozen(evidence.extraPairs) &&
+    evidence.extraPairs.every(pair => Array.isArray(pair) && Object.isFrozen(pair));
+  const pairChecklistFrozen = Array.isArray(guidance?.pairChecklist) &&
+    Object.isFrozen(guidance.pairChecklist) &&
+    guidance.pairChecklist.every(row => Object.isFrozen(row) && Array.isArray(row.pair) && Object.isFrozen(row.pair));
+  const extraChecklistFrozen = Array.isArray(guidance?.extraReviewChecklist) &&
+    Object.isFrozen(guidance.extraReviewChecklist) &&
+    guidance.extraReviewChecklist.every(row => Object.isFrozen(row) && Array.isArray(row.pair) && Object.isFrozen(row.pair));
+  const guidanceMissingFrozen = Array.isArray(guidance?.missingPairs) &&
+    Object.isFrozen(guidance.missingPairs) &&
+    guidance.missingPairs.every(pair => Array.isArray(pair) && Object.isFrozen(pair));
+  const guidanceExtraFrozen = Array.isArray(guidance?.reviewExtraPairs) &&
+    Object.isFrozen(guidance.reviewExtraPairs) &&
+    guidance.reviewExtraPairs.every(pair => Array.isArray(pair) && Object.isFrozen(pair));
+  if (
+    !Object.isFrozen(evidence) ||
+    !Object.isFrozen(evidence?.claims) ||
+    !Object.isFrozen(checkpoint) ||
+    !Object.isFrozen(checkpoint?.provenance) ||
+    !requiredPairsFrozen ||
+    !evidenceMissingFrozen ||
+    !evidenceExtraFrozen ||
+    !Object.isFrozen(guidance) ||
+    !Object.isFrozen(guidance?.claims) ||
+    !pairChecklistFrozen ||
+    !extraChecklistFrozen ||
+    !guidanceMissingFrozen ||
+    !guidanceExtraFrozen ||
+    checkpoint !== canonicalCheckpoint ||
+    checkpoint.id !== expectedId ||
+    checkpoint.lessonId !== lessonId ||
+    checkpoint.stepIndex !== stepIndex ||
+    checkpoint.kind !== "wiring" ||
+    typeof checkpoint.sourceStep !== "string" || !checkpoint.sourceStep.trim() ||
+    typeof checkpoint.guidance !== "string" || !checkpoint.guidance.trim() ||
+    checkpoint.provenance.scheme !== "human-authored-from-lesson-text" ||
+    checkpoint.provenance.source !== "lessons.steps" ||
+    checkpoint.provenance.editorial !== true ||
+    checkpoint.provenance.teacherValidated !== false ||
+    checkpoint.provenance.hardwareValidated !== false ||
+    checkpoint.provenance.prerequisiteForAdvance !== false ||
+    evidence?.claims?.origin !== "learner-circuit-vs-reference-sample" ||
+    evidence?.claims?.electricalAuthority !== "circuit-router" ||
+    evidence?.claims?.teacherValidated !== false ||
+    evidence?.claims?.physicalVerified !== false ||
+    evidence?.claims?.mastery !== false ||
+    evidence?.claims?.autoCompletion !== false ||
+    evidence?.claims?.lessonCompleted !== false
+  ) return null;
+  return checklist;
+}
+
 function appendChecklistInspectButton(doc, row, attribute, callback) {
   const button = make(
     doc,
@@ -349,7 +427,36 @@ function appendMissingPairPreview(doc,row,onPreviewMissingPairIn2D){
   return button;
 }
 
-function appendWireChecklist(doc, section, checklist, onInspectChecklistTerminal,onPreviewMissingPairIn2D) {
+function appendMissingPairPreview3D(doc,row,onPreviewMissingPairIn3D){
+  const button=make(doc,"button",
+    "practice-evidence-button practice-evidence-pair-preview-3d-button",
+    "Xem gợi ý trực quan 3D (chỉ đọc)");
+  button.type="button";
+  button.setAttribute("data-practice-preview-pair-3d","");
+  button.setAttribute("data-practice-preview-from",row.pair[0]);
+  button.setAttribute("data-practice-preview-to",row.pair[1]);
+  button.setAttribute("data-practice-checklist-order",String(row.order));
+  button.setAttribute("aria-label",
+    `Xem gợi ý trực quan 3D chỉ đọc cho cặp còn thiếu ${row.pair[0]} và ${row.pair[1]}; không tạo dây, không xác nhận phần cứng hay giáo viên`);
+  if(typeof onPreviewMissingPairIn3D!=="function"){
+    button.disabled=true;
+    button.setAttribute("aria-disabled","true");
+  }else{
+    const pair=Object.freeze([row.pair[0],row.pair[1]]);
+    button.addEventListener("click",()=>onPreviewMissingPairIn3D(pair));
+  }
+  return button;
+}
+
+function appendWireChecklist(
+  doc,
+  section,
+  checklist,
+  onInspectChecklistTerminal,
+  onPreviewMissingPairIn2D,
+  onPreviewMissingPairIn3D,
+  allow3DPreview,
+) {
   if (!checklist) return;
   const block = make(doc, "div", "practice-evidence-wire-checklist");
   block.setAttribute("data-practice-wire-checklist", "");
@@ -397,6 +504,7 @@ function appendWireChecklist(doc, section, checklist, onInspectChecklistTerminal
     ));
     if(row.status==="missing"){
       item.append(appendMissingPairPreview(doc,row,onPreviewMissingPairIn2D));
+      if (allow3DPreview) item.append(appendMissingPairPreview3D(doc,row,onPreviewMissingPairIn3D));
     }
     list.append(item);
   }
@@ -481,6 +589,7 @@ export function renderPracticeEvidence(doc, evidence, {
   onInspectMissingTerminal,
   onInspectChecklistTerminal,
   onPreviewMissingPairIn2D,
+  onPreviewMissingPairIn3D,
   onRecheck,
 } = {}) {
   requireDocument(doc);
@@ -490,6 +599,7 @@ export function renderPracticeEvidence(doc, evidence, {
   requireCallback(onInspectMissingTerminal, "onInspectMissingTerminal");
   requireCallback(onInspectChecklistTerminal, "onInspectChecklistTerminal");
   requireCallback(onPreviewMissingPairIn2D, "onPreviewMissingPairIn2D");
+  requireCallback(onPreviewMissingPairIn3D, "onPreviewMissingPairIn3D");
   requireCallback(onRecheck, "onRecheck");
 
   const lessonId = Number.isInteger(evidence.lessonId) && evidence.lessonId >= 1 && evidence.lessonId <= 16
@@ -523,6 +633,7 @@ export function renderPracticeEvidence(doc, evidence, {
   const hasExternalWiring = lessonId !== 1;
   const missingInspectTarget = inspectMissingTarget(evidence, checkpoint);
   const wireChecklist = validatedWireChecklist(evidence, checkpoint);
+  const wireChecklist3D = validated3DPreviewChecklist(evidence, checkpoint);
 
   const section = make(doc, "section", "practice-evidence");
   section.setAttribute("data-practice-evidence", "");
@@ -621,7 +732,15 @@ export function renderPracticeEvidence(doc, evidence, {
       section.append(reviewNode);
     }
   }
-  appendWireChecklist(doc, section, wireChecklist, onInspectChecklistTerminal,onPreviewMissingPairIn2D);
+  appendWireChecklist(
+    doc,
+    section,
+    wireChecklist,
+    onInspectChecklistTerminal,
+    onPreviewMissingPairIn2D,
+    onPreviewMissingPairIn3D,
+    Boolean(wireChecklist3D),
+  );
 
   if (isSignalOnly) {
     const signalNote = make(

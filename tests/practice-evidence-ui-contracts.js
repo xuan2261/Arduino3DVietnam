@@ -178,6 +178,18 @@ function render(value, callbacks = {}) {
   return renderPracticeEvidence(new FakeDocument(), value, callbacks);
 }
 
+function deepFreezeFixture(value) {
+  if (Array.isArray(value)) {
+    value.forEach(deepFreezeFixture);
+    return Object.freeze(value);
+  }
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.values(value).forEach(deepFreezeFixture);
+    return Object.freeze(value);
+  }
+  return value;
+}
+
 export function runPracticeEvidenceUiContracts() {
   const checks = [];
   const check = (name, run) => { run(); checks.push(name); };
@@ -948,6 +960,169 @@ export function runPracticeEvidenceUiContracts() {
       /onPreviewMissingPairIn2D.*function/i,"bad preview callback must fail fast");
   });
 
+  check("authored-missing-pair-3d-preview-only-after-native-click-with-readonly-boundary", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    let circuit=createCircuit(2);
+    circuit=connectCircuit(circuit,"D13","R1:A");
+    const inspection=inspectPracticeEvidence({lesson,stepIndex:0,circuit,
+      referenceCircuit:createSampleCircuit(2),analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true});
+    const triggered=[];
+    const before=JSON.stringify(inspection);
+    const section=render(inspection,{onPreviewMissingPairIn3D:pair=>triggered.push(pair)});
+    const rows=section.querySelectorAll("[data-practice-checklist-row]");
+    const buttons=section.querySelectorAll("[data-practice-preview-pair-3d]");
+    assert(rows.length===3 && buttons.length===2,
+      "only strictly validated still-missing authored pairs expose 3D preview");
+    assert(!rows[0].querySelector("[data-practice-preview-pair-3d]"),
+      "matched authored pair cannot expose 3D missing suggestion");
+    assert(buttons.every(button=>button.tagName==="BUTTON" && button.type==="button"),
+      "3D suggestion must use native non-submit buttons");
+    assert(buttons[0].getAttribute("data-practice-preview-from")==="R1:B" &&
+      buttons[0].getAttribute("data-practice-preview-to")==="LED:A",
+      "first 3D preview binds exact authored missing pair");
+    assert(buttons[1].getAttribute("data-practice-preview-from")==="LED:K" &&
+      buttons[1].getAttribute("data-practice-preview-to")==="GND",
+      "second 3D preview binds exact authored missing pair");
+    for(const button of buttons){
+      const name=button.getAttribute("aria-label")||"";
+      assert(/gợi ý trực quan 3D.*chỉ đọc/i.test(name),"3D suggestion accessible name must say read-only");
+      assert(/không tạo dây/i.test(name),"3D suggestion accessible name must deny wire commit");
+      assert(/không xác nhận phần cứng/i.test(name),"3D suggestion accessible name must deny physical proof");
+      assert(/giáo viên/i.test(name),"3D suggestion accessible name must deny teacher validation");
+    }
+    assert(triggered.length===0 && buttons.every(button=>!button.focused),
+      "render must never auto-preview 3D or steal focus");
+    buttons[0].click();
+    assert(triggered.length===1 && JSON.stringify(triggered[0])===JSON.stringify(["R1:B","LED:A"]),
+      "explicit 3D click forwards exact authored pair once");
+    assert(Object.isFrozen(triggered[0]),"3D host callback receives frozen pair");
+    assert(JSON.stringify(inspection)===before && inspection.claims.lessonCompleted===false &&
+      inspection.claims.mastery===false && inspection.claims.physicalVerified===false &&
+      inspection.claims.teacherValidated===false,
+      "3D suggestion click cannot mutate evidence or upgrade claims");
+  });
+
+  check("missing-pair-3d-preview-disabled-without-callback-and-fail-fast-bad-hook", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const circuit=createCircuit(2);
+    const inspection=inspectPracticeEvidence({lesson,stepIndex:0,circuit,
+      referenceCircuit:createSampleCircuit(2),analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true});
+    const section=render(inspection);
+    const actions=section.querySelectorAll("[data-practice-preview-pair-3d]");
+    assert(actions.length===3 && actions.every(button=>button.disabled &&
+      button.getAttribute("aria-disabled")==="true"),
+      "valid authored missing 3D actions remain visible but disabled without callback");
+    expectThrow(()=>render(inspection,{onPreviewMissingPairIn3D:4}),
+      /onPreviewMissingPairIn3D.*function/i,"bad 3D preview callback must fail fast");
+  });
+
+  check("missing-pair-2d-and-3d-previews-are-independent-explicit-readonly-actions", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const circuit=createCircuit(2);
+    const inspection=inspectPracticeEvidence({lesson,stepIndex:0,circuit,
+      referenceCircuit:createSampleCircuit(2),analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true});
+    const preview2D=[];
+    const preview3D=[];
+    const section=render(inspection,{
+      onPreviewMissingPairIn2D:pair=>preview2D.push(pair),
+      onPreviewMissingPairIn3D:pair=>preview3D.push(pair),
+    });
+    const twoD=section.querySelectorAll("[data-practice-preview-pair-2d]");
+    const threeD=section.querySelectorAll("[data-practice-preview-pair-3d]");
+    assert(twoD.length===3 && threeD.length===3,"same three validated missing pairs expose independent 2D/3D actions");
+    assert(preview2D.length===0 && preview3D.length===0,"neither callback fires during render");
+    threeD[0].click();
+    assert(preview3D.length===1 && preview2D.length===0,"3D click cannot trigger 2D callback");
+    twoD[1].click();
+    assert(preview2D.length===1 && preview3D.length===1,"2D click cannot trigger extra 3D callback");
+    assert(JSON.stringify(preview3D[0])===JSON.stringify(["D13","R1:A"]) && Object.isFrozen(preview3D[0]),
+      "3D callback pair exact and frozen");
+    assert(JSON.stringify(preview2D[0])===JSON.stringify(["R1:B","LED:A"]) && Object.isFrozen(preview2D[0]),
+      "2D callback remains exact and frozen");
+  });
+
+  check("matched-manual-extra-reference-unknown-and-forged-rows-never-gain-3d-missing-action", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const reference=createSampleCircuit(2);
+    const complete=inspectPracticeEvidence({lesson,stepIndex:0,circuit:reference,
+      referenceCircuit:reference,analysis:analyzeCircuit(2,reference),hasLearnerDraft:true});
+    assert(render(complete,{onPreviewMissingPairIn3D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-3d]").length===0,
+      "matched authored checklist has no 3D missing suggestion");
+
+    const manualCircuit=createCircuit(2);
+    const manual=inspectPracticeEvidence({lesson,stepIndex:1,circuit:manualCircuit,
+      referenceCircuit:reference,analysis:analyzeCircuit(2,manualCircuit),hasLearnerDraft:true});
+    assert(render(manual,{onPreviewMissingPairIn3D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-3d]").length===0,
+      "manual checkpoint has no 3D pair suggestion");
+
+    let extraCircuit=createCircuit(2);
+    extraCircuit=connectCircuit(extraCircuit,"D13","GND");
+    const withExtra=inspectPracticeEvidence({lesson,stepIndex:0,circuit:extraCircuit,
+      referenceCircuit:reference,analysis:analyzeCircuit(2,extraCircuit),hasLearnerDraft:true});
+    const extraSection=render(withExtra,{onPreviewMissingPairIn3D:()=>{}});
+    const missingRows=extraSection.querySelectorAll("[data-practice-checklist-row]")
+      .filter(row=>row.getAttribute("data-practice-pair-status")==="missing");
+    assert(extraSection.querySelectorAll("[data-practice-preview-pair-3d]").length===missingRows.length,
+      "valid required missing rows retain 3D actions even when extras need review");
+    for(const row of extraSection.querySelectorAll("[data-practice-extra-review-row]")){
+      assert(!row.querySelector("[data-practice-preview-pair-3d]"),"extra review row can never expose 3D missing action");
+    }
+
+    const incomplete=inspectPracticeEvidence({lesson,stepIndex:0,circuit:createCircuit(2),
+      referenceCircuit:reference,analysis:analyzeCircuit(2,createCircuit(2)),hasLearnerDraft:true});
+    const referenceUnknown=deepFreezeFixture({
+      ...incomplete,
+      claims:{...incomplete.claims,origin:"reference-unknown"},
+    });
+    assert(render(referenceUnknown,{onPreviewMissingPairIn3D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-3d]").length===0,
+      "unknown reference authority suppresses every 3D preview");
+
+    const forgedCheckpoint=deepFreezeFixture({
+      ...incomplete,
+      checkpoint:{
+        ...incomplete.checkpoint,
+        requiredPairs:incomplete.checkpoint.requiredPairs.map((pair,index)=>
+          index===0?["constructor","GND"]:[...pair]),
+      },
+      missingPairs:incomplete.missingPairs.map((pair,index)=>index===0?["constructor","GND"]:[...pair]),
+      wireGuidance:{
+        ...incomplete.wireGuidance,
+        missingPairs:incomplete.wireGuidance.missingPairs.map((pair,index)=>
+          index===0?["constructor","GND"]:[...pair]),
+        pairChecklist:incomplete.wireGuidance.pairChecklist.map((row,index)=>index===0?{
+          ...row,pair:["constructor","GND"],inspectTerminalId:"constructor",
+        }:{...row,pair:[...row.pair]}),
+      },
+    });
+    assert(render(forgedCheckpoint,{onPreviewMissingPairIn3D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-3d]").length===0,
+      "deep-frozen canonical-looking forged checkpoint cannot replace registry checkpoint identity");
+  });
+
+  check("3d-preview-adversarial-model-text-never-creates-dom-or-action", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const circuit=createCircuit(2);
+    const genuine=inspectPracticeEvidence({lesson,stepIndex:0,circuit,
+      referenceCircuit:createSampleCircuit(2),analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true});
+    const payload='<img src=x onerror="globalThis.pwned=1">';
+    const poisoned=deepFreezeFixture({
+      ...genuine,
+      checkpoint:{...genuine.checkpoint,guidance:payload},
+      guidance:payload,
+      wireGuidance:{...genuine.wireGuidance,
+        pairChecklist:genuine.wireGuidance.pairChecklist.map((row,index)=>
+          index===0?{...row,explanation:payload}:{...row,pair:[...row.pair]})},
+    });
+    const section=render(poisoned,{onPreviewMissingPairIn3D:()=>{}});
+    assert(section.textContent.includes(payload),"poisoned model text stays literal textContent");
+    assert(!section.querySelector("img"),"poisoned model text cannot create injected node");
+    assert(section.querySelectorAll("[data-practice-preview-pair-3d]").length===0,
+      "cloned/poisoned checkpoint cannot obtain strict 3D action");
+  });
+
   check("manual-complete-extra-and-forged-wire-checklists-never-preview-missing", () => {
     const lesson=lessons.find(item=>item.id===2);
     const reference=createSampleCircuit(2);
@@ -996,6 +1171,30 @@ export function runPracticeEvidenceUiContracts() {
       }
     }
     assert(steps===48 && missingPairs>20,"all 48 authored checkpoints must be covered");
+  });
+
+  check("authored-48-steps-3d-preview-available-only-for-strict-real-missing-wiring-pairs", () => {
+    let steps=0,missingPairs=0;
+    for(const lesson of lessons){
+      const circuit=lesson.id===1?null:createCircuit(lesson.id);
+      for(let index=0;index<lesson.steps.length;index++){
+        const inspection=inspectPracticeEvidence({lesson,stepIndex:index,circuit,
+          referenceCircuit:lesson.id===1?null:createSampleCircuit(lesson.id),
+          analysis:lesson.id===1?null:analyzeCircuit(lesson.id,circuit),hasLearnerDraft:lesson.id!==1});
+        const rendered=render(inspection,{onPreviewMissingPairIn3D:()=>{}});
+        const actions=rendered.querySelectorAll("[data-practice-preview-pair-3d]");
+        const rows=rendered.querySelectorAll("[data-practice-checklist-row]");
+        const expected=rows.filter(row=>row.getAttribute("data-practice-pair-status")==="missing").length;
+        assert(actions.length===expected,
+          "lesson "+lesson.id+" step "+index+" strict 3D missing authored action count drifted");
+        assert(rendered.querySelectorAll("[data-practice-extra-review-row]")
+          .every(row=>!row.querySelector("[data-practice-preview-pair-3d]")),
+          "extra review row must never receive 3D action "+lesson.id+"/"+index);
+        missingPairs+=expected;
+        steps++;
+      }
+    }
+    assert(steps===48 && missingPairs>20,"strict 3D preview covers all 48 authored checkpoints");
   });
 
   return Object.freeze({

@@ -572,7 +572,10 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 149
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 175
+                      and "authored-pair-guide-valid-result-is-frozen-view-only" in scene_lifecycle_names
+                      and "authored-pair-guide-does-not-create-wire-or-scene-state-authority" in scene_lifecycle_names
+                      and "authored-pair-guide-survives-setWiring-projection-after-guide-mount" in scene_lifecycle_names
                       and "terminal-drag-start" in " ".join(scene_lifecycle_names)
                       and "terminal-link-drag-validates-current-layout-canonical-distinct-endpoints" in
                           scene_lifecycle_names
@@ -1051,7 +1054,13 @@ def main() -> None:
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] == 30
+                      and practice_ui_contracts["total"] == 36
+                      and "authored-missing-pair-3d-preview-only-after-native-click-with-readonly-boundary" in
+                          practice_ui_names
+                      and "authored-48-steps-3d-preview-available-only-for-strict-real-missing-wiring-pairs" in
+                          practice_ui_names
+                      and "matched-manual-extra-reference-unknown-and-forged-rows-never-gain-3d-missing-action" in
+                          practice_ui_names
                       and "missing-terminal-inspector-callback-fires-only-on-explicit-click" in
                           practice_ui_names
                       and "inspector-button-appears-only-for-proven-authored-missing-canonical-pair-across-48-steps" in
@@ -4652,6 +4661,157 @@ def main() -> None:
                               False,"No actual pointer-drag-created edge")
                 finally:
                     rich_context.close()
+
+                # The authored 3D checkpoint guide is a real, click-driven
+                # read-only overlay. It must never arm a terminal, clone the
+                # reference graph, mark a step complete or claim physical holes.
+                guide_context = browser.new_context(
+                    viewport={"width":1280,"height":820}, service_workers="allow")
+                try:
+                    guide_page = guide_context.new_page()
+                    capture_console(guide_page)
+                    guide_page.goto(base, wait_until="domcontentloaded", timeout=20000)
+                    ready(guide_page)
+                    guide_page.locator('.lesson-link[data-lesson="2"]').click()
+                    guide_page.locator("#infoTabPractice").click()
+                    guide_canvas = guide_page.locator("#sceneMount canvas")
+                    guide_actions = guide_page.locator(
+                        '#learningCoach [data-practice-preview-pair-3d]')
+                    check("post-v16-authored-3d-only-from-missing-current-checkpoint",
+                          guide_actions.count()==3
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-pair-status="matched"] '
+                              '[data-practice-preview-pair-3d]').count()==0
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-extra-review-row] '
+                              '[data-practice-preview-pair-3d]').count()==0)
+                    first_guide=guide_actions.first
+                    from_id=first_guide.get_attribute("data-practice-preview-from")
+                    to_id=first_guide.get_attribute("data-practice-preview-to")
+                    initial_progress=guide_page.locator("#progressText").inner_text()
+                    first_guide.click()
+                    check("post-v16-authored-3d-visual-guide-canonical-pair-and-no-edit",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="view-only"
+                          and guide_canvas.get_attribute("data-lab-authored-guide-from")==from_id
+                          and guide_canvas.get_attribute("data-lab-authored-guide-to")==to_id
+                          and guide_canvas.get_attribute("data-lab-edit")=="off"
+                          and guide_page.locator("#labEditToggle").get_attribute("aria-pressed")=="false"
+                          and guide_page.locator("#sceneInspectionStatus").get_attribute(
+                              "data-authored-guide")=="view-only")
+                    check("post-v16-authored-3d-no-learner-wire-physical-or-progress",
+                          guide_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and guide_canvas.get_attribute("data-lab-pending-wire-preview")=="none"
+                          and guide_canvas.get_attribute("data-wiring-physical-map")=="none"
+                          and guide_page.locator("#labExplorer [data-explorer-highlight-wire]").count()==0
+                          and guide_page.locator("#progressText").inner_text()==initial_progress
+                          and guide_page.locator("#completeButton").is_hidden()
+                          and "chưa có dây" in guide_page.locator(
+                              "#sceneInspectionStatus").inner_text())
+                    dismiss=guide_page.locator(
+                        '#sceneInspectionStatus [data-authored-guide-dismiss]')
+                    dismiss_rect=dismiss.bounding_box()
+                    check("post-v16-authored-3d-dismiss-native-accessible-44px",
+                          dismiss_rect is not None and dismiss_rect["width"]>=44
+                          and dismiss_rect["height"]>=44
+                          and dismiss.inner_text().strip()!="")
+                    dismiss.click()
+                    check("post-v16-authored-3d-dismiss-clears-only-visual-overlay",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_canvas.get_attribute("data-lab-layout-mode")=="none"
+                          and guide_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and guide_page.locator("#labEditToggle").get_attribute("aria-pressed")=="false"
+                          and guide_page.locator("#progressText").inner_text()==initial_progress)
+
+                    guide_actions.first.click()
+                    guide_page.locator(
+                        '#learningCoach [data-practice-trail-navigate-step="1"]').click()
+                    check("post-v16-authored-3d-step-change-revokes-guide-no-manual-credit",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-trail-current-step]').get_attribute(
+                                  'data-practice-trail-current-step')=="1"
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-preview-pair-3d]').count()==0
+                          and guide_page.locator("#progressText").inner_text()==initial_progress)
+                    guide_page.locator(
+                        '#learningCoach [data-practice-trail-navigate-step="0"]').click()
+                    guide_page.locator(
+                        '#learningCoach [data-practice-preview-pair-3d]').first.click()
+                    guide_page.locator("#stageTabWiring").click()
+                    check("post-v16-authored-3d-leaving-stage-revokes-and-2d-stays-empty",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_page.locator(".wiring-view .wire-connected").count()==0
+                          and guide_page.locator(
+                              '.wiring-view [data-wire-suggestion-preview]').count()==0
+                          and guide_page.locator("#progressText").inner_text()==initial_progress)
+                    guide_page.locator("#stageTab3d").click()
+                    guide_page.locator(
+                        '#learningCoach [data-practice-preview-pair-3d]').first.click()
+                    guide_page.locator("#labEditToggle").click()
+                    check("post-v16-authored-3d-edit-optin-revokes-guide-not-wiring",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_canvas.get_attribute("data-lab-edit")=="on"
+                          and guide_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and guide_page.locator("#labEditToggle").get_attribute("aria-pressed")=="true")
+                    guide_page.locator("#labEditToggle").click()
+
+                    guide_page.locator('.lesson-link[data-lesson="10"]').click()
+                    guide_page.locator("#infoTabPractice").click()
+                    check("post-v16-authored-3d-lesson10-signal-manual-only-no-invented-edge",
+                          guide_page.locator(
+                              '#learningCoach [data-practice-trail-scope="signal-only"]').count()==1
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-preview-pair-3d]').count()==0)
+                    guide_page.locator('.lesson-link[data-lesson="14"]').click()
+                    guide_page.locator("#infoTabPractice").click()
+                    signal_guide=guide_page.locator(
+                        '#learningCoach [data-practice-preview-pair-3d]')
+                    check("post-v16-authored-3d-signal-lesson-scope-stays-unverified",
+                          guide_page.locator(
+                              '#learningCoach [data-practice-trail-scope="signal-only"]').count()==1
+                          and signal_guide.count()>0)
+                    signal_guide.first.click()
+                    check("post-v16-authored-3d-signal-guide-does-not-activate-power-model",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="view-only"
+                          and guide_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and guide_canvas.get_attribute("data-lab-edit")=="off")
+                    guide_page.locator('.lesson-link[data-lesson="1"]').click()
+                    guide_page.locator("#infoTabPractice").click()
+                    check("post-v16-authored-3d-lesson-switch-revokes-and-manual-only",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_page.locator(
+                              '#learningCoach [data-practice-preview-pair-3d]').count()==0
+                          and guide_page.locator("#progressText").inner_text()==initial_progress)
+                    guide_page.locator('.lesson-link[data-lesson="2"]').click()
+                    guide_page.locator("#infoTabPractice").click()
+                    guide_page.set_viewport_size({"width":375,"height":812})
+                    mobile_guide=guide_page.locator(
+                        '#learningCoach [data-practice-preview-pair-3d]').first
+                    mobile_guide_rect=mobile_guide.bounding_box()
+                    check("post-v16-authored-3d-375px-native-preview-no-overflow",
+                          mobile_guide_rect is not None
+                          and mobile_guide_rect["width"]>=44
+                          and mobile_guide_rect["height"]>=44
+                          and guide_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    mobile_guide.click()
+                    mobile_dismiss=guide_page.locator(
+                        '#sceneInspectionStatus [data-authored-guide-dismiss]')
+                    mobile_dismiss_rect=mobile_dismiss.bounding_box()
+                    check("post-v16-authored-3d-375px-dismiss-real-touch-target",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="view-only"
+                          and mobile_dismiss_rect is not None
+                          and mobile_dismiss_rect["width"]>=44
+                          and mobile_dismiss_rect["height"]>=44
+                          and guide_canvas.get_attribute("data-lab-wire-count")=="0")
+                    mobile_dismiss.click()
+                    check("post-v16-authored-3d-375px-dismiss-keeps-learner-empty",
+                          guide_canvas.get_attribute("data-lab-authored-guide-mode")=="none"
+                          and guide_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and guide_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                finally:
+                    guide_context.close()
 
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"

@@ -57,6 +57,8 @@ const state = {
   avrPanel: null, labEditorUI: null, labExplorerUI: null,
   // Read-only terminal inspection is UI state, NOT a pending wiring gesture.
   inspectedTerminalId: null,
+  // An authored checkpoint guide is visual-only and never a learner wire.
+  authoredGuide: null,
   breadboardUI: null, resistiveUI: null, avrEvidence: null,
   learningSteps: new Map(), learningHints: new Set(),
   practiceObservations: createPracticeObservationJournal(),
@@ -66,6 +68,18 @@ function currentLesson() { return lessonById(state.lessonId); }
 function refreshSceneInspectionNote(){
   const note=$("sceneInspectionStatus");
   if(!note)return;
+  const guide=state.stageTab==="3d" ? state.authoredGuide : null;
+  if(guide){
+    const [from,to]=guide.pair;
+    const dismiss=el("button","button button-soft","Ẩn gợi ý 3D");
+    dismiss.type="button";
+    dismiss.dataset.authoredGuideDismiss="";
+    note.replaceChildren(el("span","",`Gợi ý checkpoint bước ${guide.stepIndex+1}: ${from} ↔ ${to}. Đường nét đứt chỉ là hình minh họa, chưa có dây trong learner graph và không xác minh lỗ cắm vật lý.`),dismiss);
+    note.dataset.authoredGuide="view-only";
+    note.hidden=false;
+    return;
+  }
+  delete note.dataset.authoredGuide;
   const id=state.stageTab==="3d" && !state.labEditorUI?.snapshot?.()?.editing
     ? state.inspectedTerminalId
     : null;
@@ -215,6 +229,11 @@ function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,m
     log("Đã thu hồi kích hoạt mạch tự đấu: topology không còn đạt yêu cầu; cần kích hoạt lại sau khi sửa.");
   }
   if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lessonId);
+  // Canonical graph mutations can satisfy a previously missing authored pair.
+  // A stale view-only guide must never linger as though that pair were absent.
+  if(state.authoredGuide&&!validatedMissingAuthoredPair(
+    state.authoredGuide.pair,state.authoredGuide.lessonId,state.authoredGuide.stepIndex
+  ))clearAuthoredGuide();
   refreshCircuitViews();
   updateSnapshot(true);
   return analysis;
@@ -247,6 +266,7 @@ function requestLearnerUndo(request){return moveLearnerHistory("undo",request);}
 function requestLearnerRedo(request){return moveLearnerHistory("redo",request);}
 function explorerSelectComponent(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
+  clearAuthoredGuide();
   // Inspector selection never switches stage or enables editing.
   state.inspectedTerminalId=null;
   state.scene?.setInspectedTerminal?.(null);
@@ -259,6 +279,7 @@ function explorerSelectTerminal(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
   const terminal=listTerminals(state.lessonId).find(item=>item.id===id);
   if(!terminal)return false;
+  clearAuthoredGuide();
   if(state.labEditorUI.snapshot().editing){
     // Two-terminal wiring is possible ONLY after explicit edit opt-in.
     state.inspectedTerminalId=null;
@@ -279,6 +300,7 @@ function explorerSelectTerminal(id) {
 function inspectTerminalReadOnly(id){
   if(!supportedWiringLessons().includes(state.lessonId) ||
       !listTerminals(state.lessonId).some(terminal=>terminal.id===id))return false;
+  clearAuthoredGuide();
   // Inspect is not a wiring gesture. Revoke any pending 3D terminal and
   // exit editor explicitly without touching the canonical learner circuit.
   state.labEditorUI?.closeEditor?.();
@@ -290,35 +312,85 @@ function inspectTerminalReadOnly(id){
   });
   return accepted;
 }
-function previewAuthoredMissingPairIn2D(pair, lessonId, stepIndex){
+function validatedMissingAuthoredPair(pair, lessonId, stepIndex){
   // Stale rendered buttons may outlive a step/lesson change. Revalidate BOTH
   // editorial provenance and current canonical learner edges before touching
   // navigation; no reference/sample edge is silently copied to the learner.
-  if(lessonId!==state.lessonId || !supportedWiringLessons().includes(lessonId) ||
-     !Array.isArray(pair)||pair.length!==2 ||
-     pair.some(id=>typeof id!=="string" || !id || id.trim()!==id))return false;
+  if(lessonId!==state.lessonId || state.infoTab!=="practice" ||
+     !supportedWiringLessons().includes(lessonId) ||
+     !Array.isArray(pair)||Object.getPrototypeOf(pair)!==Array.prototype||pair.length!==2 ||
+     pair.some(id=>typeof id!=="string" || !id || id.trim()!==id)||pair[0]===pair[1])return null;
+  const terminalIds=new Set(listTerminals(lessonId).map(terminal=>terminal.id));
+  if(!terminalIds.has(pair[0])||!terminalIds.has(pair[1]))return null;
   const lesson=currentLesson();
   const current=state.learningSteps.get(lessonId)??0;
-  if(current!==stepIndex)return false;
+  if(current!==stepIndex)return null;
   let checkpoint;
-  try{checkpoint=getPracticeCheckpoint(lesson,stepIndex);}catch{return false;}
-  if(checkpoint.kind!=="wiring" || checkpoint.provenance?.scheme!=="human-authored-from-lesson-text")return false;
+  try{checkpoint=getPracticeCheckpoint(lesson,stepIndex);}catch{return null;}
+  if(checkpoint.kind!=="wiring" || checkpoint.provenance?.scheme!=="human-authored-from-lesson-text")return null;
   const required=checkpoint.requiredPairs?.find(expected=>
     Array.isArray(expected)&&expected[0]===pair[0]&&expected[1]===pair[1]);
-  if(!required)return false;
+  if(!required)return null;
   const existing=learnerCircuit(lessonId);
   if(existing?.wires?.some(wire=>
     (wire.from===pair[0]&&wire.to===pair[1])||
-    (wire.from===pair[1]&&wire.to===pair[0])))return false;
+    (wire.from===pair[1]&&wire.to===pair[0])))return null;
+  return Object.freeze([pair[0],pair[1]]);
+}
+
+function clearAuthoredGuide(){
+  if(!state.authoredGuide)return false;
+  state.authoredGuide=null;
+  state.scene?.setAuthoredPairGuide?.(null);
+  state.labEditorUI?.setReadOnlyGuideMode?.(false);
+  refreshSceneInspectionNote();
+  return true;
+}
+
+function previewAuthoredMissingPairIn2D(pair, lessonId, stepIndex){
+  const verified=validatedMissingAuthoredPair(pair,lessonId,stepIndex);
+  if(!verified)return false;
+  clearAuthoredGuide();
 
   // A visual 2D suggestion cannot inherit an armed 3D first-terminal gesture.
   // No connectCircuit, applyCanonicalCircuit, progress or journal callback.
   state.labEditorUI?.closeEditor?.();
   state.stageTab="wiring";
   renderStage();
-  const preview=state.wiringUI?.previewSuggestedPair?.([pair[0],pair[1]]);
+  const preview=state.wiringUI?.previewSuggestedPair?.(verified);
   if(preview?.mode!=="authored-pair-view-only" || preview.wireCreated!==false)return false;
   refreshLabExplorer();
+  return true;
+}
+function previewAuthoredMissingPairIn3D(pair, lessonId, stepIndex){
+  const verified=validatedMissingAuthoredPair(pair,lessonId,stepIndex);
+  if(!verified||!state.scene?.setAuthoredPairGuide||!state.labEditorUI?.setReadOnlyGuideMode)return false;
+  clearAuthoredGuide();
+  // Do not silently enable edit. The visual overlay is read-only even if the
+  // learner had previously opted into editing a different layout/stage.
+  state.labEditorUI.closeEditor();
+  state.inspectedTerminalId=null;
+  state.scene.setInspectedTerminal?.(null);
+  state.stageTab="3d";
+  renderStage();
+  if(state.labEditorUI.setReadOnlyGuideMode(true)!==true)return false;
+  let result;
+  try{
+    result=state.scene.setAuthoredPairGuide(Object.freeze({from:verified[0],to:verified[1]}));
+  }catch{
+    state.labEditorUI.setReadOnlyGuideMode(false);
+    return false;
+  }
+  if(result?.active!==true || result?.mode!=="view-only" ||
+     result?.electricalAuthority!==false || result?.physicalVerified!==false){
+    state.labEditorUI.setReadOnlyGuideMode(false);
+    return false;
+  }
+  state.authoredGuide=Object.freeze({lessonId,stepIndex,pair:verified});
+  refresh3DWiring();
+  refreshSceneInspectionNote();
+  refreshLabExplorer();
+  $("sceneInspectionStatus")?.querySelector("[data-authored-guide-dismiss]")?.focus({preventScroll:true});
   return true;
 }
 function explorerConnect(from,to) {
@@ -369,7 +441,7 @@ function refresh3DWiring() {
   if (!state.scene?.setWiring) return;
   // When the conceptual 3D editor is active, show the EXACT learner draft
   // used by the 2D workbench. Outside edit mode, retain the teaching sample.
-  const circuit = state.labEditorUI?.isEditingIn3D?.()
+  const circuit = (state.labEditorUI?.isEditingIn3D?.()||state.authoredGuide)
     ? learnerCircuit() : displayedCircuit();
   if (!circuit) { state.scene.setWiring(null); return; }
   const analysis = analyzeCircuit(state.lessonId, circuit);
@@ -614,6 +686,12 @@ function renderUnoPinReference() {
 }
 function renderInfo() {
   const lesson=currentLesson();
+  if(state.authoredGuide && (state.infoTab!=="practice" ||
+     state.authoredGuide.lessonId!==lesson.id ||
+     state.authoredGuide.stepIndex!==(state.learningSteps.get(lesson.id)??0))){
+    clearAuthoredGuide();
+    refresh3DWiring();
+  }
   for(const tab of document.querySelectorAll("[data-info]")){
     const active=tab.dataset.info===state.infoTab;
     tab.setAttribute("aria-selected",String(active));
@@ -724,6 +802,11 @@ function renderInfo() {
           // Revalidate source checkpoint/current learner draft in the host.
           return previewAuthoredMissingPairIn2D(pair,lesson.id,current);
         },
+        onPreviewMissingPairIn3D(pair){
+          // Read-only Three.js guide; the actual learner graph remains unchanged.
+          // The callback must revalidate lesson/step/source/missing edge.
+          return previewAuthoredMissingPairIn3D(pair,lesson.id,current);
+        },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
           renderInfo();
@@ -773,6 +856,7 @@ function renderInfo() {
   $("safetyNote").textContent=lesson.caution;
 }
 function renderStage() {
+  if(state.stageTab!=="3d" && state.authoredGuide)clearAuthoredGuide();
   if(state.stageTab!=="3d" && state.inspectedTerminalId!==null){
     state.inspectedTerminalId=null;
     state.scene?.setInspectedTerminal?.(null);
@@ -1080,6 +1164,7 @@ function resetSimulation() {
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
+  clearAuthoredGuide();
   stopClock();
   state.inspectedTerminalId=null;
   refreshSceneInspectionNote();
@@ -1217,6 +1302,14 @@ function wireRovingTabs(selector) {
   });
 }
 function wireEvents(){
+  $("sceneInspectionStatus").addEventListener("click",event=>{
+    if(!event.target.closest("[data-authored-guide-dismiss]"))return;
+    if(clearAuthoredGuide()){
+      refresh3DWiring();
+      refreshLabExplorer();
+      $("stageTab3d").focus({preventScroll:true});
+    }
+  });
   $("lessonSearch").addEventListener("input",renderLessonList);
   $("lessonList").addEventListener("click",event=>{
     const b=event.target.closest("[data-lesson]");
@@ -1395,6 +1488,7 @@ async function init(){
   state.labEditorUI=mountLabEditor({
     getCircuit: lessonId => learnerCircuit(lessonId),
     onEditModeChange(){
+      if(state.authoredGuide)clearAuthoredGuide();
       state.inspectedTerminalId=null;
       state.scene?.setInspectedTerminal?.(null);
       refreshSceneInspectionNote();
@@ -1466,6 +1560,7 @@ async function init(){
   // Capture on the stable host also catches non-bubbling canvas loss events.
   $("sceneMount").addEventListener("webglcontextlost", event=>{
     if(event.target?.tagName==="CANVAS"){
+      clearAuthoredGuide();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
     }
   },true);

@@ -259,9 +259,16 @@ function makeScene() {
     labEdit: null,
     layout: null,
     pending: null,
-    setLabEdit(value) { this.labEdit = value; return true; },
-    setLabLayout(value) { this.layout = value; return true; },
-    setPendingWireTerminal(value) { this.pending = value; return true; },
+    authoredPairGuide: null,
+    wiring: null,
+    labEditCalls: 0,
+    layoutCalls: 0,
+    pendingCalls: 0,
+    setLabEdit(value) { this.labEditCalls += 1; this.labEdit = value; return true; },
+    setLabLayout(value) { this.layoutCalls += 1; this.layout = value; return true; },
+    setPendingWireTerminal(value) { this.pendingCalls += 1; this.pending = value; return true; },
+    setAuthoredPairGuide(value) { this.authoredPairGuide = value; return { active: value !== null, mode: "view-only" }; },
+    setWiring(value) { this.wiring = value; return { mode: "conceptual-netlist" }; },
   };
 }
 
@@ -395,17 +402,129 @@ export function runLabEditorPrecisionWiresContracts() {
 
   check("empty-learner-graph-never-falls-back-to-reference-and-inspection-is-read-only", () => {
     assert(createSampleCircuit(2).wires.length > 0, "reference fixture must contain sample wires");
-    withFixture({}, ({ ui, panel, changes }) => {
+    withFixture({}, ({ ui, panel, changes, scene, document, nativeBrowserDom }) => {
       ui.setLesson(2);
-      ui.openEditor();
+      expectThrow(
+        () => ui.setReadOnlyGuideMode("true"),
+        /boolean/i,
+        "guide mode rejects non-boolean enable requests",
+      );
+      assert(ui.isReadOnlyGuideIn3D() === false, "guide mode starts off");
+      assert(ui.setReadOnlyGuideMode(true) === true && ui.isReadOnlyGuideIn3D() === true,
+        "eligible 3D lesson explicitly enables read-only guide mode");
+      assert(scene.layout?.lessonId === 2 && Object.isFrozen(scene.layout) && scene.labEdit?.enabled === false &&
+        scene.labEdit?.selectedComponentId === null && panel.hidden === true,
+      "guide keeps canonical layout visible while all scene editing remains disabled");
+      assert(ui.setReadOnlyGuideMode(false) === false && ui.isReadOnlyGuideIn3D() === false &&
+        scene.layout === null,
+      "explicit guide disable returns resulting inactive state and clears guide layout");
+      assert(ui.setReadOnlyGuideMode(true) === true,
+        "guide requires an explicit enable again after explicit disable");
+      const authoredPair = Object.freeze({ from: "D13", to: "GND" });
+      scene.setAuthoredPairGuide(authoredPair);
+      const previewLayout = scene.layout;
+      const previewLabEditCalls = scene.labEditCalls;
+      const previewLayoutCalls = scene.layoutCalls;
+      const previewPendingCalls = scene.pendingCalls;
+      ui.setStage("3d");
+      assert(ui.isReadOnlyGuideIn3D() === true && scene.layout === previewLayout &&
+        scene.authoredPairGuide === authoredPair && scene.labEdit?.enabled === false &&
+        scene.labEditCalls === previewLabEditCalls && scene.layoutCalls === previewLayoutCalls &&
+        scene.pendingCalls === previewPendingCalls,
+      "redundant same-stage 3D sync is a true no-op while read-only authored preview is active");
+
+      ui.update();
+      assert(ui.isReadOnlyGuideIn3D() === true && scene.layout === previewLayout &&
+        scene.authoredPairGuide === authoredPair && scene.labEdit?.enabled === false,
+      "idle controller refresh preserves read-only guide layout and authored pair overlay");
+      const learnerProjection = createCircuit(2);
+      scene.setWiring(learnerProjection);
+      assert(scene.wiring === learnerProjection && scene.layout === previewLayout &&
+        scene.authoredPairGuide === authoredPair && scene.labEdit?.enabled === false,
+      "learner setWiring after guide does not unmount layout, clear overlay, or enable editing");
+      if (nativeBrowserDom) {
+        const HTMLElement = document.defaultView?.HTMLElement;
+        assert(HTMLElement && panel instanceof HTMLElement && panel.isConnected && panel.hidden,
+          "browser path proves guide uses the connected native DOM while editor panel stays hidden");
+      }
       const list = panel.querySelector("[data-lab-precision-wire-list]");
       assert(list.querySelectorAll("[data-lab-wire-row]").length === 0 &&
         /chưa có dây/i.test(list.textContent),
       "missing learner graph renders canonical empty state instead of reference sample");
       const before = changes.length;
       const snapshot = ui.snapshot();
-      assert(snapshot.lessonId === 2 && snapshot.circuit === null && changes.length === before,
-        "snapshot/inspection does not create or mutate a learner draft");
+      const guideLayout = scene.layout;
+      assert(snapshot.lessonId === 2 && snapshot.readOnlyGuideIn3D === true &&
+        snapshot.circuit === null && changes.length === before,
+      "guide snapshot/inspection does not create or mutate a learner draft");
+
+      const guideCallbacks = scene.labEdit;
+      assert(guideCallbacks.onSelectComponent(null) === false &&
+        guideCallbacks.onMoveComponent("R1", 1, 1, {}) === false &&
+        guideCallbacks.onTerminalSelect("D13") === false &&
+        guideCallbacks.onTerminalDragStart("D13", pointerMeta()) === false,
+      "guide-disabled scene callbacks cannot select, move or arm terminal wiring");
+      const guideLink = guideCallbacks.onTerminalLink("D13", "GND", pointerMeta());
+      assert(guideLink.committed === false && guideLink.reason === "editor-not-active" &&
+        ui.selectTerminal("D13") === null &&
+        ui.connectTerminals("D13", "GND").committed === false &&
+        ui.removeWire("w1", 2) === false,
+      "guide blocks controller terminal, connect and remove mutation paths");
+      for (const id of ["labConnect", "labSampleWires", "labClearWires", "labRemoveLastWire", "labResetPositions"]) {
+        document.getElementById(id).click();
+      }
+      assert(changes.length === before && ui.snapshot().circuit === null && scene.pending === null &&
+        scene.layout === guideLayout,
+      "hidden edit actions cannot copy reference/sample data, reset layout, or write learner graph in guide mode");
+
+      assert(ui.openEditor() === true && ui.isReadOnlyGuideIn3D() === false &&
+        ui.isEditingIn3D() === true && scene.labEdit.enabled === true,
+      "entering editor revokes guide before enabling normal edit callbacks");
+      assert(ui.setReadOnlyGuideMode(true) === false && ui.isEditingIn3D() === true,
+        "guide cannot be enabled over an active editor");
+      assert(ui.closeEditor() === true && scene.layout === null && ui.isReadOnlyGuideIn3D() === false,
+        "closing editor does not silently restore a prior guide layout");
+
+      assert(ui.setReadOnlyGuideMode(true) === true && scene.layout?.lessonId === 2,
+        "guide can be explicitly enabled again after editor closes");
+      ui.setStage("wiring");
+      assert(ui.isReadOnlyGuideIn3D() === false && scene.layout === null,
+        "stage switch revokes guide and clears conceptual layout");
+      assert(ui.setReadOnlyGuideMode(true) === false && scene.layout === null,
+        "non-3D stage cannot enable guide mode");
+      ui.setStage("3d");
+      assert(ui.isReadOnlyGuideIn3D() === false && scene.layout === null,
+        "returning to 3D does not auto-restore revoked guide mode");
+
+      assert(ui.setReadOnlyGuideMode(true) === true, "guide re-enables explicitly before lesson switch");
+      ui.setLesson(3);
+      assert(ui.isReadOnlyGuideIn3D() === false && scene.layout === null,
+        "lesson transition revokes guide and clears old canonical layout");
+      ui.setLesson(1);
+      assert(ui.setReadOnlyGuideMode(true) === false && scene.layout === null && scene.labEdit.enabled === false,
+        "unsupported lesson cannot enter guide mode");
+
+      ui.setLesson(2);
+      assert(ui.setReadOnlyGuideMode(true) === true, "guide can re-enable for supported lesson");
+      const replacementScene = makeScene();
+      ui.setScene(replacementScene);
+      assert(scene.layout === null && replacementScene.layout === null &&
+        replacementScene.labEdit?.enabled === false && ui.isReadOnlyGuideIn3D() === false,
+      "scene replacement revokes guide on both old and new scene contexts");
+      assert(ui.setReadOnlyGuideMode(true) === true && replacementScene.layout?.lessonId === 2,
+        "guide requires explicit re-enable on replacement scene");
+      ui.setScene(null);
+      assert(replacementScene.layout === null && ui.isReadOnlyGuideIn3D() === false &&
+        ui.setReadOnlyGuideMode(true) === false,
+      "scene loss revokes guide and a missing scene cannot enable it");
+      const finalScene = makeScene();
+      ui.setScene(finalScene);
+      assert(ui.setReadOnlyGuideMode(true) === true && finalScene.layout?.lessonId === 2,
+        "guide can explicitly enable after a fresh scene is attached");
+      ui.dispose();
+      assert(finalScene.layout === null && ui.isReadOnlyGuideIn3D() === false &&
+        ui.setReadOnlyGuideMode(true) === false,
+      "dispose revokes guide, clears its layout and prevents re-enable");
     });
   });
 

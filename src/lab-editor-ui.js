@@ -42,6 +42,7 @@ export function mountLabEditor({
 
   const layouts = new Map();
   let lessonId = 1, scene = null, stage = "3d", editing = false, selectedId = null;
+  let readOnlyGuideMode = false;
   let explicitlyDeselected = false;
   let firstTerminal = null, disposed = false, avrEvidence = null;
   let lastMessage = "", lastKind = "";
@@ -66,6 +67,8 @@ export function mountLabEditor({
   wireFieldset.append(precisionWireList);
 
   const lessonSupported = () => supported.has(lessonId);
+  const guideActive = () => !disposed && readOnlyGuideMode && lessonSupported() &&
+    stage === "3d" && !!scene && !editing;
   // Pending two-terminal wiring intent belongs to this controller only.
   // The Three.js overlay mirrors it for feedback; it cannot create a wire.
   const syncPendingScenePreview = () => {
@@ -339,7 +342,7 @@ export function mountLabEditor({
     const available = lessonSupported();
     const sceneVisible = stage==="3d" && !!scene;
     entry.hidden = !available || !sceneVisible;
-    if (!available) editing=false;
+    if (!available) { editing=false; readOnlyGuideMode=false; }
     panel.hidden = !available || !sceneVisible || !editing;
     toggle.setAttribute("aria-expanded",String(!panel.hidden));
     toggle.setAttribute("aria-pressed",String(editing));
@@ -393,7 +396,7 @@ export function mountLabEditor({
     // The original Three.js educational scene remains the default. Creating
     // the conceptual placement overlay is explicit opt-in, never a silent
     // replacement of the existing lesson model and checked netlist drawing.
-    const desiredLayout = editing && sceneVisible ? layout : null;
+    const desiredLayout = (editing || guideActive()) && sceneVisible ? layout : null;
     if (scene !== renderedScene || renderedLayout !== desiredLayout) {
       scene?.setLabLayout?.(desiredLayout);
       renderedScene = scene;
@@ -411,6 +414,7 @@ export function mountLabEditor({
     showAvrEvidence();
   }
   const onToggle=()=>{
+    if(!editing)readOnlyGuideMode=false;
     editing=!editing;firstTerminal=null;lastMessage="";render();
     // Reference wires are appropriate for view-only teaching; during editing,
     // the 3D canvas must show the same learner draft as the 2D workbench.
@@ -521,7 +525,7 @@ export function mountLabEditor({
     return true;
   };
   const onReset=()=>{
-    if (!lessonSupported()) return;
+    if (!editing||stage!=="3d"||!scene||!lessonSupported()) return false;
     layouts.delete(lessonId);
     selectedId=null;
     explicitlyDeselected=false;
@@ -530,6 +534,7 @@ export function mountLabEditor({
     render();
     announce("Đã khôi phục bố trí minh họa mặc định; các dây netlist được giữ nguyên.");
     onLayoutChange(layoutFor(),lessonId);
+    return true;
   };
 
   const listeners=[
@@ -551,18 +556,34 @@ export function mountLabEditor({
   for(const [node,event,fn] of listeners) node.addEventListener(event,fn);
   render();
   return Object.freeze({
-    setScene(next){scene=next||null;renderedScene=null;renderedLayout=null;lastMessage="";render();},
+    setScene(next){
+      const nextScene=next||null;
+      if(nextScene!==scene&&readOnlyGuideMode){
+        scene?.setLabLayout?.(null);
+        readOnlyGuideMode=false;
+      }
+      scene=nextScene;renderedScene=null;renderedLayout=null;lastMessage="";render();
+    },
     setLesson(id){
       if(!Number.isInteger(id)||id<1||id>16)throw new RangeError("Invalid lab lesson ID.");
+      if(readOnlyGuideMode)scene?.setLabLayout?.(null);
+      readOnlyGuideMode=false;
       lessonId=id;editing=false;selectedId=null;explicitlyDeselected=false;firstTerminal=null;lastMessage="";
       renderedLayout=null;
       render();
     },
     setStage(value){
+      // Prime may render the already-active 3D stage again while an authored
+      // read-only guide overlay is visible. Treat that idle refresh as a true
+      // no-op so the mounted canonical layout/scene-owned overlay cannot be
+      // disturbed by redundant stage synchronization.
+      if(value===stage&&guideActive())return;
       // A half-completed 3D terminal gesture cannot survive a switch to 2D
       // or another view. Keep the edit mode/layout, but revoke its transient
       // first-terminal intent before any later 3D terminal click.
+      const stageChanged=value!==stage;
       const revokeFirstTerminal=stage==="3d" && value!=="3d" && firstTerminal!==null;
+      if(stageChanged)readOnlyGuideMode=false;
       stage=value;
       if(revokeFirstTerminal){
         firstTerminal=null;
@@ -572,9 +593,29 @@ export function mountLabEditor({
       if(revokeFirstTerminal)onSelectionChange(selectedId,lessonId);
     },
     update(){lastMessage="";render();},
+    setReadOnlyGuideMode(enabled){
+      if(typeof enabled!=="boolean")throw new TypeError("Read-only guide mode expects a boolean.");
+      if(!enabled){
+        readOnlyGuideMode=false;
+        render();
+        return false;
+      }
+      if(disposed||editing||stage!=="3d"||!scene||!lessonSupported()){
+        readOnlyGuideMode=false;
+        render();
+        return false;
+      }
+      readOnlyGuideMode=true;
+      firstTerminal=null;
+      syncPendingScenePreview();
+      render();
+      return true;
+    },
+    isReadOnlyGuideIn3D(){return guideActive();},
     openEditor(){
       if(!lessonSupported()||stage!=="3d"||!scene)return false;
       if(!editing){
+        readOnlyGuideMode=false;
         editing=true;firstTerminal=null;lastMessage="";render();onEditModeChange();
       }
       return true;
@@ -606,12 +647,14 @@ export function mountLabEditor({
     setAvrEvidence(evidence){avrEvidence=evidence;showAvrEvidence();},
     snapshot(){
       return Object.freeze({
-        lessonId,stage,editing,selectedId,firstTerminal,layout:layoutFor(),
+        lessonId,stage,editing,readOnlyGuideIn3D:guideActive(),selectedId,firstTerminal,layout:layoutFor(),
         circuit:lessonSupported()?getCircuit(lessonId):null,
       });
     },
     dispose(){
       if(disposed)return;
+      if(readOnlyGuideMode)scene?.setLabLayout?.(null);
+      readOnlyGuideMode=false;
       disposed=true;
       scene?.setPendingWireTerminal?.(null);
       for(const [node,event,fn] of listeners) node.removeEventListener(event,fn);

@@ -52,6 +52,52 @@ The direct gesture does not alter `labWireCount`, the committed eight-point rout
 
 All terminal coordinates and ghost geometry remain conceptual. The callback metadata continues to state `physicalVerified:false`; the gesture does not establish CAD placement, breadboard-hole mapping, continuity, measured electrical state, or hardware execution.
 
+## Authored missing-pair view-only guide
+
+The scene also exposes a separate read-only authoring aid:
+
+```js
+scene.setAuthoredPairGuide({ from, to })
+scene.setAuthoredPairGuide(null)
+```
+
+This API is not part of the learner wiring graph. A non-null pair is accepted only when:
+
+- the active conceptual lab layout is mounted and WebGL context is available;
+- lab edit is off and no terminal pointer gesture is active;
+- the pair is an object with exactly two own fields, `from` and `to`;
+- both values are exact non-empty canonical IDs with no whitespace normalization;
+- the IDs are distinct and are own entries in the active layout `terminalMap`;
+- both IDs also have currently mounted terminal markers;
+- inherited pair fields, extra fields, foreign/stale IDs, `__proto__`, `prototype`, `constructor`, and malformed values are rejected.
+
+On success the method returns a frozen result:
+
+```js
+{
+  active: true,
+  mode: "view-only",
+  from,
+  to,
+  physicalVerified: false,
+  electricalAuthority: false
+}
+```
+
+Passing `null` is an idempotent clear and returns the same truthful shape with `active:false`, `mode:"none"`, `from:null`, and `to:null`.
+
+The rendered guide is a dedicated six-point elevated conceptual route with a dark contrast line plus a dashed teal overlay. It owns separate geometry/material state and never reuses the three-point pending-wire ghost. Its objects are marked `viewOnly:true`, `committed:false`, `visualOnly:true`, `physicalVerified:false`, and `electricalAuthority:false`. It never appends to `labWireObjects`, never calls `setWiring`, and never creates a netlist edge.
+
+Canvas diagnostics are:
+
+- `data-lab-authored-guide-mode="none|view-only"`
+- `data-lab-authored-guide-from`
+- `data-lab-authored-guide-to`
+
+The guide may coexist with already committed learner wires, and a later `setWiring(...)` projection does not remove or reinterpret it. Entering lab edit clears it before pointer/two-tap gestures can begin. A same-lesson layout rebuild preserves the pair only after revalidating both IDs against the rebuilt canonical layout and then rebuilds the route from the new marker positions.
+
+`setLabLayout(null)`, lesson change, disposal, and WebGL context loss clear the public guide state. A standalone scene keeps only an internal restore candidate across context loss; after context restoration it rebuilds the guide only if edit remains off, the same active layout still exists, and both endpoints still pass canonical membership checks. Calling `setAuthoredPairGuide(null)` or clearing/changing the layout while the context is lost clears that restore candidate, so explicit host/app cleanup cannot resurrect stale guide state. The app integration uses that explicit-null path on `webglcontextlost`, so app-visible authored guidance stays cleared after restore unless the controller intentionally supplies it again.
+
 ## Browser contracts
 
 `tests/scene3d-contracts.js` contains substantive pointer contracts for mouse, touch, and pen. It projects known lesson-2 terminal anchors to the real canvas camera, confirms the source/target are actually hit, then verifies:
@@ -63,6 +109,7 @@ All terminal coordinates and ghost geometry remain conceptual. The callback meta
 - an armed two-tap first terminal can be cleared by the controller from `onTerminalDragStart` before a different-source drag is cancelled;
 - background, same-endpoint, touch-cancel, and lost-capture paths emit drag-start once but no link; a foreign pointer emits neither;
 - stage clear, lesson change, WebGL context loss, and dispose clear an armed ghost without a stale callback.
+- authored guide contracts cover frozen truthful results, exact-own canonical validation, malformed/foreign/stale/prototype rejection, same-layout rebuild, layout-null/lesson/edit cleanup, committed-wire coexistence, `setWiring` after guide mount, WebGL public clear/revalidated standalone restore, explicit-null no-resurrection, and disposal cleanup.
 
 `tests/scene3d-visual-fidelity-contracts.js` keeps the visual-only provenance boundary and confirms direct drag reuses the single transient ghost path.
 

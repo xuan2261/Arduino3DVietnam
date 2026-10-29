@@ -77,6 +77,89 @@ lesson IDs, stale/missing wire IDs, foreign graphs, invalid router IDs, inactive
 The legacy "Gỡ dây cuối" control remains for compatibility but now delegates to
 the same exact-ID removal path for its current last learner wire.
 
+## Explicit read-only conceptual guide layout
+
+The lab controller now exposes an explicit host API for keeping only the
+canonical conceptual component layout visible while normal 3D editing remains
+off:
+
+```js
+controller.setReadOnlyGuideMode(enabled)
+controller.isReadOnlyGuideIn3D()
+```
+
+`setReadOnlyGuideMode` accepts only a boolean. Its return value is the resulting
+**active guide state**, not a generic operation-success flag:
+
+- `true` means guide mode is now active;
+- `false` means guide mode is off, including an explicit disable or an enable
+  request rejected because the current context is ineligible.
+
+An enable request is eligible only when the controller is not disposed, the
+current lesson is one of the canonical wiring lessons, the current stage is
+exactly `3d`, a scene is attached, and edit mode is off.
+`isReadOnlyGuideIn3D()` evaluates the same active-state predicate. The frozen
+controller snapshot also exposes `readOnlyGuideIn3D` for read-only inspection.
+
+When active, `render()` may pass only `layoutFor()` to
+`scene.setLabLayout(layout)`. That layout is generated and validated from the
+current lesson's canonical terminal inventory. Guide mode **does not** enable
+scene editing:
+
+```js
+scene.setLabEdit({
+  // callbacks may remain installed for later edit mode,
+  enabled: false,
+  selectedComponentId: null,
+})
+```
+
+This lets the host/scene render an authored conceptual pair overlay against the
+current canonical layout without opening the editor. Guide mode does not enable
+component moves, layout reset, terminal selection/two-tap state, pointer-drag
+wiring, connect/disconnect actions, sample/clear actions, history mutation, or
+any other learner-graph write. In particular, `createSampleCircuit()` remains reachable
+only from the existing explicit edit-only sample action; guide mode never copies
+a reference/sample graph into learner state. A missing learner circuit remains
+missing during guide inspection.
+
+Guide mode is intentionally ephemeral. It is revoked when the lesson context is
+reset, when the stage actually switches, when the scene object is replaced or
+removed, when edit mode is entered through either the toggle or `openEditor()`,
+and on `dispose()`. Revocation clears a guide-owned mounted layout from the
+affected scene. Returning to 3D, closing the editor, or attaching a replacement
+scene does **not** silently restore guide mode; the host must explicitly call
+`setReadOnlyGuideMode(true)` again after the new context is ready.
+
+A redundant `setStage("3d")` call while guide mode is already active is a true
+controller no-op. This matters because the host may re-run an idle `renderStage`
+while an authored pair preview is visible: the controller must not re-send
+layout/edit/pending state that could disturb scene-owned overlay state. Ordinary
+`controller.update()` may refresh read-only status/UI, but because the same
+canonical layout object remains mounted and `setLabEdit` remains disabled, the
+authored overlay stays intact.
+
+Prime integration currently follows this order for a valid authored 3D pair:
+
+```text
+renderStage()
+setReadOnlyGuideMode(true)
+scene.setAuthoredPairGuide(...)
+refresh3DWiring() -> scene.setWiring(learnerCircuit, ...)
+```
+
+The scene's `setWiring()` rebuilds the conceptual wiring layer but does not clear
+`activeLabLayout` or the authored pair guide. When a lab layout is active it
+keeps the ordinary conceptual wiring layer hidden and refreshes the committed
+lab-wire projection on that existing layout. Therefore the learner-only wiring
+projection can refresh **after** the authored pair overlay without unmounting the
+read-only guide layout or enabling edit mode.
+
+Calling `setReadOnlyGuideMode(true)` while editing, on an unsupported lesson,
+outside the 3D stage, without a scene, or after disposal returns `false` and
+does not mutate learner graph or interaction state. Non-boolean input throws a
+`TypeError` rather than coercing truthy/falsy values.
+
 ## Scene pointer-drag bridge
 
 Worker24's scene owns pointer hit-testing and drag/cancel thresholds. Once a
@@ -174,7 +257,11 @@ Bun contracts covering:
 2. exact-ID removal through `onCircuitChange`, router wire-ID preservation,
    stale wire/lesson rejection and injection-like ID rejection;
 3. empty learner graph behavior with no reference fallback and read-only
-   inspection/snapshot behavior;
+   inspection/snapshot behavior; this same contract now exercises guide mode on
+   fake DOM and native browser DOM, proving canonical layout visibility with
+   `setLabEdit.enabled === false`, zero graph writes/reference copying, guarded
+   controller/scene actions, explicit API return semantics, and revocation on
+   editor/stage/lesson/scene/dispose transitions;
 4. valid pointer-drag start/commit, pointercancel/background-drop behavior,
    forged-link pending-UI purity, plus same/foreign/invalid-meta/canceled
    negatives;

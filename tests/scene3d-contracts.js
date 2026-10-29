@@ -162,6 +162,41 @@ export async function runScene3DContracts() {
     /if\(select&&!moved\)/.test(finishPointerSource) &&
     /labEdit\.onTerminalSelect/.test(finishPointerSource) &&
     !/setWiring\(|connectCircuit\(|disconnectCircuit\(/.test(finishPointerSource));
+  const authoredGuideStart = sceneSource.indexOf("function authoredGuideResult");
+  const authoredGuideEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", authoredGuideStart);
+  const authoredGuideSource = sceneSource.slice(authoredGuideStart, authoredGuideEnd);
+  check("authored-pair-guide-source-validates-exact-own-canonical-pair",
+    /function setAuthoredPairGuide\(pair\)/.test(authoredGuideSource) &&
+    /Reflect\.ownKeys\(pair\)/.test(authoredGuideSource) &&
+    /ownKeys\.length!==2/.test(authoredGuideSource) &&
+    /hasOwnProperty\.call\(pair,"from"\)/.test(authoredGuideSource) &&
+    /hasOwnProperty\.call\(pair,"to"\)/.test(authoredGuideSource) &&
+    /hasOwnProperty\.call\(terminalMap,terminalId\)/.test(authoredGuideSource) &&
+    /terminalId\.trim\(\)!==terminalId/.test(authoredGuideSource) &&
+    /from===to/.test(authoredGuideSource) &&
+    /"__proto__","prototype","constructor"/.test(authoredGuideSource) &&
+    /if\(contextLost\)/.test(authoredGuideSource) &&
+    /if\(!activeLabLayout\)/.test(authoredGuideSource) &&
+    /if\(labEdit\.enabled\)/.test(authoredGuideSource) &&
+    /drag\?\.kind==="terminal"/.test(authoredGuideSource));
+  check("authored-pair-guide-source-is-distinct-dashed-visual-only-route",
+    /LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6/.test(sceneSource) &&
+    /new T\.LineDashedMaterial\(/.test(sceneSource) &&
+    /kind:"lab-authored-pair-guide-contrast"/.test(authoredGuideSource) &&
+    /kind:"lab-authored-pair-guide-dash"/.test(authoredGuideSource) &&
+    /computeLineDistances\(\)/.test(authoredGuideSource) &&
+    /viewOnly:true,committed:false,visualOnly:true/.test(authoredGuideSource) &&
+    /electricalAuthority:false/.test(authoredGuideSource) &&
+    !/pendingWirePreviewLine|ensurePendingWirePreviewLine|labWireObjects\.push|setWiring\(|lastWiringModel\s*=/.test(authoredGuideSource));
+  check("authored-pair-guide-source-clears-and-revalidates-lifecycle",
+    /function clearLabLayout[\s\S]*clearAuthoredPairGuide\(false\)/.test(sceneSource) &&
+    /previousAuthoredGuideLesson===layout\.lessonId/.test(setLabLayoutSource) &&
+    /mountAuthoredPairGuide\(previousAuthoredGuide\)/.test(setLabLayoutSource) &&
+    /guideBeforeContextLoss/.test(sceneSource) &&
+    /guideBeforeContextLoss[\s\S]*clearAuthoredPairGuide\(false\)/.test(sceneSource) &&
+    /guideToRestore/.test(sceneSource) &&
+    /mountAuthoredPairGuide\(guideToRestore\)/.test(sceneSource) &&
+    /setAuthoredPairGuide/.test(sceneSource.slice(sceneSource.indexOf("return {setLesson"))));
   const contextLostStart = sceneSource.indexOf("const onContextLost=");
   const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
   const contextHandlersEnd = sceneSource.indexOf('canvas.addEventListener("pointerdown"', contextRestoredStart);
@@ -453,7 +488,160 @@ export async function runScene3DContracts() {
       canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
       canvas.dataset.labWireHighlightFeedback === "none");
 
+    check("public-authored-pair-guide-api-starts-clear",
+      typeof mounted.setAuthoredPairGuide === "function" &&
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
+    const guidePair = { from: "D13", to: "R1:A" };
+    const guideWireCountBefore = canvas.dataset.labWireCount;
+    const guideRevisionBefore = canvas.dataset.labWireGeometryRevision;
+    const guideStateBefore = mounted.getLabViewState();
+    const guideResult = mounted.setAuthoredPairGuide(guidePair);
+    const guideStateAfter = mounted.getLabViewState();
+    check("authored-pair-guide-valid-result-is-frozen-view-only",
+      Object.isFrozen(guideResult) &&
+      guideResult.active === true &&
+      guideResult.mode === "view-only" &&
+      guideResult.from === "D13" &&
+      guideResult.to === "R1:A" &&
+      guideResult.physicalVerified === false &&
+      guideResult.electricalAuthority === false &&
+      Object.keys(guideResult).sort().join(",") ===
+        "active,electricalAuthority,from,mode,physicalVerified,to" &&
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labAuthoredGuideFrom === "D13" &&
+      canvas.dataset.labAuthoredGuideTo === "R1:A");
+    check("authored-pair-guide-does-not-create-wire-or-scene-state-authority",
+      canvas.dataset.labWireCount === guideWireCountBefore &&
+      canvas.dataset.labWireGeometryRevision === guideRevisionBefore &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      canvas.dataset.labHighlightedWire === "" &&
+      guideStateAfter.selectedComponentId === guideStateBefore.selectedComponentId &&
+      guideStateAfter.focusedComponentId === guideStateBefore.focusedComponentId &&
+      JSON.stringify(guideStateAfter.camera) === JSON.stringify(guideStateBefore.camera) &&
+      guideStateAfter.claims.physicalVerified === false &&
+      guideStateAfter.claims.breadboardHoleMapping === false &&
+      guideStateAfter.claims.electricalPower === false);
+
+    const lesson3ForeignTerminal = listTerminals(3).find(item =>
+      !Object.prototype.hasOwnProperty.call(layout.terminalMap, item.id)
+    )?.id || "NOT_A_TERMINAL";
+    const inheritedGuidePair = Object.create({ from: "D13", to: "R1:A" });
+    const invalidGuidePairs = [
+      {},
+      { from: "D13" },
+      { from: "D13", to: "D13" },
+      { from: "D13 ", to: "R1:A" },
+      { from: "D13", to: lesson3ForeignTerminal },
+      { from: "__proto__", to: "R1:A" },
+      { from: "constructor", to: "R1:A" },
+      { from: "D13", to: "R1:A", extra: true },
+      inheritedGuidePair,
+      ["D13", "R1:A"],
+      "D13:R1:A",
+    ];
+    const invalidGuideOutcomes = invalidGuidePairs.map(candidate => {
+      try {
+        mounted.setAuthoredPairGuide(candidate);
+        return false;
+      } catch (error) {
+        return error instanceof TypeError || error instanceof RangeError;
+      }
+    });
+    check("authored-pair-guide-invalid-foreign-prototype-inputs-are-transactional",
+      invalidGuideOutcomes.every(Boolean) &&
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labAuthoredGuideFrom === "D13" &&
+      canvas.dataset.labAuthoredGuideTo === "R1:A" &&
+      canvas.dataset.labWireCount === guideWireCountBefore &&
+      canvas.dataset.labWireGeometryRevision === guideRevisionBefore);
+
+    const movedGuideLayout = moveLabComponent(layout, "R1", layout.bounds.maxX, layout.bounds.maxZ);
+    mounted.setLabLayout(movedGuideLayout);
+    check("authored-pair-guide-rebuilds-on-same-lesson-layout-with-canonical-endpoints",
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labAuthoredGuideFrom === "D13" &&
+      canvas.dataset.labAuthoredGuideTo === "R1:A" &&
+      canvas.dataset.labWireCount === guideWireCountBefore);
+    mounted.setLabLayout(layout);
+    check("authored-pair-guide-remains-view-only-after-layout-restore",
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labWireCount === guideWireCountBefore &&
+      canvas.dataset.labPendingWirePreview === "none");
+
+    const clearedGuide = mounted.setAuthoredPairGuide(null);
+    const clearedGuideAgain = mounted.setAuthoredPairGuide(null);
+    check("authored-pair-guide-null-clear-is-frozen-idempotent",
+      Object.isFrozen(clearedGuide) &&
+      Object.isFrozen(clearedGuideAgain) &&
+      clearedGuide.active === false &&
+      clearedGuide.mode === "none" &&
+      clearedGuide.from === null &&
+      clearedGuide.to === null &&
+      clearedGuide.physicalVerified === false &&
+      clearedGuide.electricalAuthority === false &&
+      clearedGuideAgain.active === false &&
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
+
+    mounted.setAuthoredPairGuide(guidePair);
+    mounted.setLabLayout(null);
+    check("authored-pair-guide-clears-on-layout-null",
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
+    let inactiveGuideRejected = false;
+    try { mounted.setAuthoredPairGuide(guidePair); }
+    catch (error) { inactiveGuideRejected = error instanceof RangeError; }
+    check("authored-pair-guide-rejects-inactive-layout",
+      inactiveGuideRejected &&
+      canvas.dataset.labAuthoredGuideMode === "none");
+    mounted.setLabLayout(layout);
+    mounted.setAuthoredPairGuide(guidePair);
+    mounted.setLesson({ id: 3 });
+    check("authored-pair-guide-clears-on-lesson-change",
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
+    const layout3ForGuide = createLabLayout(3, listTerminals(3));
+    mounted.setLabLayout(layout3ForGuide);
+    const staleLesson2Terminal = terminals.find(item =>
+      !Object.prototype.hasOwnProperty.call(layout3ForGuide.terminalMap, item.id)
+    )?.id || "NOT_A_TERMINAL";
+    const lesson3CanonicalTerminal = layout3ForGuide.terminals.find(item =>
+      item.id !== staleLesson2Terminal
+    )?.id;
+    let staleGuideRejected = false;
+    try {
+      mounted.setAuthoredPairGuide({
+        from: staleLesson2Terminal,
+        to: lesson3CanonicalTerminal || "D2",
+      });
+    } catch (error) {
+      staleGuideRejected = error instanceof RangeError;
+    }
+    check("authored-pair-guide-rejects-stale-terminal-after-lesson-layout-change",
+      staleGuideRejected &&
+      canvas.dataset.labAuthoredGuideMode === "none");
+    mounted.setLesson({ id: 2 });
+    mounted.setLabLayout(layout);
+    mounted.setAuthoredPairGuide(guidePair);
     mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino", onTerminalLink: null });
+    check("authored-pair-guide-edit-entry-clears-view-only-guide",
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
+    let editModeGuideRejected = false;
+    try { mounted.setAuthoredPairGuide(guidePair); }
+    catch (error) { editModeGuideRejected = error instanceof RangeError; }
+    check("authored-pair-guide-rejects-while-edit-mode-active",
+      editModeGuideRejected &&
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labPendingWirePreview === "none");
+
     resetCameraForTerminalProjection(canvas);
     const noHandlerSourcePoint = findTerminalPoint(canvas, layout, "D13", 799);
     const noHandlerTargetPoint = findTerminalPoint(canvas, layout, "R1:A", 800);
@@ -718,6 +906,37 @@ export async function runScene3DContracts() {
       afterWireHighlight.selectedComponentId === beforeWireHighlight.selectedComponentId &&
       afterWireHighlight.focusedComponentId === beforeWireHighlight.focusedComponentId &&
       JSON.stringify(afterWireHighlight.camera) === JSON.stringify(beforeWireHighlight.camera));
+
+    const committedGuideWireCount = canvas.dataset.labWireCount;
+    const committedGuideRevision = canvas.dataset.labWireGeometryRevision;
+    const committedGuide = mounted.setAuthoredPairGuide(guidePair);
+    check("authored-pair-guide-coexists-with-committed-wire-without-authority",
+      committedGuide.active === true &&
+      committedGuide.mode === "view-only" &&
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      canvas.dataset.labWireCount === committedGuideWireCount &&
+      canvas.dataset.labWireGeometryRevision === committedGuideRevision &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 2);
+    const guideModeBeforeWiringRefresh = canvas.dataset.labAuthoredGuideMode;
+    const guideFromBeforeWiringRefresh = canvas.dataset.labAuthoredGuideFrom;
+    const guideToBeforeWiringRefresh = canvas.dataset.labAuthoredGuideTo;
+    mounted.setWiring(sampleCircuit, terminals);
+    check("authored-pair-guide-survives-setWiring-projection-after-guide-mount",
+      guideModeBeforeWiringRefresh === "view-only" &&
+      canvas.dataset.labAuthoredGuideMode === "view-only" &&
+      canvas.dataset.labAuthoredGuideFrom === guideFromBeforeWiringRefresh &&
+      canvas.dataset.labAuthoredGuideTo === guideToBeforeWiringRefresh &&
+      canvas.dataset.labWireCount === String(sampleCircuit.wires.length) &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      canvas.dataset.labPendingWirePreview === "none");
+    mounted.setAuthoredPairGuide(null);
+    check("clearing-authored-pair-guide-preserves-committed-wire-state",
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireCount === committedGuideWireCount &&
+      canvas.dataset.labWireGeometryRevision === committedGuideRevision);
 
     for (const badWireId of ["w1 ", "X".repeat(81), "w999999"]) {
       let rejected = false;
@@ -1054,6 +1273,13 @@ export async function runScene3DContracts() {
       canvas.dataset.labInspectedTerminal === "D2" &&
       canvas.dataset.labInspectionFeedback === "label");
 
+    mounted.setLesson({ id: 2 });
+    mounted.setLabLayout(layout);
+    const guideBeforeDispose = mounted.setAuthoredPairGuide(guidePair);
+    check("dispose-authored-guide-fixture-is-active",
+      guideBeforeDispose.active === true &&
+      canvas.dataset.labAuthoredGuideMode === "view-only");
+
     mounted.dispose();
     mounted = null;
     check("dispose-removes-canvas", !canvas.isConnected && !host.querySelector("canvas"));
@@ -1074,6 +1300,10 @@ export async function runScene3DContracts() {
       canvas.dataset.labWireHighlightFeedback === "none" &&
       canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
       canvas.dataset.labTerminalContrastFeedback === "none");
+    check("dispose-clears-authored-pair-guide-metadata",
+      canvas.dataset.labAuthoredGuideMode === "none" &&
+      canvas.dataset.labAuthoredGuideFrom === "" &&
+      canvas.dataset.labAuthoredGuideTo === "");
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     check("dispose-detaches-context-listeners", queuedFrames.size === 0);
 
@@ -1108,6 +1338,70 @@ export async function runScene3DContracts() {
       remountCanvas.dataset.labTerminalDragSource === "" &&
       remountCanvas.dataset.labTerminalDragTarget === "" &&
       remountCanvas.dataset.labTerminalDragPreview === "none");
+
+    host.remove();
+    host = makeHost();
+    const guideLoss = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const guideLossCanvas = host.querySelector("canvas");
+    guideLoss.setLesson({ id: 2 });
+    guideLoss.setLabLayout(layout);
+    const guideLossResult = guideLoss.setAuthoredPairGuide(guidePair);
+    check("context-loss-authored-guide-fixture-is-active",
+      guideLossResult.active === true &&
+      guideLossCanvas.dataset.labAuthoredGuideMode === "view-only" &&
+      guideLossCanvas.dataset.labAuthoredGuideFrom === "D13" &&
+      guideLossCanvas.dataset.labAuthoredGuideTo === "R1:A");
+    const guideGl = guideLossCanvas.getContext("webgl2");
+    const guideContextExtension = guideGl?.getExtension("WEBGL_lose_context");
+    const guideLostPromise = waitEvent(guideLossCanvas, "webglcontextlost");
+    if (guideContextExtension) guideContextExtension.loseContext();
+    else guideLossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    await guideLostPromise;
+    check("context-loss-clears-authored-guide-public-state",
+      guideLossCanvas.dataset.sceneContext === "lost" &&
+      guideLossCanvas.dataset.labAuthoredGuideMode === "none" &&
+      guideLossCanvas.dataset.labAuthoredGuideFrom === "" &&
+      guideLossCanvas.dataset.labAuthoredGuideTo === "");
+    await waitTask();
+    const guideRestoredPromise = waitEvent(guideLossCanvas, "webglcontextrestored");
+    if (guideContextExtension) guideContextExtension.restoreContext();
+    else guideLossCanvas.dispatchEvent(new Event("webglcontextrestored"));
+    await guideRestoredPromise;
+    check("context-restore-revalidates-and-rebuilds-authored-guide",
+      guideLossCanvas.dataset.sceneContext === "ready" &&
+      guideLossCanvas.dataset.labAuthoredGuideMode === "view-only" &&
+      guideLossCanvas.dataset.labAuthoredGuideFrom === "D13" &&
+      guideLossCanvas.dataset.labAuthoredGuideTo === "R1:A" &&
+      guideLossCanvas.dataset.labWireCount === "0" &&
+      guideLossCanvas.dataset.labPendingWirePreview === "none");
+    flushFrames();
+    await waitTask();
+    const guideLostAgainPromise = waitEvent(guideLossCanvas, "webglcontextlost");
+    if (guideContextExtension) guideContextExtension.loseContext();
+    else guideLossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    await guideLostAgainPromise;
+    const explicitGuideClearWhileLost = guideLoss.setAuthoredPairGuide(null);
+    check("context-loss-explicit-null-clears-authored-guide-restore-candidate",
+      Object.isFrozen(explicitGuideClearWhileLost) &&
+      explicitGuideClearWhileLost.active === false &&
+      explicitGuideClearWhileLost.mode === "none" &&
+      guideLossCanvas.dataset.labAuthoredGuideMode === "none" &&
+      guideLossCanvas.dataset.labAuthoredGuideFrom === "" &&
+      guideLossCanvas.dataset.labAuthoredGuideTo === "");
+    await waitTask();
+    const guideRestoredAfterClearPromise = waitEvent(guideLossCanvas, "webglcontextrestored");
+    if (guideContextExtension) guideContextExtension.restoreContext();
+    else guideLossCanvas.dispatchEvent(new Event("webglcontextrestored"));
+    await guideRestoredAfterClearPromise;
+    check("context-restore-does-not-resurrect-explicitly-cleared-authored-guide",
+      guideLossCanvas.dataset.sceneContext === "ready" &&
+      guideLossCanvas.dataset.labAuthoredGuideMode === "none" &&
+      guideLossCanvas.dataset.labAuthoredGuideFrom === "" &&
+      guideLossCanvas.dataset.labAuthoredGuideTo === "");
+    flushFrames();
+    guideLoss.dispose();
 
     host.remove();
     host = makeHost();
