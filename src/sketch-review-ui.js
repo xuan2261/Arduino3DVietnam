@@ -1,9 +1,10 @@
 /**
  * Presentation-only renderer for inspectSketchDraft().
  *
- * The renderer owns no editor state and exposes no action callbacks. The host app
- * decides when to recompute/replace this section. All dynamic strings are written
- * with textContent; no inspected text is interpreted as markup.
+ * The renderer owns no editor state. The host app decides when to recompute or
+ * replace this section and may opt into a read-only terminal-inspection callback.
+ * All dynamic strings are written with textContent; no inspected text is
+ * interpreted as markup.
  */
 
 const MAX_WARNING_ROWS = 12;
@@ -25,6 +26,7 @@ const PIN_EVIDENCE_APIS = new Set([
 const PIN_LITERAL_KINDS = new Set(["digital-number", "analog-token", "analog-channel-number"]);
 const CANONICAL_PIN_ID = /^(?:D(?:[0-9]|1[0-3])|A[0-5])$/;
 const PIN_UNSAFE_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/;
+const SKETCH_REVIEW_OPTION_FIELDS = new Set(["pinEvidence", "onInspectTerminal"]);
 const FALSE_CLAIMS = [
   "compiled",
   "semanticValidated",
@@ -295,19 +297,31 @@ function requirePinEvidence(pinEvidence, lessonId) {
   }
 }
 
-function optionalPinEvidence(options, lessonId) {
-  if (options === undefined || options === null) return null;
+function normalizeOptions(options, lessonId) {
+  if (options === undefined || options === null) {
+    return Object.freeze({ pinEvidence: null, onInspectTerminal: null });
+  }
   if (typeof options !== "object" || Array.isArray(options)) {
     throw new TypeError("renderSketchReview options phải là object nếu được truyền.");
   }
   const unknown = Reflect.ownKeys(options).filter(key =>
-    typeof key !== "string" || key !== "pinEvidence");
+    typeof key !== "string" || !SKETCH_REVIEW_OPTION_FIELDS.has(key));
   if (unknown.length) {
     throw new TypeError("renderSketchReview options có prop không được hỗ trợ: " + String(unknown[0]));
   }
-  if (!Object.hasOwn(options, "pinEvidence") || options.pinEvidence === null) return null;
-  requirePinEvidence(options.pinEvidence, lessonId);
-  return options.pinEvidence;
+  const onInspectTerminal = Object.hasOwn(options, "onInspectTerminal")
+    ? options.onInspectTerminal
+    : null;
+  if (onInspectTerminal !== undefined && onInspectTerminal !== null &&
+      typeof onInspectTerminal !== "function") {
+    throw new TypeError("onInspectTerminal phải là function khi được cung cấp.");
+  }
+  const pinEvidence = Object.hasOwn(options, "pinEvidence") ? options.pinEvidence : null;
+  if (pinEvidence !== undefined && pinEvidence !== null) requirePinEvidence(pinEvidence, lessonId);
+  return Object.freeze({
+    pinEvidence: pinEvidence ?? null,
+    onInspectTerminal: onInspectTerminal ?? null,
+  });
 }
 
 function make(doc, tag, className = "", text = undefined) {
@@ -437,7 +451,7 @@ function appendLexical(doc, section, inspection) {
   section.append(block);
 }
 
-function appendPinEvidence(doc, section, pinEvidence) {
+function appendPinEvidence(doc, section, pinEvidence, lessonId, onInspectTerminal) {
   const block = make(doc, "section", "sketch-review-lexical sketch-pin-evidence");
   block.setAttribute("data-sketch-pin-evidence", "");
   block.setAttribute("data-sketch-pin-evidence-call-count", String(pinEvidence.summary.callCount));
@@ -491,6 +505,28 @@ function appendPinEvidence(doc, section, pinEvidence) {
       if (call.lessonTerminalId) {
         row.setAttribute("data-sketch-pin-evidence-terminal", call.lessonTerminalId);
       }
+      if (call.status === "lesson-terminal" && typeof onInspectTerminal === "function") {
+        const terminalId = call.lessonTerminalId;
+        const button = make(
+          doc,
+          "button",
+          "sketch-pin-evidence-inspect-button",
+          "Xem " + terminalId + " trong Inspector",
+        );
+        button.type = "button";
+        button.style.minWidth = "44px";
+        button.style.minHeight = "44px";
+        button.setAttribute("data-sketch-pin-inspect-terminal", terminalId);
+        button.setAttribute("data-sketch-pin-inspect-lesson", String(lessonId));
+        button.setAttribute("data-sketch-pin-inspect-call", String(call.sequence));
+        button.setAttribute(
+          "aria-label",
+          "Xem terminal " + terminalId + " của bài " + lessonId +
+            " trong Inspector; chỉ điều hướng đọc, không tạo dây hoặc chạy mã",
+        );
+        button.addEventListener("click", () => onInspectTerminal(terminalId, lessonId));
+        row.append(button);
+      }
       list.append(row);
     }
     block.append(list);
@@ -511,8 +547,9 @@ function appendPinEvidence(doc, section, pinEvidence) {
     "sketch-review-boundary sketch-pin-evidence-boundary",
     "Đây chỉ là bằng chứng lexical tĩnh từ source editor sau khi bỏ qua comment/string. " +
       "Terminal chỉ được gắn khi ID đó có trong circuit-router của đúng bài. " +
+      "Nút xem terminal, nếu host bật, chỉ gọi hook điều hướng Inspector đọc. " +
       "Kết quả không biên dịch Arduino C++, không chạy firmware, không chứng minh lời gọi đã thực thi, " +
-      "không xác nhận chân đã được nối dây hoặc kết nối điện đúng và không đánh giá hoàn thành bài.",
+      "không tự tạo dây, không xác nhận chân đã được nối dây hoặc kết nối điện đúng và không đánh giá hoàn thành bài.",
   );
   boundary.setAttribute("data-sketch-pin-evidence-boundary", "");
   boundary.setAttribute("role", "note");
@@ -527,7 +564,8 @@ function appendPinEvidence(doc, section, pinEvidence) {
 export function renderSketchReview(doc, inspection, options = undefined) {
   requireDocument(doc);
   requireInspection(inspection);
-  const pinEvidence = optionalPinEvidence(options, inspection.lessonId);
+  const normalizedOptions = normalizeOptions(options, inspection.lessonId);
+  const pinEvidence = normalizedOptions.pinEvidence;
 
   const changes = inspection.changes;
   const structure = inspection.structure;
@@ -589,7 +627,15 @@ export function renderSketchReview(doc, inspection, options = undefined) {
   section.append(structureNode);
 
   appendLexical(doc, section, inspection);
-  if (pinEvidence) appendPinEvidence(doc, section, pinEvidence);
+  if (pinEvidence) {
+    appendPinEvidence(
+      doc,
+      section,
+      pinEvidence,
+      inspection.lessonId,
+      normalizedOptions.onInspectTerminal,
+    );
+  }
   appendGuidance(doc, section, inspection);
   appendWarnings(doc, section, inspection);
 

@@ -76,7 +76,17 @@ const ASSETS = [
   "./docs/SKETCH_PIN_EVIDENCE_NEXT.md",
   "./docs/UNO_MOUNTING_EVIDENCE_NEXT.md",
   "./docs/POST_V16_SCENE_COMPONENT_FIDELITY.md",
-  "./docs/AVR_TIMER2_FIDELITY_NEXT.md"
+  "./docs/AVR_TIMER2_FIDELITY_NEXT.md",
+  "./src/practice-checkpoint-trail.js",
+  "./src/practice-checkpoint-trail-ui.js",
+  "./docs/POST_V16_TERMINAL_DRAG.md",
+  "./docs/LAB_EDITOR_PRECISION_WIRES_NEXT.md",
+  "./docs/PRACTICE_48_STEP_TRAIL_NEXT.md",
+  "./docs/SKETCH_TO_INSPECTOR_NEXT.md",
+  "./docs/AVR_TIMER2_CTC_STUDY_NEXT.md",
+  "./docs/POST_V16_RICH_INTERACTION_QA.md",
+  "./assets/vendor/avr/avr8js-0.21.1-source/timer.ts",
+  "./assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

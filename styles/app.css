@@ -369,6 +369,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .sketch-review-subheading { margin:0 0 4px; font-size:11.5px; color:#315b4e; }
 .sketch-review-list { margin:4px 0 7px; padding-left:19px; font-size:11.5px; line-height:1.55; }
 .sketch-review-list li { padding:3px 0; }
+.sketch-pin-evidence-inspect-button { display:block; max-width:100%; min-width:44px; min-height:44px; margin:7px 0 3px; padding:9px 12px; border:1px solid #a7c5b9; border-radius:7px; background:#fff; color:#185448; font:inherit; font-size:11.5px; font-weight:760; text-align:left; white-space:normal; overflow-wrap:anywhere; cursor:pointer; }
+.sketch-pin-evidence-inspect-button:hover { background:#e2f2e9; }
+.sketch-pin-evidence-inspect-button:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
 .sketch-review-boundary { padding:8px 10px; background:#eef3f0; border-left:3px solid #9aa7a0; }
 @media (max-width:580px) { .sketch-review-mount { margin:0 13px 13px; } .sketch-review { padding:11px; } }
 .update-notice { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:13px 16px; border:1px solid #e6c495; border-radius:10px; background:#fff5e5; color:#765425; font-size:12px; line-height:1.6; margin-bottom:17px; }

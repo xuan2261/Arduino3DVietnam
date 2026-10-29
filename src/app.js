@@ -18,6 +18,8 @@ import { mountResistiveStudy } from "./resistive-study-ui.js";
 import { inspectPracticeEvidence } from "./practice-evidence.js";
 import { renderPracticeEvidence } from "./practice-evidence-ui.js";
 import { getPracticeCheckpoint } from "./practice-checkpoints.js";
+import { buildPracticeCheckpointTrail } from "./practice-checkpoint-trail.js";
+import { renderPracticeCheckpointTrail } from "./practice-checkpoint-trail-ui.js";
 import { listUnoPinReferences, UNO_REFERENCE_CLAIMS } from "./uno-reference.js";
 import { getUnoMechanicalOutline } from "./uno-mechanical-reference.js";
 import { getUnoMountingEvidence } from "./uno-mounting-evidence.js";
@@ -733,6 +735,26 @@ function renderInfo() {
           lesson,stepIndex:current,journal:state.practiceObservations,
         }))
       );
+      const trail=buildPracticeCheckpointTrail({
+        lesson,
+        currentStepIndex:current,
+        circuit:analysis?learnerCircuit(lesson.id):null,
+      });
+      wrapper.append(renderPracticeCheckpointTrail(document,trail,{
+        onNavigateStep(stepIndex){
+          // Only an explicit navigation intent may update the current
+          // instructional step. Do not award mastery/completion or add wires.
+          if(lesson.id!==state.lessonId || state.infoTab!=="practice" ||
+             !Number.isInteger(stepIndex) || stepIndex<0 ||
+             stepIndex>=microsteps.length)return false;
+          state.learningSteps.set(lesson.id,stepIndex);
+          renderInfo();
+          $("learningCoach")?.querySelector(
+            `[data-practice-trail-navigate-step="${stepIndex}"]`
+          )?.focus({preventScroll:true});
+          return true;
+        },
+      }));
       const actions=el("div","coach-actions");
       const previous=el("button","","← Bước trước");
       previous.id="coachPrevious";previous.type="button";previous.dataset.coachAction="previous";
@@ -899,8 +921,21 @@ function updateSketchReview(){
     });
     // Lexical pin evidence uses the CURRENT learner draft, not the reference
     // Sketch, a compiler, firmware, or any imagined electrical connection.
-    const pinEvidence=inspectSketchPinEvidence({lessonId:state.lessonId,source:state.code});
-    host.replaceChildren(renderSketchReview(document,inspection,{pinEvidence}));
+    const renderedLessonId=state.lessonId;
+    const renderedDraft=state.code;
+    const pinEvidence=inspectSketchPinEvidence({lessonId:renderedLessonId,source:renderedDraft});
+    host.replaceChildren(renderSketchReview(document,inspection,{
+      pinEvidence,
+      onInspectTerminal(terminalId,lessonId){
+        // A source token is an inspect intent, never a wiring command. Reject a
+        // stale lesson/draft (or an injected ID) before changing the view.
+        if(lessonId!==renderedLessonId || lessonId!==state.lessonId ||
+           renderedDraft!==state.code ||
+           !pinEvidence.calls.some(call=>call.status==="lesson-terminal" &&
+             call.lessonTerminalId===terminalId))return false;
+        return inspectTerminalReadOnly(terminalId);
+      },
+    }));
   } catch {
     host.replaceChildren(el("p","sketch-review-boundary",
       "Không thể đối chiếu bản nháp này; ứng dụng không biên dịch hoặc xác nhận mã Arduino C++."));

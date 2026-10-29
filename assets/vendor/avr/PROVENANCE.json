@@ -31,6 +31,18 @@
       "sha256": "3021a736c32b92e1ba06b3d160bfce7959780ff0aa16675ec3e7f069890e7b99"
     },
     {
+      "path": "assets/vendor/avr/avr8js-0.21.1-source/timer.ts",
+      "upstream_path": "src/peripherals/timer.ts",
+      "git_blob_sha1": "0c18071f3b7c1c49178011d64f8b940c5f60de95",
+      "sha256": "9d43d54a461a3d9ce469ce91e6cd828ecab0f92148a0ba58bc4263787b61aaa4"
+    },
+    {
+      "path": "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts",
+      "upstream_path": "src/peripherals/timer.spec.ts",
+      "git_blob_sha1": "6af821578db4402564776bc19e3fa77afa4983f1",
+      "sha256": "baf1c0e8029224bf41690773c8eac102ff2f03c8b2f23573ec9bdeffe4144c36"
+    },
+    {
       "path": "assets/vendor/avr/AVR8JS-LICENSE.txt",
       "upstream_path": "LICENSE",
       "git_blob_sha1": "267bdc64e83f89a63e84c213de23a135a3a4244c",

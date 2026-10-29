@@ -14,6 +14,10 @@
 *.min.js text eol=lf
 assets/vendor/THREE-LICENSE.txt text eol=lf
 assets/vendor/avr/avr8js-0.21.1-source/*.ts text eol=lf
+# Exact upstream MIT-licensed timer.spec.ts includes trailing spaces in
+# assembly fixtures. Keep its byte-for-byte Git blob/SHA-256 identity; exempt
+# only that pinned reference file from trailing-space diff warnings.
+assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts whitespace=-trailing-space
 assets/vendor/avr/AVR8JS-LICENSE.txt text eol=lf
 assets/vendor/avr/PROVENANCE.json text eol=lf
 assets/firmware/manifest.json text eol=lf

@@ -47,10 +47,12 @@ export function runAvrTimer2Contracts() {
     assert(R.TCCR2A === 0xb0 && R.TCCR2B === 0xb1 && R.TCNT2 === 0xb2, "Timer2 core register map");
     assert(R.OCR2A === 0xb3 && R.OCR2B === 0xb4 && R.ASSR === 0xb6, "Timer2 compare/ASSR map");
     assert(AVR_TIMER2_CAPABILITIES.counterBits === 8 && AVR_TIMER2_CAPABILITIES.normalMode, "Normal-mode boundary");
+    assert(AVR_TIMER2_CAPABILITIES.ctc === true && AVR_TIMER2_CAPABILITIES.ctcOcr2aTop === true, "bounded CTC OCR2A TOP capability");
+    assert(AVR_TIMER2_CAPABILITIES.ctcRunningTopUpdate === false, "running CTC TOP updates must stay unsupported");
     assert(AVR_TIMER2_CAPABILITIES.compareMatch === true, "Normal-mode compare match must be supported");
     assert(AVR_TIMER2_CAPABILITIES.compareInterrupts === true, "Normal-mode compare interrupts must be supported");
     for (const key of [
-      "ctc", "pwm", "outputComparePins", "asynchronousClock",
+      "pwm", "outputComparePins", "asynchronousClock",
       "externalClock", "millisParity", "delayParity", "toneParity", "wallClock",
     ]) {
       assert(AVR_TIMER2_CAPABILITIES[key] === false, `${key} must stay unsupported`);
@@ -196,6 +198,139 @@ export function runAvrTimer2Contracts() {
     assert(cpu.pc === 0x12, "Timer2 overflow vector must be 0x12");
     assert((cpu.data[R.TIFR2] & B.TOV2) === 0, "serviced Timer2 overflow clears TOV2");
     assert(cpu.interruptsEnabled === false, "interrupt entry clears global I bit");
+  });
+
+  check("ctc-ocr2a-top-count-and-compare-flags", () => {
+    const cpu = cpuFixture();
+    const timer = createAvrTimer2(cpu);
+    cpu.writeData(R.OCR2A, 0x11);
+    cpu.writeData(R.OCR2B, 0x0f);
+    cpu.writeData(R.TCNT2, 0x0e);
+    cpu.writeData(R.TCCR2A, 0x02); // WGM2 CTC while stopped
+    cpu.writeData(R.TCCR2B, 0x01); // /1
+    advance(cpu, 1); // latch divider
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0x0f && (cpu.data[R.TIFR2] & B.OCF2B), "CTC must set OCF2B before TOP");
+    cpu.writeData(R.TIFR2, B.OCF2B);
+    advance(cpu, 2, false);
+    let state = timer.snapshot();
+    assert(state.tcnt2 === 0x11 && state.ocf2a, "CTC must reach OCR2A TOP and set OCF2A");
+    assert(!state.tov2, "CTC TOP below 0xff must not set TOV2 at TOP");
+    assert(state.mode === "ctc-ocr2a-top" && state.top === 0x11, "CTC snapshot mode/TOP metadata");
+    assert(state.counterPeriodMicroseconds === 1.125 && state.overflowPeriodMicroseconds === null,
+      "CTC TOP=0x11 at /1 must report 1.125us counter period and no TOV2 period");
+    cpu.writeData(R.TIFR2, B.OCF2A);
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0x00, "CTC tick after OCR2A TOP must clear counter to zero");
+
+    cpu.writeData(R.TCCR2B, 0);
+    advance(cpu, 1); // apply stop before changing TOP
+    cpu.writeData(R.OCR2A, 0x03);
+    cpu.writeData(R.OCR2B, 0x01);
+    cpu.writeData(R.TCNT2, 0x00);
+    cpu.writeData(R.TCCR2B, 0x01);
+    advance(cpu, 1);
+    advance(cpu, 10, false); // more than two complete 4-tick CTC periods
+    state = timer.snapshot();
+    assert(state.tcnt2 === 0x02, "CTC multi-period catch-up must use OCR2A+1 period");
+    assert(state.ocf2a && state.ocf2b, "CTC multi-period catch-up must retain compare A/B flags");
+    assert(!state.tov2, "CTC multi-period catch-up below MAX must keep TOV2 clear");
+
+    for (const [cs, divider] of [[1,1],[2,8],[3,32],[4,64],[5,128],[6,256],[7,1024]]) {
+      const prescaledCpu = cpuFixture();
+      const prescaledTimer = createAvrTimer2(prescaledCpu);
+      prescaledCpu.writeData(R.OCR2A, 0x03);
+      prescaledCpu.writeData(R.OCR2B, 0x01);
+      prescaledCpu.writeData(R.TCCR2A, 0x02);
+      prescaledCpu.writeData(R.TCCR2B, cs);
+      advance(prescaledCpu, 1);
+      advance(prescaledCpu, divider - 1);
+      assert(prescaledTimer.snapshot().tcnt2 === 0, `CTC CS=${cs} counted before /${divider} boundary`);
+      advance(prescaledCpu, 1);
+      assert(prescaledTimer.snapshot().tcnt2 === 1, `CTC CS=${cs} must count at /${divider}`);
+      prescaledTimer.dispose();
+    }
+  });
+
+  check("ctc-compare-a-b-interrupt-vectors", () => {
+    for (const [mask, top, compareB, start, vector, flagMask] of [
+      [B.OCIE2A, 0x21, 0x10, 0x20, 0x0e, B.OCF2A],
+      [B.OCIE2B, 0x30, 0x21, 0x20, 0x10, B.OCF2B],
+    ]) {
+      const cpu = cpuFixture();
+      createAvrTimer2(cpu);
+      cpu.writeData(R.OCR2A, top);
+      cpu.writeData(R.OCR2B, compareB);
+      cpu.writeData(R.TCNT2, start);
+      cpu.writeData(R.TCCR2A, 0x02);
+      cpu.writeData(R.TIMSK2, mask);
+      cpu.writeData(R.TCCR2B, 0x01);
+      cpu.data[95] = 0x80;
+      advance(cpu, 1);
+      advance(cpu, 1);
+      assert(cpu.pc === vector, `CTC compare interrupt must vector to 0x${vector.toString(16)}`);
+      assert((cpu.data[R.TIFR2] & flagMask) === 0, "serviced CTC compare interrupt must clear its flag");
+      assert(cpu.interruptsEnabled === false, "CTC compare interrupt entry clears global I bit");
+    }
+  });
+
+  check("ctc-tov2-only-when-ocr2a-top-is-max", () => {
+    const cpu = cpuFixture();
+    const timer = createAvrTimer2(cpu);
+    cpu.writeData(R.OCR2A, 0x1f);
+    cpu.writeData(R.TCNT2, 0x1e);
+    cpu.writeData(R.TCCR2A, 0x02);
+    cpu.writeData(R.TCCR2B, 0x01);
+    advance(cpu, 1);
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0x1f && !(cpu.data[R.TIFR2] & B.TOV2), "CTC reaches TOP below MAX without TOV2");
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0x00 && !(cpu.data[R.TIFR2] & B.TOV2), "CTC clears below-MAX TOP without TOV2");
+
+    timer.reset();
+    cpu.writeData(R.OCR2A, 0xff);
+    cpu.writeData(R.TCNT2, 0xfe);
+    cpu.writeData(R.TCCR2A, 0x02);
+    cpu.writeData(R.TCCR2B, 0x01);
+    advance(cpu, 1);
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0xff && !(cpu.data[R.TIFR2] & B.TOV2), "CTC MAX TOP must not set TOV2 before wrap");
+    advance(cpu, 1);
+    assert(timer.snapshot().tcnt2 === 0x00 && (cpu.data[R.TIFR2] & B.TOV2), "CTC MAX TOP wrap must set TOV2");
+  });
+
+  check("ctc-strict-start-and-running-top-boundaries", () => {
+    const cpu = cpuFixture();
+    const timer = createAvrTimer2(cpu);
+    cpu.writeData(R.TCCR2A, 0x02);
+    expectThrow(() => cpu.writeData(R.TCCR2B, 0x01), /OCR2A=0/, "zero-TOP CTC start");
+    assert(cpu.data[R.TCCR2B] === 0, "rejected zero-TOP CTC start must remain stopped");
+
+    cpu.writeData(R.OCR2A, 0x10);
+    cpu.writeData(R.TCNT2, 0x11);
+    expectThrow(() => cpu.writeData(R.TCCR2B, 0x01), /TCNT2 <= OCR2A/, "CTC start above TOP");
+    assert(cpu.data[R.TCCR2B] === 0, "rejected counter-above-TOP start must remain stopped");
+
+    cpu.writeData(R.TCNT2, 0x00);
+    cpu.writeData(R.OCR2B, 0x20);
+    expectThrow(() => cpu.writeData(R.TCCR2B, 0x01), /OCR2B <= OCR2A/, "CTC start with compare B above TOP");
+    assert(cpu.data[R.TCCR2B] === 0, "rejected OCR2B-above-TOP start must remain stopped");
+    cpu.writeData(R.OCR2B, 0x08);
+    cpu.writeData(R.TCCR2B, 0x01);
+    advance(cpu, 1);
+    expectThrow(() => cpu.writeData(R.OCR2A, 0x09), /dừng clock/, "running CTC TOP update");
+    expectThrow(() => cpu.writeData(R.OCR2B, 0x20), /OCR2B <= OCR2A/, "running CTC compare B above TOP");
+    expectThrow(() => cpu.writeData(R.TCCR2A, 0x00), /WGM=2->WGM=0/, "running CTC to Normal transition");
+    expectThrow(() => cpu.writeData(R.TCNT2, 0x11), /TCNT2 <= OCR2A/, "running CTC counter write above TOP");
+    const state = timer.snapshot();
+    assert(state.ocr2a === 0x10 && state.mode === "ctc-ocr2a-top" && state.top === 0x10,
+      "rejected running CTC writes must preserve bounded TOP/mode");
+
+    cpu.writeData(R.TCCR2B, 0);
+    advance(cpu, 1);
+    cpu.writeData(R.TCCR2A, 0x03); // WGM3 Fast PWM staged while stopped
+    expectThrow(() => cpu.writeData(R.TCCR2B, 0x01), /WGM=3/, "Fast PWM WGM3 remains unsupported");
+    assert(cpu.data[R.TCCR2B] === 0, "rejected WGM3 start must remain stopped");
   });
 
   check("stopped-unsupported-wgm-can-stage-but-not-run", () => {

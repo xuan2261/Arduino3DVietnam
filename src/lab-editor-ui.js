@@ -49,6 +49,22 @@ export function mountLabEditor({
   // every status or wiring update when the immutable layout has not changed.
   let renderedScene = null, renderedLayout = null;
 
+  const wireFieldset = fromSelect.closest("fieldset") || panel;
+  const precisionWireList = create("div");
+  precisionWireList.className = "lab-precision-wire-list";
+  precisionWireList.dataset.labPrecisionWireList = "";
+  precisionWireList.setAttribute("role", "group");
+  precisionWireList.setAttribute("aria-label", "Dây learner graph hiện tại và thao tác gỡ chính xác");
+  precisionWireList.setAttribute("tabindex", "-1");
+  const precisionWireHeading = create("h4", "Dây learner graph hiện tại");
+  const precisionWireProvenance = create("p", "Nguồn: learner graph only · chỉ phản ánh netlist học viên trong ứng dụng.");
+  precisionWireProvenance.dataset.labWireProvenance = "learner graph only";
+  const precisionWireRows = create("ul");
+  precisionWireRows.className = "lab-precision-wire-rows";
+  precisionWireRows.dataset.labPrecisionWireRows = "";
+  precisionWireList.append(precisionWireHeading, precisionWireProvenance, precisionWireRows);
+  wireFieldset.append(precisionWireList);
+
   const lessonSupported = () => supported.has(lessonId);
   // Pending two-terminal wiring intent belongs to this controller only.
   // The Three.js overlay mirrors it for feedback; it cannot create a wire.
@@ -94,23 +110,24 @@ export function mountLabEditor({
 
   const selectComponent = (id, explanation = "") => {
     const layout = layoutFor();
-    if (!layout) return;
+    if (!layout) return false;
     if (id === null || id === "") {
       selectedId = null;
       explicitlyDeselected = true;
       announce(explanation || "Đã bỏ chọn linh kiện trên 3D; không có đối tượng nào được di chuyển.");
       render();
       onSelectionChange(null, lessonId);
-      return;
+      return true;
     }
     const component = layout.components.find(item => item.id === id);
-    if (!component) return;
+    if (!component) return false;
     selectedId = id;
     explicitlyDeselected = false;
     if (component.fixed) announce("Đã chọn Arduino Uno cố định; không thể di chuyển hoặc xoay bo.");
     else if (explanation) announce(explanation);
     render();
     onSelectionChange(selectedId, lessonId);
+    return true;
   };
   const moveComponent = (id, x, z) => {
     const layout = layoutFor();
@@ -138,10 +155,10 @@ export function mountLabEditor({
   };
   const rotateComponent = turns => {
     const layout = layoutFor();
-    if (!editing || !layout || !selectedId) return;
+    if (!editing || !layout || !selectedId) return false;
     if (layout.components.find(item=>item.id===selectedId)?.fixed) {
       announce("Arduino Uno là bo cố định; không thể xoay.", "warning");
-      return;
+      return false;
     }
     try {
       const next = rotateLabComponent(layout, selectedId, turns);
@@ -151,8 +168,10 @@ export function mountLabEditor({
       announce("Đã xoay " + selectedId + " theo ô 90° của mô hình khái niệm.");
       render();
       onLayoutChange(next,lessonId);
+      return true;
     } catch(error) {
       announce("Không thể xoay: " + (error?.message || "không hỗ trợ"),"error");
+      return false;
     }
   };
   const applyCircuit = (next, detail) => {
@@ -169,51 +188,136 @@ export function mountLabEditor({
     announce(detail + " " + summary, analysis.ok ? "" : "warning");
     render();
   };
+  const terminalLinkResult = ({
+    accepted = false, committed = false, reason = "rejected",
+    fromId = null, toId = null, wireId = null,
+  } = {}) => Object.freeze({
+    accepted:Boolean(accepted), committed:Boolean(committed), reason:String(reason),
+    lessonId, fromId, toId, wireId,
+    learnerGraphOnly:true, physicalVerified:false,
+  });
+  const currentLearnerCircuit = ({ requireExisting = false } = {}) => {
+    if (!lessonSupported()) return null;
+    const current = getCircuit(lessonId);
+    if (current == null) return requireExisting ? null : createCircuit(lessonId);
+    if (!current || typeof current !== "object" || current.lessonId !== lessonId || !Array.isArray(current.wires)) {
+      throw new RangeError("Learner graph không thuộc bài học canonical đang mở.");
+    }
+    analyzeCircuit(lessonId,current);
+    return current;
+  };
   const connectTerminals = (from,to) => {
-    if (!editing || !lessonSupported()) return;
-    if (!from || !to || from === to) { announce("Cần chọn hai chân khác nhau trong đúng bài học.","error"); return; }
+    if (!editing || stage!=="3d" || !scene || !lessonSupported()) {
+      return terminalLinkResult({reason:"editor-not-active",fromId:from??null,toId:to??null});
+    }
+    const names = new Set(listTerminals(lessonId).map(item=>item.id));
+    if (typeof from!=="string" || typeof to!=="string" || !names.has(from) || !names.has(to) || from === to) {
+      announce("Cần chọn hai chân canonical khác nhau trong đúng bài học.","error");
+      return terminalLinkResult({reason:from===to?"same-terminal":"invalid-terminal",fromId:from??null,toId:to??null});
+    }
     try {
-      const base = getCircuit(lessonId) ?? createCircuit(lessonId);
+      const base = currentLearnerCircuit() ?? createCircuit(lessonId);
       const next = connectCircuit(base,from,to);
+      const newWire = next.wires.find(wire=>!base.wires.some(previous=>previous.id===wire.id)) ?? next.wires.at(-1) ?? null;
       firstTerminal = null;
       syncPendingScenePreview();
       applyCircuit(next, "Đã nối " + from + " → " + to + " trên netlist.");
+      return terminalLinkResult({
+        accepted:true,committed:true,reason:"connected",fromId:from,toId:to,wireId:newWire?.id??null,
+      });
     } catch (error) {
       announce("Không thể nối: " + (error?.message || "đường nối không hợp lệ"),"error");
+      return terminalLinkResult({reason:"router-rejected",fromId:from,toId:to});
     }
   };
   const onTerminalSelect = terminalId => {
-    if (!editing) return;
+    if (!editing || stage!=="3d" || !scene || !lessonSupported()) return false;
     const names = new Set(listTerminals(lessonId).map(item=>item.id));
-    if (!names.has(terminalId)) { announce("Chân không thuộc bài học này.","error"); return; }
+    if (!names.has(terminalId)) { announce("Chân không thuộc bài học này.","error"); return false; }
     if (firstTerminal === null) {
       firstTerminal = terminalId;
       fromSelect.value = terminalId;
       terminalNote.textContent = "Đã chọn " + terminalId + ". Chọn chân thứ hai trên 3D để nối cùng netlist 2D.";
       announce("Chờ chân thứ hai; chưa thay đổi mạch.");
       syncPendingScenePreview();
+      return true;
     } else if (firstTerminal === terminalId) {
       firstTerminal = null;
       terminalNote.textContent = "Đã hủy chọn chân; không có dây mới.";
       announce("Hủy chọn chân.");
       syncPendingScenePreview();
+      return true;
     } else {
       const from=firstTerminal;
       toSelect.value = terminalId;
       terminalNote.textContent = "Nối " + from + " → " + terminalId + "; kết quả kiểm tra ở trạng thái bên dưới.";
-      connectTerminals(from,terminalId);
+      return connectTerminals(from,terminalId).committed;
     }
+  };
+  const validPointerDragMeta = meta => !!meta && typeof meta === "object" &&
+    Object.getPrototypeOf(meta) === Object.prototype && Object.isFrozen(meta) &&
+    Object.hasOwn(meta,"source") && Object.hasOwn(meta,"physicalVerified") &&
+    meta.source === "pointer-drag" && meta.physicalVerified === false &&
+    Object.keys(meta).length === 2 && Object.getOwnPropertySymbols(meta).length === 0;
+  const onTerminalDragStart = (sourceId,meta,callbackLessonId) => {
+    if(callbackLessonId!==lessonId)return false;
+    if(!editing||stage!=="3d"||!scene||!lessonSupported())return false;
+    if(!validPointerDragMeta(meta))return false;
+    const names=new Set(listTerminals(lessonId).map(item=>item.id));
+    if(typeof sourceId!=="string"||!names.has(sourceId))return false;
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      terminalNote.textContent="Đã hủy chân đầu tiên đang chờ khi bắt đầu kéo dây 3D; chưa tạo dây mới.";
+      announce("Đã chuyển sang thao tác kéo dây 3D; netlist học viên chưa thay đổi.");
+      syncPendingScenePreview();
+    }
+    return true;
+  };
+  const onTerminalLink = (fromId,toId,meta,callbackLessonId) => {
+    if(callbackLessonId!==lessonId){
+      return terminalLinkResult({reason:"stale-lesson",fromId:fromId??null,toId:toId??null});
+    }
+    if(!editing||stage!=="3d"||!scene||!lessonSupported()){
+      return terminalLinkResult({reason:"editor-not-active",fromId:fromId??null,toId:toId??null});
+    }
+    if(!meta||typeof meta!=="object"||meta.source!=="pointer-drag"||meta.physicalVerified!==false||meta.canceled===true){
+      return terminalLinkResult({reason:meta?.canceled===true?"canceled":"invalid-meta",fromId:fromId??null,toId:toId??null});
+    }
+    const names=new Set(listTerminals(lessonId).map(item=>item.id));
+    if(typeof fromId!=="string"||typeof toId!=="string"||fromId===toId||!names.has(fromId)||!names.has(toId)){
+      return terminalLinkResult({reason:fromId===toId?"same-terminal":"invalid-terminal",fromId:fromId??null,toId:toId??null});
+    }
+    try{
+      const current=currentLearnerCircuit();
+      if(!current||current.lessonId!==lessonId){
+        return terminalLinkResult({reason:"foreign-learner-graph",fromId:fromId,toId:toId});
+      }
+    }catch{
+      return terminalLinkResult({reason:"foreign-learner-graph",fromId:fromId,toId:toId});
+    }
+    // Only a fully validated current drag completion may revoke an older
+    // two-tap pending terminal. Forged/stale/foreign callbacks above are UI
+    // side-effect free as well as graph side-effect free.
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      terminalNote.textContent="Đã hủy chân đầu tiên đang chờ trước thao tác kéo nối 3D.";
+      syncPendingScenePreview();
+    }
+    return connectTerminals(fromId,toId);
   };
   const sceneCallbacks = {
     enabled:false,
-    onSelectComponent: componentId => selectComponent(componentId, componentId === null
-      ? "Đã bỏ chọn linh kiện từ 3D."
-      : "Đã chọn linh kiện " + componentId + " từ 3D."),
+    onSelectComponent: componentId => {
+      if(!editing||stage!=="3d"||!scene||!lessonSupported())return false;
+      return selectComponent(componentId, componentId === null
+        ? "Đã bỏ chọn linh kiện từ 3D."
+        : "Đã chọn linh kiện " + componentId + " từ 3D.");
+    },
     onMoveComponent: (componentId,x,z,meta) => {
+      if(!editing||stage!=="3d"||!scene||!lessonSupported())return false;
       if (meta?.kind === "rotate") {
-        selectComponent(componentId);
-        rotateComponent(meta.deltaQuarterTurns);
-        return true;
+        if(!selectComponent(componentId))return false;
+        return rotateComponent(meta.deltaQuarterTurns);
       }
       return moveComponent(componentId,x,z);
     },
@@ -278,8 +382,9 @@ export function mountLabEditor({
     const terminals=listTerminals(lessonId).map(item=>({value:item.id,label:item.label+" ("+item.id+")"}));
     fillSelect(fromSelect,terminals,firstTerminal ?? fromSelect.value ?? terminals[0]?.value);
     fillSelect(toSelect,terminals,toSelect.value ?? terminals[1]?.value);
-    const circuit=getCircuit(lessonId) ?? createCircuit(lessonId);
+    const circuit=currentLearnerCircuit() ?? createCircuit(lessonId);
     const analysis=analyzeCircuit(lessonId,circuit);
+    renderPrecisionWireList(circuit);
     message.dataset.valid=String(analysis.ok && analysis.functional);
     if (!lastMessage) {
       const issue=analysis.issues?.find(item=>item.severity==="error") || analysis.issues?.[0];
@@ -294,8 +399,11 @@ export function mountLabEditor({
       renderedScene = scene;
       renderedLayout = desiredLayout;
     }
+    const callbackLessonId=lessonId;
     scene?.setLabEdit?.({
       ...sceneCallbacks,
+      onTerminalDragStart:(sourceId,meta)=>onTerminalDragStart(sourceId,meta,callbackLessonId),
+      onTerminalLink:(fromId,toId,meta)=>onTerminalLink(fromId,toId,meta,callbackLessonId),
       enabled:editing && sceneVisible,
       selectedComponentId:editing && sceneVisible ? selectedId : null,
     });
@@ -337,11 +445,80 @@ export function mountLabEditor({
   const onSample=()=>{ if(editing) applyCircuit(createSampleCircuit(lessonId),"Đã dùng mẫu của bài."); };
   const onClear=()=>{ if(editing) applyCircuit(createCircuit(lessonId),"Đã xóa các dây trong bản tự đấu."); };
   const onRemove=()=>{
-    const circuit=getCircuit(lessonId);
+    let circuit=null;
+    try{circuit=currentLearnerCircuit({requireExisting:true});}
+    catch(error){announce("Không thể đọc learner graph: "+(error?.message||"không hợp lệ"),"error");return false;}
     const last=circuit?.wires?.at(-1);
-    if (!editing || !last) { announce("Chưa có dây để gỡ.");return; }
-    try {applyCircuit(disconnectCircuit(circuit,last.id),"Đã gỡ dây cuối " + last.from + " → " + last.to + ".");}
-    catch(error){announce("Không thể gỡ: " + (error?.message||"không rõ"),"error");}
+    if(!last){announce("Chưa có dây learner graph để gỡ.");return false;}
+    return removeWireById(last.id,lessonId);
+  };
+  const removeWireById=(wireId,expectedLessonId=lessonId)=>{
+    if(!editing||stage!=="3d"||!scene||!lessonSupported()){
+      announce("Chỉ gỡ dây khi bàn chỉnh 3D của bài hiện tại đang mở.","error");
+      return false;
+    }
+    if(expectedLessonId!==lessonId){
+      announce("Yêu cầu gỡ dây đã cũ vì bài học đã thay đổi.","error");
+      return false;
+    }
+    if(typeof wireId!=="string"||!/^w\d+$/.test(wireId)){
+      announce("ID dây không phải ID canonical của circuit-router.","error");
+      return false;
+    }
+    try{
+      const circuit=currentLearnerCircuit({requireExisting:true});
+      if(!circuit){announce("Learner graph hiện tại chưa có dây để gỡ.","warning");return false;}
+      const wire=circuit.wires.find(item=>item.id===wireId);
+      if(!wire){announce("Dây cần gỡ không còn trong learner graph hiện tại.","error");return false;}
+      const next=disconnectCircuit(circuit,wire.id);
+      applyCircuit(next,"Đã gỡ dây "+wire.id+" · "+wire.from+" → "+wire.to+" khỏi learner graph.");
+      return true;
+    }catch(error){
+      announce("Không thể gỡ dây: "+(error?.message||"learner graph không hợp lệ"),"error");
+      return false;
+    }
+  };
+  const renderPrecisionWireList=(circuit)=>{
+    precisionWireRows.replaceChildren();
+    if(!circuit?.wires?.length){
+      const empty=create("li","Learner graph hiện tại chưa có dây.");
+      empty.dataset.labPrecisionWireEmpty="";
+      precisionWireRows.append(empty);
+      return;
+    }
+    for(const wire of circuit.wires){
+      const row=create("li");
+      row.className="lab-precision-wire-row";
+      row.dataset.labWireRow=wire.id;
+      const endpoints=create("span",wire.id+" · "+wire.from+" → "+wire.to+" · learner graph only");
+      endpoints.dataset.labWireEndpoints=wire.id;
+      const remove=create("button","Gỡ dây");
+      remove.type="button";
+      remove.className="lab-precision-wire-remove";
+      remove.dataset.labRemoveWireId=wire.id;
+      remove.dataset.labWireLesson=String(lessonId);
+      remove.style.minHeight="44px";
+      remove.style.minWidth="44px";
+      remove.disabled=!editing||stage!=="3d";
+      remove.setAttribute("aria-label","Gỡ dây "+wire.id+" từ "+wire.from+" đến "+wire.to+" khỏi learner graph trong ứng dụng");
+      row.append(endpoints,remove);
+      precisionWireRows.append(row);
+    }
+  };
+  const onPrecisionWireRemove=event=>{
+    const button=event.target.closest("[data-lab-remove-wire-id]");
+    if(!button)return false;
+    const buttons=[...precisionWireRows.querySelectorAll("[data-lab-remove-wire-id]")];
+    const removedIndex=buttons.indexOf(button);
+    const expectedLessonId=Number(button.dataset.labWireLesson);
+    const removed=removeWireById(button.dataset.labRemoveWireId,expectedLessonId);
+    if(!removed)return false;
+    const surviving=[...precisionWireRows.querySelectorAll("[data-lab-remove-wire-id]")];
+    const focusTarget=surviving.length
+      ? surviving[Math.min(Math.max(removedIndex,0),surviving.length-1)]
+      : precisionWireList;
+    focusTarget.focus({preventScroll:true});
+    return true;
   };
   const onReset=()=>{
     if (!lessonSupported()) return;
@@ -369,6 +546,7 @@ export function mountLabEditor({
     [$("labSampleWires"),"click",onSample],
     [$("labClearWires"),"click",onClear],
     [$("labRemoveLastWire"),"click",onRemove],
+    [precisionWireList,"click",onPrecisionWireRemove],
   ];
   for(const [node,event,fn] of listeners) node.addEventListener(event,fn);
   render();
@@ -415,7 +593,8 @@ export function mountLabEditor({
     },
     selectComponent(id){selectComponent(id);return selectedId;},
     selectTerminal(id){onTerminalSelect(id);return firstTerminal;},
-    connectTerminals(from,to){connectTerminals(from,to);},
+    connectTerminals(from,to){return connectTerminals(from,to);},
+    removeWire(wireId,expectedLessonId=lessonId){return removeWireById(wireId,expectedLessonId);},
     clearTerminalSelection(){
       if(firstTerminal===null)return false;
       firstTerminal=null;
@@ -438,6 +617,7 @@ export function mountLabEditor({
       for(const [node,event,fn] of listeners) node.removeEventListener(event,fn);
       scene?.setLabEdit?.({...sceneCallbacks,enabled:false});
       layouts.clear();
+      precisionWireList.remove();
     },
   });
 }

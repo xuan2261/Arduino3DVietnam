@@ -85,6 +85,11 @@ class ReleaseContractTests(unittest.TestCase):
             for filename in files:
                 self.assertNotIn(b"\r\n", (ROOT / filename).read_bytes(), filename)
         self.assertIn("assets/firmware/*.hex binary", attributes)
+        self.assertIn(
+            "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts whitespace=-trailing-space",
+            attributes,
+            "Upstream timer test's byte-pinned whitespace needs a path-only exception",
+        )
 
     def test_build_rejects_three_vendor_runtime_or_license_tampering(self):
         for filename in (
@@ -260,8 +265,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(build_site.POST_V16_LAB_FILES, expected_post_v16_lab)
         self.assertEqual(build_site.POST_V16_INTERACTION_FILES, expected_post_v16_interaction)
         self.assertEqual(build_site.POST_V16_GUIDED_WIRING_FILES, expected_post_v16_guided_wiring)
-        self.assertEqual(len(build_site.FILES), 126,
-                         "candidate must preserve 118 existing paths + 8 new study assets")
+        self.assertEqual(len(build_site.FILES[:126]), 126,
+                         "candidate must preserve the complete 126-path prior release prefix")
         self.assertEqual(build_site.FILES[87:97], expected_post_v16_lab)
         self.assertEqual(build_site.FILES[97:102], expected_post_v16_interaction)
         self.assertEqual(build_site.FILES[102:107], expected_post_v16_guided_wiring)
@@ -428,8 +433,7 @@ class ReleaseContractTests(unittest.TestCase):
             "docs/AVR_TIMER2_FIDELITY_NEXT.md",
         ]
         self.assertEqual(build_site.POST_V16_STUDY_EXTENSION_FILES, expected)
-        self.assertEqual(build_site.FILES[118:], expected)
-        self.assertEqual(len(build_site.FILES), 126)
+        self.assertEqual(build_site.FILES[118:126], expected)
         self.assertEqual(
             sha256(("\n".join(build_site.FILES[:118]) + "\n").encode()).hexdigest(),
             "7e11ef8d5eb085947061ad1f18ce15b2c1042eb2355dcff74b5fedc4b49408b0",
@@ -445,6 +449,89 @@ class ReleaseContractTests(unittest.TestCase):
         app = (ROOT / "src/app.js").read_text(encoding="utf-8")
         for module in expected[:3]:
             self.assertIn('from "./' + Path(module).name + '"', app, module)
+
+    def test_post_v16_rich_interaction_complete_manifest_and_fail_closed(self):
+        """Actual 3D, checkpoint and Sketch UI additions must ship together."""
+        expected = [
+            "src/practice-checkpoint-trail.js",
+            "src/practice-checkpoint-trail-ui.js",
+            "docs/POST_V16_TERMINAL_DRAG.md",
+            "docs/LAB_EDITOR_PRECISION_WIRES_NEXT.md",
+            "docs/PRACTICE_48_STEP_TRAIL_NEXT.md",
+            "docs/SKETCH_TO_INSPECTOR_NEXT.md",
+            "docs/AVR_TIMER2_CTC_STUDY_NEXT.md",
+            "docs/POST_V16_RICH_INTERACTION_QA.md",
+            "assets/vendor/avr/avr8js-0.21.1-source/timer.ts",
+            "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts",
+        ]
+        self.assertEqual(build_site.POST_V16_RICH_INTERACTION_FILES, expected)
+        self.assertEqual(build_site.FILES[126:], expected)
+        self.assertEqual(len(build_site.FILES), 136)
+        self.assertEqual(build_site.AVR_TIMER2_EXACT_REFERENCE_FILES, expected[-2:])
+        self.assertEqual(
+            sha256(("\n".join(build_site.FILES[:126]) + "\n").encode()).hexdigest(),
+            "5751e23a18571c69d942d8c4979adf70e9d29e2acdaf935d074ababcfb6463ad",
+            "protected prior 126-path release order changed",
+        )
+        for filename in expected:
+            source = build_site._release_source(filename)
+            self.assertTrue(source.is_file(), filename)
+            self.assertFalse(source.is_symlink(), filename)
+            self.assertGreater(source.stat().st_size, 0, filename)
+        worker = (ROOT / "sw.js").read_text(encoding="utf-8")
+        self.assertEqual(
+            build_site._service_worker_assets(worker),
+            ["./", *["./" + name for name in build_site.FILES if name != "sw.js"]],
+            "new 3D/Sketch/48-step runtime and docs must precache in exact release order",
+        )
+        app = (ROOT / "src/app.js").read_text(encoding="utf-8")
+        for runtime in expected[:2]:
+            self.assertIn('from "./' + Path(runtime).name + '"', app, runtime)
+
+        # The extra upstream TypeScript blobs are provenance-only; they must
+        # be exact MIT-licensed source, never executable app imports.
+        self.assertEqual(
+            build_site._AVR_TIMER2_UPSTREAM_BLOBS,
+            {
+                "assets/vendor/avr/avr8js-0.21.1-source/timer.ts":
+                    "0c18071f3b7c1c49178011d64f8b940c5f60de95",
+                "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts":
+                    "6af821578db4402564776bc19e3fa77afa4983f1",
+            },
+        )
+
+        for missing in expected[:2]:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory(
+                prefix="arduino3d-rich-interaction-missing-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                (fixture_root / missing).unlink()
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", (fixture_root / "dist").resolve()
+                ):
+                    with self.assertRaises(FileNotFoundError):
+                        build_site.build()
+
+    def test_post_v16_first_party_literal_import_graph_is_closed(self):
+        sources = {name: build_site._release_source(name) for name in build_site.FILES}
+        build_site._verify_local_module_import_graph(sources)
+        with tempfile.TemporaryDirectory(prefix="arduino3d-unpackaged-esm-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            edited = fixture_root / "src/practice-checkpoint-trail-ui.js"
+            edited.write_text(
+                edited.read_text(encoding="utf-8") +
+                '\nimport "./undocumented-ghost-runtime.js";\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", (fixture_root / "dist").resolve()
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Unpackaged first-party ESM"):
+                    build_site.build()
 
     def test_post_v16_study_extension_fails_closed_missing_runtime(self):
         for missing in build_site.POST_V16_STUDY_EXTENSION_FILES[:3]:
@@ -748,6 +835,40 @@ class ReleaseContractTests(unittest.TestCase):
                 ):
                     with self.assertRaisesRegex(RuntimeError, "avr8js"):
                         build_site.build()
+
+    def test_timer2_exact_upstream_source_is_pinned_and_tamper_fails_closed(self):
+        build_site._verify_avr_vendor_assets()
+        for filename in build_site.AVR_TIMER2_EXACT_REFERENCE_FILES:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory(
+                prefix="arduino3d-timer2-vendor-tamper-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                source = fixture_root / filename
+                source.write_bytes(source.read_bytes() + b"\n// changed pinned source\n")
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", (fixture_root / "dist").resolve()
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "avr8js"):
+                        build_site.build()
+        # A valid source file with a forged Git-object pointer must also be
+        # rejected, even if its SHA-256 entry remains unchanged.
+        with tempfile.TemporaryDirectory(prefix="arduino3d-timer2-blob-forgery-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            provenance_path = fixture_root / "assets/vendor/avr/PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            for row in provenance["exact_upstream_files"]:
+                if row.get("upstream_path") == "src/peripherals/timer.ts":
+                    row["git_blob_sha1"] = "0" * 40
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", (fixture_root / "dist").resolve()
+            ):
+                with self.assertRaisesRegex(RuntimeError, "avr8js"):
+                    build_site.build()
 
     def test_build_rejects_synchronized_avr_runtime_and_provenance_tampering(self):
         with tempfile.TemporaryDirectory(prefix="arduino3d-avr-sync-tamper-") as temporary:

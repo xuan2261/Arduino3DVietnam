@@ -572,6 +572,14 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 149
+                      and "terminal-drag-start" in " ".join(scene_lifecycle_names)
+                      and "terminal-link-drag-validates-current-layout-canonical-distinct-endpoints" in
+                          scene_lifecycle_names
+                      and "terminal-link-drop-delegates-exact-callback-on-drag-only" in
+                          scene_lifecycle_names
+                      and "terminal-drag-touch-emits-once-through-controller-callback" in
+                          scene_lifecycle_names
                       and "touch-11px-jitter-still-selects" in scene_lifecycle_names
                       and "touch-14px-drag-does-not-select" in scene_lifecycle_names
                       and "inspection-read-only-label-mode" in scene_lifecycle_names
@@ -616,7 +624,8 @@ def main() -> None:
                 fidelity_names = {item.get("name") for item in fidelity.get("results", [])}
                 check("vnext-threejs-visual-fidelity-instancing-hover-physical-boundary",
                       fidelity["failed"] == 0
-                      and fidelity["passed"] == fidelity["total"] == 30
+                      and fidelity["passed"] == fidelity["total"] == 31
+                      and "source-terminal-drag-reuses-one-visual-only-ghost" in fidelity_names
                       and "source-uses-instancing-for-repeated-visual-detail" in fidelity_names
                       and "source-contact-strips-remain-nonauthoritative" in fidelity_names
                       and "source-component-fidelity-has-conceptual-provenance" in fidelity_names
@@ -1120,7 +1129,7 @@ def main() -> None:
                 check("post-v16-sketch-review-ui-direct-contracts",
                       sketch_ui_contracts["passed"] == sketch_ui_contracts["total"]
                       and sketch_ui_contracts["passed"] == len(sketch_ui_contracts["checks"])
-                      and sketch_ui_contracts["total"] == 21,
+                      and sketch_ui_contracts["total"] == 23,
                       f"{sketch_ui_contracts['passed']}/{sketch_ui_contracts['total']} passed")
                 pin_evidence_contracts = run_page_contract(
                     page, "./tests/sketch-pin-evidence-contracts.js",
@@ -1279,9 +1288,9 @@ def main() -> None:
                 timer2_contracts = run_page_contract(
                     page, "./tests/avr-timer2-contracts.js", "runAvrTimer2Contracts")
                 check("v16-avr-timer2-direct-model-contracts",
-                      timer2_contracts["passed"] == 12
-                      and len(timer2_contracts["checks"]) == 12,
-                      f"{timer2_contracts['passed']}/12 direct-model checks; no stock-firmware parity claim")
+                      timer2_contracts["passed"] == 16
+                      and len(timer2_contracts["checks"]) == 16,
+                      f"{timer2_contracts['passed']}/16 direct-model checks; bounded CTC OCR2A TOP, no stock-firmware parity claim")
                 dc_network_contracts = run_page_contract(
                     page, "./tests/dc-resistor-network-contracts.js",
                     "runDcResistorNetworkContracts")
@@ -1342,6 +1351,30 @@ def main() -> None:
                       history_contracts["passed"] == history_contracts["total"] == 14
                       and len(history_contracts["checks"]) == 14,
                       f"{history_contracts['passed']}/{history_contracts['total']} bounded learner graph history, no physical undo")
+                checkpoint_trail_contracts = run_page_contract(
+                    page, "./tests/practice-checkpoint-trail-contracts.js",
+                    "runPracticeCheckpointTrailContracts")
+                check("vnext-48-authored-learner-checkpoint-trail-canonical-negative-contracts",
+                      checkpoint_trail_contracts["passed"] ==
+                        checkpoint_trail_contracts["total"] == 16
+                      and len(checkpoint_trail_contracts["checks"]) == 16,
+                      f"{checkpoint_trail_contracts['passed']}/16 authored trail models, all 48 steps, no automatic completion")
+                checkpoint_trail_ui_contracts = run_page_contract(
+                    page, "./tests/practice-checkpoint-trail-ui-contracts.js",
+                    "runPracticeCheckpointTrailUiContracts")
+                check("vnext-48-step-native-checkpoint-trail-ui-negative-contracts",
+                      checkpoint_trail_ui_contracts["passed"] ==
+                        checkpoint_trail_ui_contracts["total"] == 14
+                      and len(checkpoint_trail_ui_contracts["checks"]) == 14,
+                      f"{checkpoint_trail_ui_contracts['passed']}/14 native trace/navigation checks, no learner-action inference")
+                precision_wire_contracts = run_page_contract(
+                    page, "./tests/lab-editor-precision-wires-contracts.js",
+                    "runLabEditorPrecisionWiresContracts")
+                check("vnext-3d-lab-precision-wire-removal-and-drag-bridge-negative-contracts",
+                      precision_wire_contracts["passed"] ==
+                        precision_wire_contracts["total"] == 6
+                      and len(precision_wire_contracts["checks"]) == 6,
+                      f"{precision_wire_contracts['passed']}/6 per-wire canonical edit and drag callbacks")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -4309,6 +4342,317 @@ def main() -> None:
                 finally:
                     history_context.close()
 
+                # New product-capability checks exercise the actual mounted
+                # 16-lesson practice trail, native per-wire editing, and
+                # Sketch-to-Inspector handoff. A dedicated context avoids
+                # carrying false learner progress into the historical tests.
+                rich_context = browser.new_context(
+                    viewport={"width":1280,"height":820}, service_workers="allow")
+                try:
+                    rich = rich_context.new_page()
+                    capture_console(rich)
+                    rich.goto(base, wait_until="domcontentloaded", timeout=20000)
+                    ready(rich)
+                    trail_rows = []
+                    for lesson_id in range(1,17):
+                        rich.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                        rich.locator('#infoTabPractice').click()
+                        trail = rich.locator('#learningCoach [data-practice-checkpoint-trail]')
+                        trail_rows.append({
+                            "lesson":lesson_id,
+                            "actual":trail.get_attribute("data-practice-trail-lesson"),
+                            "rows":trail.locator("[data-practice-trail-step]").count(),
+                            "current":trail.get_attribute("data-practice-trail-current-step"),
+                            "scope":trail.get_attribute("data-practice-trail-scope"),
+                            "manualCount":trail.locator(
+                                '[data-practice-trail-step-status="manual-not-automatically-assessed"]').count(),
+                            "boundary":"không tự hoàn thành bài" in trail.locator(
+                                "[data-practice-trail-boundary]").inner_text(),
+                        })
+                    check("post-v16-rich-48-authored-checkpoints-real-16-lesson-navigation",
+                          len(trail_rows)==16
+                          and all(row["actual"]==str(row["lesson"]) and row["rows"]==3
+                                  and row["current"]=="0" and row["boundary"]
+                                  for row in trail_rows)
+                          and all(row["scope"]=="signal-only" for row in trail_rows
+                                  if row["lesson"] in (10,14))
+                          and all(row["scope"]=="manual-only" for row in trail_rows
+                                  if row["lesson"]==1)
+                          and all(row["scope"]=="topology" for row in trail_rows
+                                  if row["lesson"] in range(2,17) and row["lesson"] not in (10,14)),
+                          json.dumps(trail_rows,ensure_ascii=False))
+
+                    rich.locator('.lesson-link[data-lesson="2"]').click()
+                    rich.locator('#infoTabPractice').click()
+                    trail = rich.locator('#learningCoach [data-practice-checkpoint-trail]')
+                    initial_progress = rich.locator("#progressText").inner_text()
+                    step_two = trail.locator('[data-practice-trail-navigate-step="1"]')
+                    step_two.focus()
+                    step_two.press("Enter")
+                    moved_trail = rich.locator('#learningCoach [data-practice-checkpoint-trail]')
+                    check("post-v16-rich-checkpoint-keyboard-navigation-focus-no-progress",
+                          moved_trail.get_attribute("data-practice-trail-current-step")=="1"
+                          and moved_trail.locator(
+                              '[data-practice-trail-navigate-step="1"]').get_attribute("aria-current")=="step"
+                          and rich.evaluate("document.activeElement?.getAttribute('data-practice-trail-navigate-step')")=="1"
+                          and rich.locator("#progressText").inner_text()==initial_progress
+                          and rich.locator("#completeButton").is_hidden())
+                    rich.locator('[data-practice-trail-navigate-step="0"]').click()
+                    rich.locator("#labEditToggle").click()
+                    rich.locator("#labFromPin").select_option("D13")
+                    rich.locator("#labToPin").select_option("R1:A")
+                    rich.locator("#labConnect").click()
+                    rich.locator("#labFromPin").select_option("R1:B")
+                    rich.locator("#labToPin").select_option("LED:A")
+                    rich.locator("#labConnect").click()
+                    precision = rich.locator("#labEditor [data-lab-precision-wire-list]")
+                    precision_buttons = precision.locator("[data-lab-remove-wire-id]")
+                    first_precision = precision.locator('[data-lab-remove-wire-id="w1"]')
+                    precision_rect = first_precision.bounding_box()
+                    check("post-v16-rich-canonical-per-wire-list-exact-two-edges",
+                          precision_buttons.count()==2
+                          and precision.locator('[data-lab-wire-row="w1"]').count()==1
+                          and precision.locator('[data-lab-wire-row="w2"]').count()==1
+                          and precision.locator('[data-lab-wire-provenance="learner graph only"]').count()>=1
+                          and precision_rect is not None
+                          and precision_rect["width"]>=44 and precision_rect["height"]>=44
+                          and "D13" in (first_precision.get_attribute("aria-label") or "")
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="2")
+                    first_precision.focus()
+                    first_precision.press("Enter")
+                    remaining_wire = rich.locator('#labEditor [data-lab-wire-row="w2"]')
+                    check("post-v16-rich-per-wire-remove-w1-preserves-w2-and-history",
+                          precision_buttons.count()==1
+                          and remaining_wire.count()==1
+                          and precision.locator('[data-lab-wire-row="w1"]').count()==0
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="1"
+                          and not rich.locator("#labUndoWire").is_disabled()
+                          and rich.locator("#completeButton").is_hidden())
+                    check("post-v16-rich-precision-keyboard-remove-restores-next-native-focus",
+                          rich.evaluate("document.activeElement?.getAttribute('data-lab-remove-wire-id')")=="w2"
+                          and rich.locator('[data-lab-remove-wire-id="w2"]').get_attribute("data-lab-wire-lesson")=="2")
+                    rich.locator("#labUndoWire").click()
+                    check("post-v16-rich-precision-wire-undo-restores-original-ids",
+                          rich.locator('#labEditor [data-lab-wire-row="w1"]').count()==1
+                          and rich.locator('#labEditor [data-lab-wire-row="w2"]').count()==1
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="2")
+                    rich.locator("#stageTabWiring").click()
+                    explorer_ids = rich.locator(
+                        "#labExplorer [data-explorer-highlight-wire]").evaluate_all(
+                            "(nodes) => [...new Set(nodes.map(node => node.dataset.explorerHighlightWire))].sort()")
+                    check("post-v16-rich-precise-3d-graph-syncs-2d-explorer",
+                          rich.locator(".wiring-view .wire-connected").count()==2
+                          and explorer_ids==["w1","w2"],
+                          json.dumps({"learner2d":rich.locator(".wiring-view .wire-connected").all_inner_texts(),
+                            "explorerWireIds":explorer_ids},ensure_ascii=False))
+
+                    # Source-draft pin inspection is view-only and must leave
+                    # both existing learner wires and completion state alone.
+                    rich.locator("#editCode").click()
+                    rich.locator("#codeEditor").fill(
+                        "void setup(){pinMode(13,OUTPUT);}\n"
+                        "void loop(){digitalWrite(13,HIGH);digitalWrite(PIN,HIGH);}"
+                    )
+                    pin_actions = rich.locator(
+                        '#sketchReviewMount [data-sketch-pin-inspect-terminal="D13"]')
+                    unknown_pin_actions = rich.locator(
+                        '#sketchReviewMount [data-sketch-pin-evidence-status="unknown"] '
+                        '[data-sketch-pin-inspect-terminal]')
+                    inspected_before = rich.locator(".wiring-view .wire-connected").count()
+                    pin_rect = pin_actions.first.bounding_box()
+                    check("post-v16-rich-source-literal-pin-inspection-native-action",
+                          pin_actions.count()>=1 and unknown_pin_actions.count()==0
+                          and pin_rect is not None and pin_rect["height"]>=44
+                          and pin_rect["width"]>=44
+                          and pin_actions.first.get_attribute("data-sketch-pin-inspect-lesson")=="2"
+                          and rich.locator("#progressText").inner_text()==initial_progress)
+                    pin_actions.first.click()
+                    check("post-v16-rich-sketch-inspector-readonly-cross-surface-no-autowire",
+                          rich.locator("#stageTab3d").get_attribute("aria-selected")=="true"
+                          and rich.locator("#labEditToggle").get_attribute("aria-pressed")=="false"
+                          and "D13" in rich.locator("#sceneInspectionStatus").inner_text()
+                          # The 3D conceptual editor overlay is explicitly
+                          # unmounted in read-only Inspector mode. Its lab wire
+                          # count is therefore 0, NOT the committed learner
+                          # graph count. The independent Explorer stays bound
+                          # to the canonical learner draft.
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-layout-mode")=="none"
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="0"
+                          and rich.locator("#sceneMount canvas").get_attribute("data-lab-pending-wire-terminal")==""
+                          and rich.locator("#labExplorer .lab-explorer").get_attribute("data-explorer-source")=="learner-draft"
+                          and rich.locator("#progressText").inner_text()==initial_progress
+                          and rich.locator("#completeButton").is_hidden()
+                          and inspected_before==2)
+                    rich.locator("#stageTabWiring").click()
+                    inspected_explorer_wire_ids=rich.locator(
+                        "#labExplorer [data-explorer-highlight-wire]").evaluate_all(
+                            "(nodes) => [...new Set(nodes.map(node => node.dataset.explorerHighlightWire))].sort()")
+                    check("post-v16-rich-sketch-inspector-preserves-two-learner-edges-after-readonly-exit",
+                          rich.locator(".wiring-view .wire-connected").count()==2
+                          and inspected_explorer_wire_ids==["w1","w2"]
+                          and rich.locator("#completeButton").is_hidden()
+                          and rich.locator("#progressText").inner_text()==initial_progress,
+                          json.dumps({"edges":rich.locator(".wiring-view .wire-connected").all_inner_texts(),
+                                      "ids":inspected_explorer_wire_ids},ensure_ascii=False))
+                    rich.locator("#stageTab3d").click()
+
+                    # Mobile 375px must preserve native touch targets and never
+                    # introduce a document-level horizontal scrollbar.
+                    rich.locator("#labEditToggle").click()
+                    rich.locator('#infoTabPractice').click()
+                    rich.set_viewport_size({"width":375,"height":812})
+                    mobile_rich = rich.evaluate("""() => {
+                      const selectors=[
+                        '#learningCoach [data-practice-trail-navigate-step]',
+                        '#learningCoach [data-practice-trail-previous]',
+                        '#learningCoach [data-practice-trail-next]',
+                        '#sketchReviewMount [data-sketch-pin-inspect-terminal]',
+                        '#labEditor [data-lab-remove-wire-id]',
+                      ];
+                      const targets=selectors.flatMap(selector=>[...document.querySelectorAll(selector)]
+                        .map(node=>({selector,width:node.getBoundingClientRect().width,
+                           height:node.getBoundingClientRect().height,
+                           name:node.getAttribute('aria-label')||node.textContent?.trim()||''})));
+                      return {viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth,
+                        targets,checkpoints:document.querySelectorAll(
+                          '#learningCoach [data-practice-trail-step]').length};
+                    }""")
+                    check("post-v16-rich-375px-trail-sketch-44px-no-horizontal-overflow",
+                          mobile_rich["viewport"]==375
+                          and mobile_rich["scrollWidth"]<=375
+                          and mobile_rich["checkpoints"]==3
+                          and len([item for item in mobile_rich["targets"]
+                              if item["selector"]=="#labEditor [data-lab-remove-wire-id]"])==2
+                          and len(mobile_rich["targets"])>=8
+                          and all(row["width"]>=44 and row["height"]>=44 and row["name"]
+                                  for row in mobile_rich["targets"]),
+                          json.dumps(mobile_rich,ensure_ascii=False))
+
+                    # Real pointer movement from one rendered 3D terminal to
+                    # another must pass through the same canonical controller,
+                    # not a synthetic call to scene callbacks. First locate
+                    # both markers using existing scene projection helpers;
+                    # marker offsets are tested via actual user input only.
+                    rich.set_viewport_size({"width":1280,"height":820})
+                    rich.locator('.lesson-link[data-lesson="16"]').click()
+                    rich.locator("#labEditToggle").click()
+                    rich.locator('#cameraToolbar [data-camera="reset"]').click()
+                    rich.wait_for_timeout(60)
+                    rich_canvas = rich.locator("#sceneMount canvas")
+                    wire16 = rich.evaluate("""() => import('./src/circuit-router.js').then(router => {
+                      const wire=router.createSampleCircuit(16).wires[0];
+                      return {from:wire.from,to:wire.to};
+                    })""")
+                    from_proj = lab_scene_point(rich,16,terminal_id=wire16["from"])
+                    to_proj = lab_scene_point(rich,16,terminal_id=wire16["to"])
+                    source_pixel=None
+                    for dy in range(-16,17,4):
+                        if source_pixel: break
+                        for dx in range(-16,17,4):
+                            rich.mouse.click(from_proj["x"]+dx,from_proj["y"]+dy)
+                            if rich_canvas.get_attribute("data-lab-pending-wire-terminal")==wire16["from"]:
+                                source_pixel=(from_proj["x"]+dx,from_proj["y"]+dy)
+                                break
+                            if rich_canvas.get_attribute("data-lab-pending-wire-terminal"):
+                                rich.locator("#labCancelPendingWire").click()
+                    target_pixel=None
+                    if source_pixel:
+                        for dy in range(-16,17,4):
+                            if target_pixel: break
+                            for dx in range(-16,17,4):
+                                rich.mouse.move(to_proj["x"]+dx,to_proj["y"]+dy)
+                                if rich_canvas.get_attribute("data-lab-pending-wire-hover-terminal")==wire16["to"]:
+                                    target_pixel=(to_proj["x"]+dx,to_proj["y"]+dy)
+                                    break
+                    check("post-v16-rich-3d-real-canonical-terminal-pointer-targets-located",
+                          bool(source_pixel and target_pixel)
+                          and rich_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and rich.locator("#completeButton").is_hidden(),
+                          json.dumps({"from":wire16["from"],"to":wire16["to"],
+                            "sourcePixel":source_pixel,"targetPixel":target_pixel,
+                            "sourceProjection":from_proj,"targetProjection":to_proj},ensure_ascii=False))
+                    if source_pixel and target_pixel:
+                        # Keep the viewport/canvas geometry fixed. Clicking
+                        # the native cancel button here would scroll the page
+                        # to the editor below the viewport, invalidating the
+                        # already-projected real 3D marker coordinates. A
+                        # second tap on the same source is the existing
+                        # canonical 3D cancel gesture.
+                        rich.mouse.click(*source_pixel)
+                        check("post-v16-rich-3d-same-terminal-tap-cancels-probe-without-wire",
+                              rich_canvas.get_attribute("data-lab-pending-wire-terminal")==""
+                              and rich_canvas.get_attribute("data-lab-wire-count")=="0")
+                        # Regression for stale two-tap intent: arm terminal A,
+                        # begin a different terminal B drag and release over
+                        # empty canvas. The controller must revoke A as soon
+                        # as B starts dragging, not wait for a valid drop.
+                        rich.mouse.click(*source_pixel)
+                        check("post-v16-rich-3d-pending-first-terminal-armed-before-cancel-drag",
+                              rich_canvas.get_attribute("data-lab-pending-wire-terminal")==wire16["from"]
+                              and rich_canvas.get_attribute("data-lab-wire-count")=="0")
+                        rich.mouse.move(*target_pixel)
+                        rich.mouse.down()
+                        canvas_rect=rich_canvas.bounding_box()
+                        rich.mouse.move(canvas_rect["x"]+7,canvas_rect["y"]+7,steps=12)
+                        rich.mouse.up()
+                        check("post-v16-rich-3d-canceled-drag-revokes-prior-two-tap-without-wire",
+                              rich_canvas.get_attribute("data-lab-pending-wire-terminal")==""
+                              and rich_canvas.get_attribute("data-lab-terminal-drag-preview")=="none"
+                              and rich_canvas.get_attribute("data-lab-wire-count")=="0"
+                              and rich.locator("#labCancelPendingWire").is_disabled())
+                        rich.mouse.click(*target_pixel)
+                        check("post-v16-rich-3d-after-cancel-next-tap-only-arms-new-terminal",
+                              rich_canvas.get_attribute("data-lab-pending-wire-terminal")==wire16["to"]
+                              and rich_canvas.get_attribute("data-lab-wire-count")=="0"
+                              and rich.locator("#completeButton").is_hidden())
+                        rich.mouse.click(*target_pixel)
+                        rich.mouse.move(*source_pixel)
+                        rich.mouse.down()
+                        rich.mouse.move(*target_pixel,steps=16)
+                        drag_hover = {
+                            "source":rich_canvas.get_attribute("data-lab-terminal-drag-source"),
+                            "target":rich_canvas.get_attribute("data-lab-terminal-drag-target"),
+                            "preview":rich_canvas.get_attribute("data-lab-terminal-drag-preview"),
+                            "wires":rich_canvas.get_attribute("data-lab-wire-count"),
+                        }
+                        check("post-v16-rich-3d-real-jumper-drag-ghost-only-before-release",
+                              drag_hover["source"]==wire16["from"]
+                              and drag_hover["target"]==wire16["to"]
+                              and drag_hover["preview"]=="ghost"
+                              and drag_hover["wires"]=="0",
+                              json.dumps(drag_hover,ensure_ascii=False))
+                        rich.mouse.up()
+                        check("post-v16-rich-3d-pointer-drop-commits-one-router-wire-not-physical",
+                              rich_canvas.get_attribute("data-lab-wire-count")=="1"
+                              and rich_canvas.get_attribute("data-lab-terminal-drag-preview")=="none"
+                              and rich.locator('#labEditor [data-lab-wire-row="w1"]').count()==1
+                              and rich.locator("#completeButton").is_hidden()
+                              and "không" in rich.locator("#labEditor").inner_text().lower(),
+                              json.dumps({"wire":wire16,
+                                "count":rich_canvas.get_attribute("data-lab-wire-count"),
+                                "preview":rich_canvas.get_attribute("data-lab-terminal-drag-preview")},ensure_ascii=False))
+                        rich.locator("#stageTabWiring").click()
+                        dragged_wire_ids=rich.locator(
+                            "#labExplorer [data-explorer-highlight-wire]").evaluate_all(
+                                "(nodes) => [...new Set(nodes.map(node => node.dataset.explorerHighlightWire))].sort()")
+                        check("post-v16-rich-real-3d-jumper-appears-same-2d-learner-graph",
+                              rich.locator(".wiring-view .wire-connected").count()==1
+                              and dragged_wire_ids==["w1"],
+                              json.dumps({"2d":rich.locator(".wiring-view .wire-connected").all_inner_texts(),
+                                          "committedWireIds":dragged_wire_ids},ensure_ascii=False))
+                    else:
+                        # Missing rendered pointer markers is an E2E failure,
+                        # not permission to replace real input with synthetic
+                        # scene callbacks.
+                        check("post-v16-rich-3d-drag-target-unavailable-fails-before-ghost",
+                              False,"Could not locate actual 3D marker targets")
+                        check("post-v16-rich-3d-drag-target-unavailable-fails-before-commit",
+                              False,"Could not execute actual terminal drag")
+                        check("post-v16-rich-3d-drag-target-unavailable-fails-before-2d",
+                              False,"No actual pointer-drag-created edge")
+                finally:
+                    rich_context.close()
+
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
                 if not (dist / ".arduino-3d-viet-generated").is_file():
@@ -4714,6 +5058,43 @@ def main() -> None:
                       and len(guided_inspection_offline["docs"]) == 5
                       and all(x["ok"] and x["length"] > 150 for x in guided_inspection_offline["docs"]),
                       json.dumps(guided_inspection_offline, ensure_ascii=False))
+                rich_interaction_offline = app.evaluate("""async () => {
+                    const baseUrl=document.baseURI;
+                    const [model,ui,timer] = await Promise.all([
+                      import(new URL('./src/practice-checkpoint-trail.js',baseUrl).href),
+                      import(new URL('./src/practice-checkpoint-trail-ui.js',baseUrl).href),
+                      import(new URL('./src/avr-timer2.js',baseUrl).href),
+                    ]);
+                    const paths=[
+                      './docs/POST_V16_TERMINAL_DRAG.md',
+                      './docs/LAB_EDITOR_PRECISION_WIRES_NEXT.md',
+                      './docs/PRACTICE_48_STEP_TRAIL_NEXT.md',
+                      './docs/SKETCH_TO_INSPECTOR_NEXT.md',
+                      './docs/AVR_TIMER2_CTC_STUDY_NEXT.md',
+                      './docs/POST_V16_RICH_INTERACTION_QA.md',
+                      './assets/vendor/avr/avr8js-0.21.1-source/timer.ts',
+                      './assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts',
+                    ];
+                    const docs=await Promise.all(paths.map(async path=>{
+                      const response=await fetch(new URL(path,baseUrl),{cache:'no-store'});
+                      return {path,ok:response.ok,size:response.ok?(await response.text()).length:0};
+                    }));
+                    return {
+                      model:typeof model.buildPracticeCheckpointTrail==='function' &&
+                        model.PRACTICE_CHECKPOINT_TRAIL_LIMITS.totalCheckpoints===48,
+                      ui:typeof ui.renderPracticeCheckpointTrail==='function',
+                      timer2:timer.AVR_TIMER2_CAPABILITIES.ctc===true &&
+                        timer.AVR_TIMER2_CAPABILITIES.pwm===false &&
+                        timer.AVR_TIMER2_CAPABILITIES.outputComparePins===false,
+                      docs,
+                    };
+                }""")
+                check("post-v16-rich-checkpoint-ctc-and-eight-evidence-assets-cached-offline",
+                      rich_interaction_offline["model"] and rich_interaction_offline["ui"]
+                      and rich_interaction_offline["timer2"]
+                      and len(rich_interaction_offline["docs"])==8
+                      and all(x["ok"] and x["size"]>150 for x in rich_interaction_offline["docs"]),
+                      json.dumps(rich_interaction_offline,ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

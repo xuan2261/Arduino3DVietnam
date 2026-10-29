@@ -1,4 +1,12 @@
-# AVR Timer2 fidelity next
+# AVR Timer2 Normal-mode compare — historical post-v1.6 phase
+
+**Historical scope (29/10/2026):** This document records the first post-v1.6
+WGM0 compare extension. The newer feature-branch candidate also implements
+a separate, **guarded synchronous WGM2 CTC OCR2A-TOP subset**; see
+`docs/AVR_TIMER2_CTC_STUDY_NEXT.md` and the current
+`docs/TIMER2_V16.md`. The original Normal-only limitations below are
+historical, **not** a description of all current Timer2 capabilities.
+Neither extension is in published production `v1.6.0`.
 
 ## Scope
 
@@ -20,9 +28,9 @@ The catch-up check is bounded arithmetically rather than looping once per timer 
 
 ## Fail-closed boundary retained
 
-CTC and every PWM mode remain unsupported. `COM2A/COM2B`, force-output-compare bits, OC2A/OC2B pin waveforms, asynchronous Timer2, and external oscillator timing are still rejected before state mutation. Reserved `TIMSK2` and `TIFR2` bits are also rejected.
+In the historical Normal-only phase, CTC and every PWM mode remained unsupported. `COM2A/COM2B`, force-output-compare bits, OC2A/OC2B pin waveforms, asynchronous Timer2, and external oscillator timing were rejected before state mutation. Reserved `TIMSK2` and `TIFR2` bits were also rejected. The subsequent candidate enables **only** guarded WGM2 CTC, not any PWM/output-pin/ASSR support.
 
-`AVR_TIMER2_CAPABILITIES.compareMatch` and `compareInterrupts` are true only for the supported Normal-mode peripheral behavior. `ctc`, `pwm`, `outputComparePins`, `asynchronousClock`, `externalClock`, `toneParity`, `millisParity`, `delayParity`, and `wallClock` remain false.
+`AVR_TIMER2_CAPABILITIES.compareMatch` and `compareInterrupts` became true in the Normal-only phase. **At that time** `ctc`, `pwm`, `outputComparePins`, `asynchronousClock`, `externalClock`, `toneParity`, `millisParity`, `delayParity`, and `wallClock` were false. In the **current feature branch**, only `ctc` and `ctcOcr2aTop` additionally become true within the bounded WGM2 model; all other listed nonclaims stay false.
 
 The returned controller exposes peripheral lifecycle/state methods only. The contracts explicitly reject any assumption that it provides `compile`, `loadHex`, `runCycles`, `runSketch`, or `executeSketch`. Arduino source edits remain source text until some separate verified compiler/runtime path is used.
 
@@ -41,4 +49,7 @@ The returned controller exposes peripheral lifecycle/state methods only. The con
 
 ## Remaining fidelity gaps
 
-A future Timer2 expansion should treat CTC and PWM as separate work because they change TOP, OCR update timing, overflow timing, compare pin behavior, and stock ArduinoCore compatibility. Those modes should not be enabled from the current compare implementation alone. Asynchronous Timer2 also needs ASSR update-busy and external clock semantics and remains outside this subset.
+The later WGM2 CTC expansion was implemented as a separately reviewed,
+stricter subset with independent source/contract evidence. It does **not**
+enable PWM, full CTC register-update parity, or stock ArduinoCore compatibility.
+Asynchronous Timer2 still needs ASSR update-busy and external clock semantics.

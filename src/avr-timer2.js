@@ -33,7 +33,9 @@ export const AVR_TIMER2_CAPABILITIES = Object.freeze({
   overflowFlag: true,
   overflowInterrupt: true,
   internalPrescalers: Object.freeze([1, 8, 32, 64, 128, 256, 1024]),
-  ctc: false,
+  ctc: true,
+  ctcOcr2aTop: true,
+  ctcRunningTopUpdate: false,
   pwm: false,
   compareMatch: true,
   compareInterrupts: true,
@@ -81,12 +83,30 @@ function wgmValue(tccr2a, tccr2b) {
   return ((tccr2b & TCCR2B_WGM_MASK) >> 1) | (tccr2a & TCCR2A_WGM_MASK);
 }
 
-function requireNormalMode(tccr2a, tccr2b) {
+function requireSupportedMode(tccr2a, tccr2b) {
   const wgm = wgmValue(tccr2a, tccr2b);
-  if (wgm !== 0) {
-    throw new RangeError(`Timer2 WGM=${wgm} chưa được hỗ trợ; chỉ Normal mode WGM=0.`);
+  if (wgm !== 0 && wgm !== 2) {
+    throw new RangeError(`Timer2 WGM=${wgm} chưa được hỗ trợ; chỉ WGM=0 Normal và WGM=2 CTC OCR2A TOP.`);
   }
   return wgm;
+}
+
+function modeName(wgm) {
+  if (wgm === 0) return "normal";
+  if (wgm === 2) return "ctc-ocr2a-top";
+  return "unsupported-stopped";
+}
+
+function assertCtcStart(top, counter, compareB) {
+  if (top === 0) {
+    throw new RangeError("Timer2 CTC OCR2A=0 chưa nằm trong subset đã kiểm chứng.");
+  }
+  if (counter > top) {
+    throw new RangeError("Timer2 CTC yêu cầu TCNT2 <= OCR2A khi bắt đầu đếm.");
+  }
+  if (compareB > top) {
+    throw new RangeError("Timer2 CTC subset yêu cầu OCR2B <= OCR2A TOP.");
+  }
 }
 
 function assertSupportedControlBits(tccr2a, tccr2b) {
@@ -125,7 +145,10 @@ export function createAvrTimer2(cpu) {
     throw new RangeError("Timer2 ASSR asynchronous/external clock chưa được hỗ trợ.");
   }
   const initialCs = cpu.data[R.TCCR2B] & 0x07;
-  if (initialCs !== 0) requireNormalMode(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+  if (initialCs !== 0) {
+    const initialWgm = requireSupportedMode(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    if (initialWgm === 2) assertCtcStart(cpu.data[R.OCR2A], cpu.data[R.TCNT2], cpu.data[R.OCR2B]);
+  }
 
   const overflowInterrupt = Object.freeze({
     address: OVERFLOW_VECTOR,
@@ -156,11 +179,11 @@ export function createAvrTimer2(cpu) {
   let dividerUpdatePending = false;
   let lastCycle = cpu.cycles;
 
-  function compareReached(previous, ticks, compareValue) {
-    if (ticks <= 0) return false;
-    if (ticks >= 0x100) return true;
-    const wrappedDistance = (compareValue - previous + 0x100) & 0xff;
-    const nextDistance = wrappedDistance === 0 ? 0x100 : wrappedDistance;
+  function compareReached(previous, ticks, compareValue, period) {
+    if (ticks <= 0 || compareValue >= period) return false;
+    if (ticks >= period) return true;
+    const wrappedDistance = (compareValue - previous + period) % period;
+    const nextDistance = wrappedDistance === 0 ? period : wrappedDistance;
     return nextDistance <= ticks;
   }
 
@@ -175,11 +198,14 @@ export function createAvrTimer2(cpu) {
     const ticks = Math.floor(delta / divider);
     lastCycle += ticks * divider;
     const previous = counter;
-    counter = (counter + ticks) & 0xff;
+    const wgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    const top = wgm === 2 ? cpu.data[R.OCR2A] : 0xff;
+    const period = top + 1;
+    counter = (counter + ticks) % period;
     cpu.data[R.TCNT2] = counter;
-    if (compareReached(previous, ticks, cpu.data[R.OCR2A])) cpu.setInterruptFlag(compareAInterrupt);
-    if (compareReached(previous, ticks, cpu.data[R.OCR2B])) cpu.setInterruptFlag(compareBInterrupt);
-    if (previous + ticks > 0xff) cpu.setInterruptFlag(overflowInterrupt);
+    if (compareReached(previous, ticks, cpu.data[R.OCR2A], period)) cpu.setInterruptFlag(compareAInterrupt);
+    if (compareReached(previous, ticks, cpu.data[R.OCR2B], period)) cpu.setInterruptFlag(compareBInterrupt);
+    if (previous + ticks > top && (wgm === 0 || top === 0xff)) cpu.setInterruptFlag(overflowInterrupt);
   }
 
   function cyclesUntilNextTick() {
@@ -231,8 +257,14 @@ export function createAvrTimer2(cpu) {
 
   const writeTcnt2 = value => {
     ensureActive();
+    const next = value & 0xff;
+    const wgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    const cs = cpu.data[R.TCCR2B] & 0x07;
+    if (cs !== 0 && wgm === 2 && next > cpu.data[R.OCR2A]) {
+      throw new RangeError("Timer2 CTC đang chạy yêu cầu TCNT2 <= OCR2A.");
+    }
     updateCounter();
-    counter = value & 0xff;
+    counter = next;
     cpu.data[R.TCNT2] = counter;
     // Match avr8js AVRTimer: TCNT write does not reset the prescaler phase.
     scheduleCurrentState();
@@ -244,7 +276,13 @@ export function createAvrTimer2(cpu) {
     const next = value & 0xff;
     assertSupportedControlBits(next, cpu.data[R.TCCR2B]);
     const cs = cpu.data[R.TCCR2B] & 0x07;
-    if (cs !== 0) requireNormalMode(next, cpu.data[R.TCCR2B]);
+    if (cs !== 0) {
+      const currentWgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+      const nextWgm = requireSupportedMode(next, cpu.data[R.TCCR2B]);
+      if (nextWgm !== currentWgm) {
+        throw new RangeError(`Timer2 đang chạy không hỗ trợ chuyển mode WGM=${currentWgm}->WGM=${nextWgm}; hãy dừng clock trước.`);
+      }
+    }
     cpu.data[R.TCCR2A] = next;
     return true;
   };
@@ -256,7 +294,10 @@ export function createAvrTimer2(cpu) {
     const cs = next & 0x07;
     // All CS=1..7 values are internal prescalers for Timer2. Async/external
     // clock selection is controlled by ASSR and is rejected separately.
-    if (cs !== 0) requireNormalMode(cpu.data[R.TCCR2A], next);
+    if (cs !== 0) {
+      const wgm = requireSupportedMode(cpu.data[R.TCCR2A], next);
+      if (wgm === 2) assertCtcStart(cpu.data[R.OCR2A], counter, cpu.data[R.OCR2B]);
+    }
     cpu.clearClockEvent(onClockEvent);
     cpu.data[R.TCCR2B] = next;
     pendingDivider = DIVIDERS[cs];
@@ -291,13 +332,23 @@ export function createAvrTimer2(cpu) {
     // Return undefined so CPU.writeData commits TIMSK2.
   };
 
-  const writeOcr2a = () => {
+  const writeOcr2a = value => {
     ensureActive();
-    // Immediate in Normal mode; CPU.writeData commits the byte after the hook.
+    const wgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    const cs = cpu.data[R.TCCR2B] & 0x07;
+    if (wgm === 2 && cs !== 0 && (value & 0xff) !== cpu.data[R.OCR2A]) {
+      throw new RangeError("Timer2 CTC chưa hỗ trợ đổi OCR2A TOP khi đang chạy; hãy dừng clock trước.");
+    }
+    // Immediate register update in Normal/CTC. CPU.writeData commits after this hook.
   };
-  const writeOcr2b = () => {
+  const writeOcr2b = value => {
     ensureActive();
-    // Immediate in Normal mode; CPU.writeData commits the byte after the hook.
+    const wgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    const cs = cpu.data[R.TCCR2B] & 0x07;
+    if (wgm === 2 && cs !== 0 && (value & 0xff) > cpu.data[R.OCR2A]) {
+      throw new RangeError("Timer2 CTC subset yêu cầu OCR2B <= OCR2A TOP.");
+    }
+    // Immediate register update in Normal/CTC. CPU.writeData commits after this hook.
   };
   const writeAssr = value => {
     ensureActive();
@@ -323,11 +374,13 @@ export function createAvrTimer2(cpu) {
     ensureActive();
     synchronizeCounter();
     const wgm = wgmValue(cpu.data[R.TCCR2A], cpu.data[R.TCCR2B]);
+    const top = wgm === 2 ? cpu.data[R.OCR2A] : wgm === 0 ? 0xff : null;
     return Object.freeze({
       cpuCycles: cpu.cycles,
       cpuClockHz: AVR_TIMER2_CPU_HZ,
       wgm,
-      mode: wgm === 0 ? "normal" : "unsupported-stopped",
+      mode: modeName(wgm),
+      top,
       clockSelect: cpu.data[R.TCCR2B] & 0x07,
       divider,
       tcnt2: counter,
@@ -341,7 +394,10 @@ export function createAvrTimer2(cpu) {
       ocie2b: Boolean(cpu.data[R.TIMSK2] & B.OCIE2B),
       assr: cpu.data[R.ASSR],
       tickMicroseconds: divider ? (divider / AVR_TIMER2_CPU_HZ) * 1_000_000 : null,
-      overflowPeriodMicroseconds: divider
+      counterPeriodMicroseconds: divider && top != null
+        ? ((top + 1) * divider * 1_000_000) / AVR_TIMER2_CPU_HZ
+        : null,
+      overflowPeriodMicroseconds: divider && (wgm === 0 || (wgm === 2 && top === 0xff))
         ? (256 * divider * 1_000_000) / AVR_TIMER2_CPU_HZ
         : null,
     });

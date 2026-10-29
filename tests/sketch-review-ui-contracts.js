@@ -25,6 +25,9 @@ class FakeNode {
     this.parentNode = null;
     this.attributes = new Map();
     this.className = "";
+    this.style = {};
+    this.listeners = new Map();
+    this.type = "";
     this._text = "";
   }
 
@@ -55,6 +58,16 @@ class FakeNode {
 
   getAttribute(name) {
     return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  addEventListener(type, callback) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(callback);
+    this.listeners.set(type, listeners);
+  }
+
+  click() {
+    for (const callback of this.listeners.get("click") ?? []) callback({ target: this });
   }
 
   matches(selector) {
@@ -233,7 +246,7 @@ export function runSketchReviewUiContracts() {
 
   check("dynamic-text-uses-textcontent-and-cannot-create-dom", () => {
     const forged = clone(changedInspection());
-    const payload = "<img src=x onerror=globalThis.pwned=1>";
+    const payload = "Ω漢<img src=x onerror=globalThis.pwned=1>";
     forged.guidance = [payload];
     forged.warnings = [{
       code: "TEST_WARNING",
@@ -372,14 +385,55 @@ export function runSketchReviewUiContracts() {
     assert(status?.getAttribute("role") === "status", "pin summary status role");
     assert(status?.getAttribute("aria-live") === "polite", "pin summary live region");
     assert(status?.getAttribute("aria-atomic") === "true", "pin summary atomic");
+    assert(block.querySelector("button") === null,
+      "pin evidence without callback must remain read-only");
+  });
+
+  check("pin-evidence-terminal-inspection-action-is-opt-in-native-and-canonical", () => {
+    const inspection = referenceInspection(2);
+    const pinEvidence = inspectSketchPinEvidence({
+      lessonId: 2,
+      source: "digitalWrite(13, HIGH);\ndigitalWrite(13, LOW);",
+    });
+    const callbackArgs = [];
+    const section = renderSketchReview(new FakeDocument(), inspection, {
+      pinEvidence,
+      onInspectTerminal(...args) { callbackArgs.push(args); },
+    });
+    const buttons = section.querySelectorAll("[data-sketch-pin-inspect-terminal]");
+    assert(buttons.length === 2, "one inspect action per displayed direct lesson-terminal call");
+    assert(callbackArgs.length === 0, "render must not auto-inspect a terminal");
+    for (const [index, button] of buttons.entries()) {
+      assert(button.tagName === "BUTTON" && button.type === "button", "native type=button action");
+      assert(button.getAttribute("data-sketch-pin-inspect-terminal") === "D13", "canonical terminal attr");
+      assert(button.getAttribute("data-sketch-pin-inspect-lesson") === "2", "current lesson attr");
+      assert(button.getAttribute("data-sketch-pin-inspect-call") === String(index + 1), "call sequence attr");
+      assert(button.style.minWidth === "44px" && button.style.minHeight === "44px", "44px target");
+      assert(/D13.*bài 2.*chỉ điều hướng đọc.*không tạo dây.*chạy mã/i.test(
+        button.getAttribute("aria-label") || ""), "accessible read-only action label");
+    }
+    buttons[0].click();
+    assert(callbackArgs.length === 1 && callbackArgs[0].length === 2,
+      "callback must receive exactly terminal and lesson");
+    assert(callbackArgs[0][0] === "D13" && callbackArgs[0][1] === 2,
+      "callback canonical terminal + current lesson");
+    assert(pinEvidence.claims.executesFirmware === false &&
+      pinEvidence.claims.validatesPinConnection === false &&
+      pinEvidence.claims.provesLearnerCompletion === false,
+      "action must not upgrade static evidence claims");
   });
 
   check("pin-evidence-renders-routed-outside-and-unknown-statuses-without-upgrading-them", () => {
-    const section = renderWithPinEvidence(referenceInspection(2), [
+    const inspection = referenceInspection(2);
+    const pinEvidence = inspectSketchPinEvidence({ lessonId: 2, source: [
       "digitalWrite(13, HIGH);",
       "tone(12, 440);",
       "digitalRead(BUTTON);",
-    ].join("\n"));
+    ].join("\n") });
+    const section = renderSketchReview(new FakeDocument(), inspection, {
+      pinEvidence,
+      onInspectTerminal() {},
+    });
     const routed = section.querySelector("[data-sketch-pin-evidence-status='lesson-terminal']");
     const outside = section.querySelector("[data-sketch-pin-evidence-status='not-in-lesson']");
     const unknown = section.querySelector("[data-sketch-pin-evidence-status='unknown']");
@@ -389,6 +443,12 @@ export function runSketchReviewUiContracts() {
       "outside lesson remains outside");
     assert(/alias\/macro\/biểu thức\/hàm không được suy đoán/i.test(unknown?.textContent || ""),
       "unknown source form disclosure");
+    assert(routed?.querySelectorAll("[data-sketch-pin-inspect-terminal]").length === 1,
+      "lesson-terminal gets exactly one action");
+    assert(outside?.querySelector("[data-sketch-pin-inspect-terminal]") === null,
+      "not-in-lesson must never get inspect action");
+    assert(unknown?.querySelector("[data-sketch-pin-inspect-terminal]") === null,
+      "unknown must never get inspect action");
   });
 
   check("pin-evidence-boundary-denies-compile-execution-connection-and-completion-claims", () => {
@@ -413,12 +473,17 @@ export function runSketchReviewUiContracts() {
       lessonId: 2,
       source: "digitalRead(BUTTON);",
     }));
-    const payload = "<img src=x onerror=globalThis.pwned=1>";
+    const payload = "Ω漢<img src=x onerror=globalThis.pwned=1>";
     forged.calls[0].argument = payload;
-    const section = renderSketchReview(new FakeDocument(), inspection, { pinEvidence: forged });
+    const section = renderSketchReview(new FakeDocument(), inspection, {
+      pinEvidence: forged,
+      onInspectTerminal() { throw new Error("unknown call must not expose action"); },
+    });
     const block = section.querySelector("[data-sketch-pin-evidence]");
     assert(block.textContent.includes(payload), "payload remains literal text");
     assert(block.querySelector("img") === null, "payload must not create img node");
+    assert(block.querySelector("[data-sketch-pin-inspect-terminal]") === null,
+      "XSS/unknown argument must not expose inspect action");
   });
 
   check("forged-pin-evidence-lesson-claims-counts-status-or-provenance-fail-closed", () => {
@@ -428,7 +493,10 @@ export function runSketchReviewUiContracts() {
       source: "digitalWrite(13, HIGH);",
     }));
     const renderForged = evidence =>
-      renderSketchReview(new FakeDocument(), inspection, { pinEvidence: evidence });
+      renderSketchReview(new FakeDocument(), inspection, {
+        pinEvidence: evidence,
+        onInspectTerminal() { throw new Error("forged evidence callback must never run"); },
+      });
 
     const wrongLesson = base();
     wrongLesson.lessonId = 3;
@@ -467,6 +535,14 @@ export function runSketchReviewUiContracts() {
     expectThrow(() => renderForged(badLiteralMapping), /lesson-terminal shape/i,
       "literal mapping must agree with api/argument");
 
+    const unicodeTerminal = base();
+    unicodeTerminal.calls[0].literalPin = "D13Ω";
+    unicodeTerminal.calls[0].lessonTerminalId = "D13Ω";
+    unicodeTerminal.lessonTerminalIds = ["D13Ω"];
+    unicodeTerminal.matchedTerminalIds = ["D13Ω"];
+    expectThrow(() => renderForged(unicodeTerminal), /lessonTerminalIds|calls/i,
+      "Unicode-forged terminal ID must fail before action render");
+
     const badProvenance = base();
     badProvenance.provenance.terminalIds = "caller-supplied";
     expectThrow(() => renderForged(badProvenance), /provenance/i, "foreign terminal provenance");
@@ -475,11 +551,21 @@ export function runSketchReviewUiContracts() {
   check("pin-evidence-render-row-count-is-bounded-with-truncation-disclosure", () => {
     const inspection = referenceInspection(2);
     const source = Array.from({ length: 40 }, () => "digitalWrite(13, HIGH);").join("\n");
-    const section = renderWithPinEvidence(inspection, source);
+    const pinEvidence = inspectSketchPinEvidence({ lessonId: 2, source });
+    const inspected = [];
+    const section = renderSketchReview(new FakeDocument(), inspection, {
+      pinEvidence,
+      onInspectTerminal: (terminalId, lessonId) => inspected.push([terminalId, lessonId]),
+    });
     const block = section.querySelector("[data-sketch-pin-evidence]");
     assert(block.querySelectorAll("[data-sketch-pin-evidence-call]").length === 32,
       "pin evidence render bound");
     assert(/Còn 8 lời gọi lexical khác/i.test(block.textContent), "pin evidence truncation copy");
+    const actions = block.querySelectorAll("[data-sketch-pin-inspect-terminal]");
+    assert(actions.length === 32, "inspect actions obey the same 32-row cap");
+    actions[31].click();
+    assert(JSON.stringify(inspected) === JSON.stringify([["D13", 2]]),
+      "capped action callback remains canonical/current lesson");
   });
 
   check("pin-evidence-options-reject-unrelated-or-prototype-named-props", () => {
@@ -496,6 +582,29 @@ export function runSketchReviewUiContracts() {
       /prop không được hỗ trợ/i,
       "prototype-named prop",
     );
+    expectThrow(
+      () => renderSketchReview(new FakeDocument(), inspection, { onInspectTerminal: "D13" }),
+      /onInspectTerminal.*function/i,
+      "callback type",
+    );
+  });
+
+  check("pin-evidence-inspection-action-rejects-foreign-lesson-context-for-all-16-lessons", () => {
+    for (const lesson of lessons) {
+      const foreignLessonId = lesson.id === 16 ? 15 : lesson.id + 1;
+      const foreignEvidence = inspectSketchPinEvidence({
+        lessonId: foreignLessonId,
+        source: "digitalWrite(13, HIGH); analogRead(A0);",
+      });
+      expectThrow(
+        () => renderSketchReview(new FakeDocument(), referenceInspection(lesson.id), {
+          pinEvidence: foreignEvidence,
+          onInspectTerminal() {},
+        }),
+        /bài học khác/i,
+        "foreign evidence lesson " + foreignLessonId + " into lesson " + lesson.id,
+      );
+    }
   });
 
   return Object.freeze({

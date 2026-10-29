@@ -49,6 +49,13 @@ export async function runScene3DVisualFidelityContracts() {
     /routeModel:"elevated-multisegment"/.test(source) &&
     /new T\.Float32BufferAttribute\(9,3\)/.test(source) &&
     /kind:"lab-pending-wire-preview",committed:false/.test(source));
+  check("source-terminal-drag-reuses-one-visual-only-ghost",
+    /function updateTerminalLinkDrag\(event\)/.test(source) &&
+    /ensurePendingWirePreviewLine\(\)/.test(source) &&
+    /updateWirePreviewGeometry\(sourceId,targetId\)/.test(source) &&
+    /labTerminalDragPreview="ghost"/.test(source) &&
+    /Object\.freeze\(\{source:"pointer-drag",physicalVerified:false\}\)/.test(source) &&
+    !/physicalVerified:true|electricalAuthority:true/.test(source));
 
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-10000px;top:0;width:720px;height:420px";
@@ -115,6 +122,9 @@ export async function runScene3DVisualFidelityContracts() {
     check("terminal-label-feedback-starts-quiet",
       canvas.dataset.labHoveredTerminal === "" &&
       canvas.dataset.labTerminalLabelFeedback === "none" &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none" &&
       canvas.dataset.labTerminalContrastFeedback === "none" &&
       canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
       canvas.dataset.labWireHighlightFeedback === "none");
@@ -260,6 +270,9 @@ export async function runScene3DVisualFidelityContracts() {
       Number(canvas.dataset.sceneTerminalContrastAffordanceCount) === baselineTerminalContrast &&
       canvas.dataset.labHoveredTerminal === "" &&
       canvas.dataset.labTerminalLabelFeedback === "none" &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none" &&
       canvas.dataset.labTerminalContrastFeedback === "none" &&
       canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
       canvas.dataset.labWireHighlightFeedback === "none" &&

@@ -115,6 +115,53 @@ export async function runScene3DContracts() {
     /!labTerminals\.has\(targetId\)/.test(sceneSource) &&
     /labPendingWirePreview="ghost"/.test(sceneSource) &&
     /clearPendingWireHover\(true\);finishPointer\(event,false\)/.test(sceneSource));
+  const editOptionStart = sceneSource.indexOf("function validateLabEditCallback");
+  const editOptionEnd = sceneSource.indexOf("function clampLabTarget", editOptionStart);
+  const editOptionSource = sceneSource.slice(editOptionStart, editOptionEnd);
+  check("terminal-drag-callback-options-are-validated-and-preserved",
+    /validateLabEditCallback\(options\.onTerminalDragStart,"onTerminalDragStart"\)/.test(editOptionSource) &&
+    /onTerminalDragStart:options\.onTerminalDragStart===undefined/.test(editOptionSource) &&
+    /\? labEdit\.onTerminalDragStart : options\.onTerminalDragStart/.test(editOptionSource) &&
+    /validateLabEditCallback\(options\.onTerminalLink,"onTerminalLink"\)/.test(editOptionSource) &&
+    /onTerminalLink:options\.onTerminalLink===undefined/.test(editOptionSource) &&
+    /\? labEdit\.onTerminalLink : options\.onTerminalLink/.test(editOptionSource));
+  const directDragStart = sceneSource.indexOf("function isActiveTerminalDragId");
+  const directDragEnd = sceneSource.indexOf("function restorePointerSelection", directDragStart);
+  const directDragSource = sceneSource.slice(directDragStart, directDragEnd);
+  check("terminal-link-drag-validates-current-layout-canonical-distinct-endpoints",
+    /typeof labEdit\.onTerminalLink==="function"&&isActiveTerminalDragId/.test(directDragSource) &&
+    /layoutRef!==activeLabLayout/.test(directDragSource) &&
+    /Object\.prototype\.hasOwnProperty\.call\(terminalMap,terminalId\)/.test(directDragSource) &&
+    /canonical\?\.terminalId===terminalId&&labTerminals\.has\(terminalId\)/.test(directDragSource) &&
+    /targetId===sourceId/.test(directDragSource) &&
+    /isActiveTerminalLinkId\(targetId,layoutRef\)/.test(directDragSource));
+  const pointerMoveStart = sceneSource.indexOf("function move(event)");
+  const pointerMoveEnd = sceneSource.indexOf("function finishPointer", pointerMoveStart);
+  const pointerMoveSource = sceneSource.slice(pointerMoveStart, pointerMoveEnd);
+  check("terminal-drag-start-callback-fires-on-threshold-once-with-canonical-frozen-meta",
+    /pointerState\.dragStartEmitted/.test(directDragSource) &&
+    /pointerState\.dragStartEmitted=true/.test(directDragSource) &&
+    /typeof labEdit\.onTerminalDragStart!=="function"/.test(directDragSource) &&
+    /isActiveTerminalDragId\(pointerState\.terminalId,pointerState\.layoutRef\)/.test(directDragSource) &&
+    /labEdit\.onTerminalDragStart\(/.test(directDragSource) &&
+    /Object\.freeze\(\{source:"pointer-drag",physicalVerified:false\}\)/.test(directDragSource) &&
+    /const crossedTapThreshold=!moved&&Math\.hypot\(totalDx,totalDy\)>drag\.tapThreshold/.test(pointerMoveSource) &&
+    /if\(crossedTapThreshold\)emitTerminalDragStart\(drag\)/.test(pointerMoveSource) &&
+    !/setWiring\(|connectCircuit\(|disconnectCircuit\(|labWireObjects\.push/.test(directDragSource));
+  check("terminal-link-drag-preview-is-transient-rendering-only",
+    /labTerminalDragPreview="ghost"/.test(directDragSource) &&
+    /updateWirePreviewGeometry\(sourceId,targetId\)/.test(directDragSource) &&
+    !/setWiring\(|connectCircuit\(|labWireObjects\.push|lastWiringModel\s*=/.test(directDragSource));
+  const finishPointerStart = sceneSource.indexOf("function finishPointer");
+  const finishPointerEnd = sceneSource.indexOf("const up=", finishPointerStart);
+  const finishPointerSource = sceneSource.slice(finishPointerStart, finishPointerEnd);
+  check("terminal-link-drop-delegates-exact-callback-on-drag-only",
+    /drag\.kind==="terminal"&&select&&moved/.test(finishPointerSource) &&
+    /labEdit\.onTerminalLink\?\.\(/.test(finishPointerSource) &&
+    /Object\.freeze\(\{source:"pointer-drag",physicalVerified:false\}\)/.test(finishPointerSource) &&
+    /if\(select&&!moved\)/.test(finishPointerSource) &&
+    /labEdit\.onTerminalSelect/.test(finishPointerSource) &&
+    !/setWiring\(|connectCircuit\(|disconnectCircuit\(/.test(finishPointerSource));
   const contextLostStart = sceneSource.indexOf("const onContextLost=");
   const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
   const contextHandlersEnd = sceneSource.indexOf('canvas.addEventListener("pointerdown"', contextRestoredStart);
@@ -123,6 +170,9 @@ export async function runScene3DContracts() {
   check("pending-wire-context-reset-is-fail-closed",
     /clearPendingWireState\(false\)/.test(contextLostSource) &&
     !/setPendingWireTerminal\(|pendingWireTerminalId\s*=/.test(contextRestoredSource));
+  check("terminal-link-drag-context-reset-is-fail-closed",
+    /drag=null;[\s\S]*clearTerminalLinkDragState\(false\)/.test(contextLostSource) &&
+    !/onTerminalLink|terminalLinkDragSourceId\s*=|terminalLinkDragTargetId\s*=/.test(contextRestoredSource));
   check("wire-geometry-revision-resets-on-context-loss",
     /labWireGeometryRevision=0/.test(contextLostSource) &&
     /labWireGeometryRevision="0"/.test(contextLostSource));
@@ -258,12 +308,82 @@ export async function runScene3DContracts() {
     canvas.dispatchEvent(new PointerEvent("pointerup", { button: 0, pointerId: 44, pointerType: "touch", clientX: 24, clientY: 10, bubbles: true }));
     check("touch-14px-drag-does-not-select", selected === beforeTrueDrag);
 
-    const [{ createLabLayout, moveLabComponent, rotateLabComponent }, {
+    const [{ createLabLayout, moveLabComponent, rotateLabComponent, labTerminalAnchor }, {
       listTerminals, createCircuit, connectCircuit, createSampleCircuit, disconnectCircuit,
-    }] = await Promise.all([
+    }, T] = await Promise.all([
       import("../src/lab-layout.js"),
       import("../src/circuit-router.js"),
+      import("../assets/vendor/three.module.min.js"),
     ]);
+    const labVisualHeight = visualKind => {
+      if (visualKind === "arduino-uno") return .46;
+      if (visualKind === "breadboard") return .34;
+      if (visualKind === "ultrasonic-sensor") return .68;
+      if (visualKind === "servo" || visualKind === "driver") return .62;
+      if (visualKind === "power-source") return .55;
+      return .48;
+    };
+    const resetCameraForTerminalProjection = sceneCanvas => {
+      sceneCanvas.focus();
+      sceneCanvas.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Home", bubbles: true, cancelable: true,
+      }));
+    };
+    const projectedTerminalPoint = (sceneCanvas, labLayout, terminalId) => {
+      const rect = sceneCanvas.getBoundingClientRect();
+      const anchor = labTerminalAnchor(labLayout, terminalId);
+      const terminal = labLayout.terminalMap[terminalId];
+      const component = labLayout.components.find(item => item.id === terminal.componentId);
+      if (!component) throw new Error("Missing terminal component: " + terminalId);
+      const aspect = rect.width / rect.height;
+      const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+      const theta = .48, phi = .94;
+      const fitted = Math.max(16.7, 18.5 /
+        (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+      const radius = Math.min(48, Math.max(8, fitted));
+      camera.position.set(
+        radius * Math.sin(phi) * Math.sin(theta),
+        radius * Math.cos(phi) + 5,
+        radius * Math.sin(phi) * Math.cos(theta),
+      );
+      camera.lookAt(new T.Vector3(
+        ((labLayout.bounds.minX + labLayout.bounds.maxX) / 2) * .72,
+        .35,
+        ((labLayout.bounds.minZ + labLayout.bounds.maxZ) / 2) * .72,
+      ));
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+      const point = new T.Vector3(
+        anchor.x * .72,
+        labVisualHeight(component.visualKind) + .10,
+        anchor.z * .72,
+      ).project(camera);
+      return {
+        clientX: rect.left + (point.x + 1) * rect.width / 2,
+        clientY: rect.top + (1 - point.y) * rect.height / 2,
+      };
+    };
+    const dispatchScenePointer = (sceneCanvas, type, point, pointerId, pointerType = "mouse") => {
+      const event = new PointerEvent(type, {
+        button: 0, pointerId, pointerType,
+        clientX: point.clientX, clientY: point.clientY,
+        bubbles: true, cancelable: true,
+      });
+      sceneCanvas.dispatchEvent(event);
+      return event;
+    };
+    const findTerminalPoint = (sceneCanvas, labLayout, terminalId, pointerId = 800) => {
+      const projected = projectedTerminalPoint(sceneCanvas, labLayout, terminalId);
+      const offsets = [0, -3, 3, -6, 6, -10, 10];
+      for (const dx of offsets) {
+        for (const dy of offsets) {
+          const point = { clientX: projected.clientX + dx, clientY: projected.clientY + dy };
+          dispatchScenePointer(sceneCanvas, "pointermove", point, pointerId, "mouse");
+          if (sceneCanvas.dataset.labHoveredTerminal === terminalId) return point;
+        }
+      }
+      throw new Error("Could not hit projected terminal " + terminalId);
+    };
     mounted.setLesson({ id: 2 });
     const terminals = listTerminals(2);
     const layout = createLabLayout(2, terminals);
@@ -332,6 +452,237 @@ export async function runScene3DContracts() {
       canvas.dataset.labTerminalContrastFeedback === "none" &&
       canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
       canvas.dataset.labWireHighlightFeedback === "none");
+
+    mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino", onTerminalLink: null });
+    resetCameraForTerminalProjection(canvas);
+    const noHandlerSourcePoint = findTerminalPoint(canvas, layout, "D13", 799);
+    const noHandlerTargetPoint = findTerminalPoint(canvas, layout, "R1:A", 800);
+    dispatchScenePointer(canvas, "pointerdown", noHandlerSourcePoint, 809, "mouse");
+    dispatchScenePointer(canvas, "pointermove", noHandlerTargetPoint, 809, "mouse");
+    check("terminal-drag-without-controller-handler-does-not-arm-ghost",
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+    dispatchScenePointer(canvas, "pointercancel", noHandlerSourcePoint, 809, "mouse");
+
+    const terminalLinkEvents = [];
+    const terminalSelectEvents = [];
+    const terminalDragStartEvents = [];
+    let clearPendingOnDragStart = false;
+    mounted.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onTerminalSelect: (terminalId, meta) => terminalSelectEvents.push({ terminalId, meta }),
+      onTerminalDragStart: (sourceId, meta) => {
+        terminalDragStartEvents.push({ sourceId, meta });
+        if (clearPendingOnDragStart) mounted.setPendingWireTerminal(null);
+      },
+      onTerminalLink: (fromId, toId, meta) => terminalLinkEvents.push({ fromId, toId, meta }),
+    });
+    mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    resetCameraForTerminalProjection(canvas);
+    const dragSourcePoint = findTerminalPoint(canvas, layout, "D13", 801);
+    const dragTargetPoint = findTerminalPoint(canvas, layout, "R1:A", 802);
+    const selectedBeforeTerminalDrag = canvas.dataset.labSelectedComponent;
+    const wireCountBeforeTerminalDrag = canvas.dataset.labWireCount;
+    const geometryRevisionBeforeTerminalDrag = canvas.dataset.labWireGeometryRevision;
+    for (const [index, pointerType] of ["mouse", "touch", "pen"].entries()) {
+      const pointerId = 810 + index;
+      const linkCountBefore = terminalLinkEvents.length;
+      const selectCountBefore = terminalSelectEvents.length;
+      const dragStartCountBefore = terminalDragStartEvents.length;
+      dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, pointerId, pointerType);
+      const dragMove = dispatchScenePointer(canvas, "pointermove", dragTargetPoint, pointerId, pointerType);
+      dispatchScenePointer(canvas, "pointermove", dragTargetPoint, pointerId, pointerType);
+      const dragStart = terminalDragStartEvents.at(-1);
+      check("terminal-drag-" + pointerType + "-shows-valid-ghost",
+        dragMove.defaultPrevented &&
+        terminalDragStartEvents.length === dragStartCountBefore + 1 &&
+        dragStart?.sourceId === "D13" &&
+        dragStart?.meta?.source === "pointer-drag" &&
+        dragStart?.meta?.physicalVerified === false &&
+        Object.isFrozen(dragStart.meta) &&
+        Object.keys(dragStart.meta).sort().join(",") === "physicalVerified,source" &&
+        canvas.dataset.labTerminalDragSource === "D13" &&
+        canvas.dataset.labTerminalDragTarget === "R1:A" &&
+        canvas.dataset.labTerminalDragPreview === "ghost" &&
+        canvas.dataset.labPendingWirePreview === "none");
+      dispatchScenePointer(canvas, "pointerup", dragTargetPoint, pointerId, pointerType);
+      const link = terminalLinkEvents.at(-1);
+      check("terminal-drag-" + pointerType + "-emits-once-through-controller-callback",
+        terminalLinkEvents.length === linkCountBefore + 1 &&
+        terminalDragStartEvents.length === dragStartCountBefore + 1 &&
+        terminalSelectEvents.length === selectCountBefore &&
+        link?.fromId === "D13" &&
+        link?.toId === "R1:A" &&
+        link?.meta?.source === "pointer-drag" &&
+        link?.meta?.physicalVerified === false &&
+        Object.isFrozen(link.meta) &&
+        Object.keys(link.meta).sort().join(",") === "physicalVerified,source");
+      check("terminal-drag-" + pointerType + "-cleans-transient-state-without-graph-mutation",
+        canvas.dataset.labTerminalDragSource === "" &&
+        canvas.dataset.labTerminalDragTarget === "" &&
+        canvas.dataset.labTerminalDragPreview === "none" &&
+        canvas.dataset.labSelectedComponent === selectedBeforeTerminalDrag &&
+        canvas.dataset.labWireCount === wireCountBeforeTerminalDrag &&
+        canvas.dataset.labWireGeometryRevision === geometryRevisionBeforeTerminalDrag);
+    }
+
+    const linkCountBeforeTap = terminalLinkEvents.length;
+    const selectCountBeforeTap = terminalSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 820, "mouse");
+    dispatchScenePointer(canvas, "pointerup", dragSourcePoint, 820, "mouse");
+    check("terminal-tap-keeps-onTerminalSelect-without-link-fallback",
+      terminalLinkEvents.length === linkCountBeforeTap &&
+      terminalSelectEvents.length === selectCountBeforeTap + 1 &&
+      terminalSelectEvents.at(-1)?.terminalId === "D13" &&
+      terminalSelectEvents.at(-1)?.meta?.source === "pointer");
+
+    const linkCountBeforeJitter = terminalLinkEvents.length;
+    const selectCountBeforeJitter = terminalSelectEvents.length;
+    const dragStartCountBeforeJitter = terminalDragStartEvents.length;
+    const touchJitterPoint = { clientX: dragSourcePoint.clientX + 11, clientY: dragSourcePoint.clientY };
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 821, "touch");
+    dispatchScenePointer(canvas, "pointermove", touchJitterPoint, 821, "touch");
+    dispatchScenePointer(canvas, "pointerup", touchJitterPoint, 821, "touch");
+    check("terminal-touch-11px-jitter-stays-tap-not-link",
+      terminalLinkEvents.length === linkCountBeforeJitter &&
+      terminalDragStartEvents.length === dragStartCountBeforeJitter &&
+      terminalSelectEvents.length === selectCountBeforeJitter + 1 &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const backgroundPoint = (() => {
+      const rect = canvas.getBoundingClientRect();
+      return { clientX: rect.left + 2, clientY: rect.top + 2 };
+    })();
+    clearPendingOnDragStart = true;
+    mounted.setPendingWireTerminal("D13");
+    const linkCountBeforeCanceledArmDrag = terminalLinkEvents.length;
+    const dragStartCountBeforeCanceledArmDrag = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragTargetPoint, 829, "touch");
+    dispatchScenePointer(canvas, "pointermove", backgroundPoint, 829, "touch");
+    const canceledArmDragStart = terminalDragStartEvents.at(-1);
+    check("terminal-drag-start-clears-controller-owned-two-tap-arm-before-eventual-cancel",
+      terminalDragStartEvents.length === dragStartCountBeforeCanceledArmDrag + 1 &&
+      canceledArmDragStart?.sourceId === "R1:A" &&
+      canceledArmDragStart?.meta?.source === "pointer-drag" &&
+      canceledArmDragStart?.meta?.physicalVerified === false &&
+      Object.isFrozen(canceledArmDragStart.meta) &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      terminalLinkEvents.length === linkCountBeforeCanceledArmDrag);
+    dispatchScenePointer(canvas, "pointercancel", backgroundPoint, 829, "touch");
+    check("terminal-drag-start-cancel-remains-exactly-once-without-link",
+      terminalDragStartEvents.length === dragStartCountBeforeCanceledArmDrag + 1 &&
+      terminalLinkEvents.length === linkCountBeforeCanceledArmDrag &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+    clearPendingOnDragStart = false;
+
+    const linkCountBeforeBackground = terminalLinkEvents.length;
+    const selectCountBeforeBackground = terminalSelectEvents.length;
+    const dragStartCountBeforeBackground = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 822, "mouse");
+    dispatchScenePointer(canvas, "pointermove", backgroundPoint, 822, "mouse");
+    check("terminal-drag-background-has-no-valid-target-or-ghost",
+      terminalDragStartEvents.length === dragStartCountBeforeBackground + 1 &&
+      canvas.dataset.labTerminalDragSource === "D13" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+    dispatchScenePointer(canvas, "pointerup", backgroundPoint, 822, "mouse");
+    check("terminal-drag-background-drop-emits-nothing",
+      terminalLinkEvents.length === linkCountBeforeBackground &&
+      terminalDragStartEvents.length === dragStartCountBeforeBackground + 1 &&
+      terminalSelectEvents.length === selectCountBeforeBackground &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const linkCountBeforeSameEndpoint = terminalLinkEvents.length;
+    const selectCountBeforeSameEndpoint = terminalSelectEvents.length;
+    const dragStartCountBeforeSameEndpoint = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 828, "mouse");
+    dispatchScenePointer(canvas, "pointermove", backgroundPoint, 828, "mouse");
+    dispatchScenePointer(canvas, "pointermove", dragSourcePoint, 828, "mouse");
+    check("terminal-drag-same-endpoint-is-not-valid-target",
+      terminalDragStartEvents.length === dragStartCountBeforeSameEndpoint + 1 &&
+      canvas.dataset.labTerminalDragSource === "D13" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+    dispatchScenePointer(canvas, "pointerup", dragSourcePoint, 828, "mouse");
+    check("terminal-drag-same-endpoint-emits-nothing",
+      terminalLinkEvents.length === linkCountBeforeSameEndpoint &&
+      terminalDragStartEvents.length === dragStartCountBeforeSameEndpoint + 1 &&
+      terminalSelectEvents.length === selectCountBeforeSameEndpoint &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const linkCountBeforeForeignPointer = terminalLinkEvents.length;
+    const dragStartCountBeforeForeignPointer = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 823, "mouse");
+    dispatchScenePointer(canvas, "pointermove", dragTargetPoint, 824, "mouse");
+    dispatchScenePointer(canvas, "pointerup", dragTargetPoint, 824, "mouse");
+    dispatchScenePointer(canvas, "pointercancel", dragSourcePoint, 823, "mouse");
+    check("terminal-drag-foreign-pointer-cannot-complete-link",
+      terminalLinkEvents.length === linkCountBeforeForeignPointer &&
+      terminalDragStartEvents.length === dragStartCountBeforeForeignPointer &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const linkCountBeforeTouchCancel = terminalLinkEvents.length;
+    const dragStartCountBeforeTouchCancel = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 825, "touch");
+    dispatchScenePointer(canvas, "pointermove", dragTargetPoint, 825, "touch");
+    check("terminal-touch-drag-arms-ghost-before-cancel",
+      terminalDragStartEvents.length === dragStartCountBeforeTouchCancel + 1 &&
+      canvas.dataset.labTerminalDragPreview === "ghost" &&
+      canvas.dataset.labTerminalDragTarget === "R1:A");
+    dispatchScenePointer(canvas, "pointercancel", dragTargetPoint, 825, "touch");
+    check("terminal-touch-cancel-clears-ghost-without-link",
+      terminalLinkEvents.length === linkCountBeforeTouchCancel &&
+      terminalDragStartEvents.length === dragStartCountBeforeTouchCancel + 1 &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const linkCountBeforeLostCapture = terminalLinkEvents.length;
+    const dragStartCountBeforeLostCapture = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 826, "pen");
+    dispatchScenePointer(canvas, "pointermove", dragTargetPoint, 826, "pen");
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      pointerId: 826, pointerType: "pen",
+      clientX: dragTargetPoint.clientX, clientY: dragTargetPoint.clientY,
+      bubbles: true, cancelable: true,
+    }));
+    check("terminal-pen-lost-capture-clears-ghost-without-link",
+      terminalLinkEvents.length === linkCountBeforeLostCapture &&
+      terminalDragStartEvents.length === dragStartCountBeforeLostCapture + 1 &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+
+    const linkCountBeforeStageClear = terminalLinkEvents.length;
+    const dragStartCountBeforeStageClear = terminalDragStartEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", dragSourcePoint, 827, "mouse");
+    dispatchScenePointer(canvas, "pointermove", dragTargetPoint, 827, "mouse");
+    check("terminal-drag-stage-clear-fixture-has-active-ghost",
+      terminalDragStartEvents.length === dragStartCountBeforeStageClear + 1 &&
+      canvas.dataset.labTerminalDragPreview === "ghost");
+    mounted.setLabLayout(null);
+    dispatchScenePointer(canvas, "pointerup", dragTargetPoint, 827, "mouse");
+    check("terminal-drag-stage-clear-cancels-stale-drop",
+      terminalLinkEvents.length === linkCountBeforeStageClear &&
+      terminalDragStartEvents.length === dragStartCountBeforeStageClear + 1 &&
+      canvas.dataset.labTerminalDragSource === "" &&
+      canvas.dataset.labTerminalDragTarget === "" &&
+      canvas.dataset.labTerminalDragPreview === "none");
+    mounted.setLabLayout(layout);
+    // Direct-drag fixture teardown: historical contracts below intentionally
+    // start outside edit mode (notably pending-wire-requires-edit-mode).
+    mounted.setLabEdit({
+      enabled: false,
+      onTerminalSelect: null,
+      onTerminalDragStart: null,
+      onTerminalLink: null,
+    });
 
     let highlightWithoutWiringRejected = false;
     try { mounted.setHighlightedLabWire("w1"); }
@@ -732,7 +1083,31 @@ export async function runScene3DContracts() {
     await waitTask();
     flushFrames();
     check("remount-after-dispose", host.querySelectorAll("canvas").length === 1);
+    const remountCanvas = host.querySelector("canvas");
+    const disposeLinkEvents = [];
+    remountCanvas.setPointerCapture = () => {};
+    remountCanvas.releasePointerCapture = () => {};
+    remount.setLesson({ id: 2 });
+    remount.setLabLayout(layout);
+    remount.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onTerminalLink: (fromId, toId, meta) => disposeLinkEvents.push({ fromId, toId, meta }),
+    });
+    resetCameraForTerminalProjection(remountCanvas);
+    const disposeSourcePoint = findTerminalPoint(remountCanvas, layout, "D13", 901);
+    const disposeTargetPoint = findTerminalPoint(remountCanvas, layout, "R1:A", 902);
+    dispatchScenePointer(remountCanvas, "pointerdown", disposeSourcePoint, 903, "mouse");
+    dispatchScenePointer(remountCanvas, "pointermove", disposeTargetPoint, 903, "mouse");
+    check("dispose-terminal-drag-fixture-has-active-ghost",
+      remountCanvas.dataset.labTerminalDragPreview === "ghost" &&
+      remountCanvas.dataset.labTerminalDragTarget === "R1:A");
     remount.dispose();
+    check("dispose-clears-terminal-drag-without-callback",
+      disposeLinkEvents.length === 0 &&
+      remountCanvas.dataset.labTerminalDragSource === "" &&
+      remountCanvas.dataset.labTerminalDragTarget === "" &&
+      remountCanvas.dataset.labTerminalDragPreview === "none");
 
     host.remove();
     host = makeHost();
@@ -740,22 +1115,47 @@ export async function runScene3DContracts() {
     await waitTask();
     flushFrames();
     const lossCanvas = host.querySelector("canvas");
+    lossCanvas.setPointerCapture = () => {};
+    lossCanvas.releasePointerCapture = () => {};
+    const lossTerminalLinkEvents = [];
     lossDispose.setLesson({ id: 2 });
     lossDispose.setLabLayout(layout);
     lossDispose.setWiring(sampleCircuit, terminals);
     lossDispose.setHighlightedLabWire(committedWireId);
+    lossDispose.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onTerminalLink: (fromId, toId, meta) => lossTerminalLinkEvents.push({ fromId, toId, meta }),
+    });
+    resetCameraForTerminalProjection(lossCanvas);
+    const lossSourcePoint = findTerminalPoint(lossCanvas, layout, "D13", 904);
+    const lossTargetPoint = findTerminalPoint(lossCanvas, layout, "R1:A", 905);
+    dispatchScenePointer(lossCanvas, "pointerdown", lossSourcePoint, 906, "mouse");
+    dispatchScenePointer(lossCanvas, "pointermove", lossTargetPoint, 906, "mouse");
+    check("lesson-change-terminal-drag-fixture-has-active-ghost",
+      lossCanvas.dataset.labTerminalDragPreview === "ghost");
     lossDispose.setLesson({ id: 3 });
     check("lesson-change-clears-highlighted-wire",
       lossCanvas.dataset.labHighlightedWire === "" &&
       lossCanvas.dataset.labWireRouteMode === "none" &&
       lossCanvas.dataset.labWireRoutePointCount === "0" &&
       lossCanvas.dataset.labWireGeometryRevision === "0");
+    check("lesson-change-cancels-terminal-drag-without-stale-callback",
+      lossTerminalLinkEvents.length === 0 &&
+      lossCanvas.dataset.labTerminalDragSource === "" &&
+      lossCanvas.dataset.labTerminalDragTarget === "" &&
+      lossCanvas.dataset.labTerminalDragPreview === "none");
     lossDispose.setLesson({ id: 2 });
     lossDispose.setLabLayout(layout);
     lossDispose.setWiring(sampleCircuit, terminals);
     lossDispose.setHighlightedLabWire(committedWireId);
     lossDispose.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
     lossDispose.setPendingWireTerminal("D13");
+    resetCameraForTerminalProjection(lossCanvas);
+    const contextSourcePoint = findTerminalPoint(lossCanvas, layout, "D13", 907);
+    const contextTargetPoint = findTerminalPoint(lossCanvas, layout, "R1:A", 908);
+    dispatchScenePointer(lossCanvas, "pointerdown", contextSourcePoint, 909, "touch");
+    dispatchScenePointer(lossCanvas, "pointermove", contextTargetPoint, 909, "touch");
     const revisionBeforeContextLoss = Number(lossCanvas.dataset.labWireGeometryRevision);
     check("pending-wire-armed-before-context-reset",
       lossCanvas.dataset.labPendingWireTerminal === "D13" &&
@@ -767,6 +1167,11 @@ export async function runScene3DContracts() {
       /committed/.test(lossCanvas.dataset.labTerminalContrastFeedback) &&
       lossCanvas.dataset.labWireRouteMode === "elevated-multisegment" &&
       revisionBeforeContextLoss > 0);
+    check("terminal-drag-armed-before-context-reset",
+      lossCanvas.dataset.labTerminalDragSource === "D13" &&
+      lossCanvas.dataset.labTerminalDragTarget === "R1:A" &&
+      lossCanvas.dataset.labTerminalDragPreview === "ghost");
+    const linkCountBeforeContextLoss = lossTerminalLinkEvents.length;
     const lossGl = lossCanvas.getContext("webgl2");
     const lossExtension = lossGl?.getExtension("WEBGL_lose_context");
     const lossPromise = waitEvent(lossCanvas, "webglcontextlost");
@@ -778,6 +1183,11 @@ export async function runScene3DContracts() {
       lossCanvas.dataset.labPendingWireHoverTerminal === "" &&
       lossCanvas.dataset.labPendingWirePreview === "none" &&
       !/Terminal đầu đang chờ nối/.test(lossCanvas.getAttribute("aria-label") || ""));
+    check("context-reset-cancels-terminal-drag-without-callback",
+      lossTerminalLinkEvents.length === linkCountBeforeContextLoss &&
+      lossCanvas.dataset.labTerminalDragSource === "" &&
+      lossCanvas.dataset.labTerminalDragTarget === "" &&
+      lossCanvas.dataset.labTerminalDragPreview === "none");
     check("context-reset-clears-highlighted-wire",
       lossCanvas.dataset.labHighlightedWire === "" &&
       lossCanvas.dataset.labWireGeometryRevision === "0" &&

@@ -6,11 +6,12 @@ the script refuses to replace a directory without its own marker.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import shutil
 import sys
 import tempfile
-from hashlib import sha256
+from hashlib import sha1, sha256
 from pathlib import Path, PurePosixPath
 
 if __package__:
@@ -34,6 +35,12 @@ AVR_VENDOR_SOURCE_FILES = [
     "assets/vendor/avr/avr8js-0.21.1-source/cpu.ts",
     "assets/vendor/avr/avr8js-0.21.1-source/instruction.ts",
     "assets/vendor/avr/avr8js-0.21.1-source/interrupt.ts",
+]
+# Append only after the existing 126-path release prefix: these exact,
+# MIT-licensed v0.21.1 sources document Timer2 fidelity but are NOT runtime.
+AVR_TIMER2_EXACT_REFERENCE_FILES = [
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.ts",
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts",
 ]
 AVR_VENDOR_FILES = [
     *AVR_VENDOR_RUNTIME_FILES,
@@ -113,6 +120,17 @@ POST_V16_STUDY_EXTENSION_FILES = [
     "docs/POST_V16_SCENE_COMPONENT_FIDELITY.md",
     "docs/AVR_TIMER2_FIDELITY_NEXT.md",
 ]
+POST_V16_RICH_INTERACTION_FILES = [
+    "src/practice-checkpoint-trail.js",
+    "src/practice-checkpoint-trail-ui.js",
+    "docs/POST_V16_TERMINAL_DRAG.md",
+    "docs/LAB_EDITOR_PRECISION_WIRES_NEXT.md",
+    "docs/PRACTICE_48_STEP_TRAIL_NEXT.md",
+    "docs/SKETCH_TO_INSPECTOR_NEXT.md",
+    "docs/AVR_TIMER2_CTC_STUDY_NEXT.md",
+    "docs/POST_V16_RICH_INTERACTION_QA.md",
+    *AVR_TIMER2_EXACT_REFERENCE_FILES,
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -169,9 +187,13 @@ FILES = [
     *POST_V16_FIDELITY_FILES,
     *POST_V16_GUIDED_INSPECTION_FILES,
     *POST_V16_STUDY_EXTENSION_FILES,
+    *POST_V16_RICH_INTERACTION_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)
+_LOCAL_ESM_IMPORT_RE = re.compile(
+    r"""\b(?:from\s*|import\s*(?:\(\s*)?)(["'])(\.[^"']+)\1\s*\)?"""
+)
 _THREE_PINNED_SHA256 = {
     "assets/vendor/three.module.min.js":
         "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
@@ -194,6 +216,10 @@ _AVR_PINNED_SHA256 = {
         "fb5ab0837dee73be25609c937219236c96822974f4d2ef43d7d83e5fc1df5475",
     "assets/vendor/avr/avr8js-0.21.1-source/interrupt.ts":
         "3021a736c32b92e1ba06b3d160bfce7959780ff0aa16675ec3e7f069890e7b99",
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.ts":
+        "9d43d54a461a3d9ce469ce91e6cd828ecab0f92148a0ba58bc4263787b61aaa4",
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts":
+        "baf1c0e8029224bf41690773c8eac102ff2f03c8b2f23573ec9bdeffe4144c36",
     "assets/vendor/avr/AVR8JS-LICENSE.txt":
         "71d092fa8944eb36ce929756f620ee5bf31f119d5f78a6941dc04d48f504177b",
     "assets/vendor/avr/cpu.js":
@@ -202,6 +228,15 @@ _AVR_PINNED_SHA256 = {
         "82664a05845ffb46ed78ea29a7f539e6152dd1626f2cf81df01597c16fef4415",
     "assets/vendor/avr/interrupt.js":
         "fdd767535daa0aba32d3627520e9753cdcb0d8203126a374d40659eddadc5508",
+}
+# Actual upstream Git blob identities verified at exact v0.21.1 commit.
+# SHA-1 identifies upstream Git objects; the independent SHA-256 pins above
+# defend release integrity. Neither file is an executable browser runtime.
+_AVR_TIMER2_UPSTREAM_BLOBS = {
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.ts":
+        "0c18071f3b7c1c49178011d64f8b940c5f60de95",
+    "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts":
+        "6af821578db4402564776bc19e3fa77afa4983f1",
 }
 
 
@@ -224,6 +259,24 @@ def _release_source(filename: str) -> Path:
     if not resolved.is_file() or not resolved.is_relative_to(root) or resolved.is_relative_to(dist):
         raise RuntimeError(f"Release file escapes workspace or targets dist: {filename}")
     return resolved
+
+
+def _verify_local_module_import_graph(sources: dict[str, Path]) -> None:
+    """Require every first-party literal ESM dependency in the public allowlist."""
+    for filename, source in sources.items():
+        if not filename.startswith("src/") or not filename.endswith(".js"):
+            continue
+        for match in _LOCAL_ESM_IMPORT_RE.finditer(source.read_text(encoding="utf-8")):
+            specifier = match.group(2)
+            if "?" in specifier or "#" in specifier or "\\" in specifier:
+                raise RuntimeError(f"Unsafe local import: {filename} -> {specifier}")
+            resolved = posixpath.normpath(
+                posixpath.join(posixpath.dirname(filename), specifier)
+            )
+            if resolved not in sources or not resolved.endswith(".js"):
+                raise RuntimeError(
+                    f"Unpackaged first-party ESM dependency: {filename} -> {specifier}"
+                )
 
 
 def _verify_release_allowlist() -> None:
@@ -296,7 +349,11 @@ def _verify_avr_vendor_assets() -> None:
             for row in derived_rows
             if isinstance(row, dict)
         }
-        expected_exact = {*AVR_VENDOR_SOURCE_FILES, "assets/vendor/avr/AVR8JS-LICENSE.txt"}
+        expected_exact = {
+            *AVR_VENDOR_SOURCE_FILES,
+            *AVR_TIMER2_EXACT_REFERENCE_FILES,
+            "assets/vendor/avr/AVR8JS-LICENSE.txt",
+        }
         if len(exact_hashes) != len(exact_rows) or set(exact_hashes) != expected_exact:
             raise ValueError("Unexpected upstream AVR provenance file set")
         if len(derived_hashes) != len(derived_rows) or set(derived_hashes) != set(AVR_VENDOR_RUNTIME_FILES):
@@ -312,6 +369,14 @@ def _verify_avr_vendor_assets() -> None:
                 raise ValueError(f"AVR provenance hash differs from pinned checksum: {filename}")
             if sha256(_release_source(filename).read_bytes()).hexdigest() != expected_hash:
                 raise ValueError(f"AVR pinned asset hash mismatch: {filename}")
+        exact_rows_by_path = {row["path"]: row for row in exact_rows}
+        for filename, upstream_blob in _AVR_TIMER2_UPSTREAM_BLOBS.items():
+            if exact_rows_by_path[filename].get("git_blob_sha1") != upstream_blob:
+                raise ValueError(f"Timer2 upstream Git blob metadata mismatch: {filename}")
+            source_bytes = _release_source(filename).read_bytes()
+            git_blob = b"blob " + str(len(source_bytes)).encode("ascii") + b"\0" + source_bytes
+            if sha1(git_blob).hexdigest() != upstream_blob:
+                raise ValueError(f"Timer2 upstream Git blob content mismatch: {filename}")
         license_text = _release_source("assets/vendor/avr/AVR8JS-LICENSE.txt").read_text(encoding="utf-8")
         if "The MIT License (MIT)" not in license_text or "Permission is hereby granted" not in license_text:
             raise ValueError("AVR MIT license text is missing")
@@ -353,6 +418,7 @@ def build() -> Path:
         raise RuntimeError("Refusing to replace dist without generated marker")
     _verify_release_allowlist()
     sources = {filename: _release_source(filename) for filename in FILES}
+    _verify_local_module_import_graph(sources)
     source_worker = sources["sw.js"].read_text(encoding="utf-8")
     _verify_service_worker_assets(source_worker)
     _verify_webmanifest(sources["site.webmanifest"])
