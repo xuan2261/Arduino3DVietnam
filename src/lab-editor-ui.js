@@ -24,11 +24,13 @@ const create = (tag, text = "") => {
 export function mountLabEditor({
   getCircuit, onCircuitChange, onEditModeChange = () => {},
   onSelectionChange = () => {}, onLayoutChange = () => {},
+  onWireInspection = null,
 }) {
   if (typeof getCircuit !== "function" || typeof onCircuitChange !== "function") {
     throw new TypeError("Lab editor requires real circuit read/write callbacks.");
   }
-  if ([onEditModeChange,onSelectionChange,onLayoutChange].some(callback=>typeof callback!=="function")) {
+  if ([onEditModeChange,onSelectionChange,onLayoutChange].some(callback=>typeof callback!=="function") ||
+      (onWireInspection!==null && typeof onWireInspection!=="function")) {
     throw new TypeError("Lab editor change observers must be functions.");
   }
   const entry = $("labEditEntry"), panel = $("labEditor"), toggle = $("labEditToggle");
@@ -208,6 +210,83 @@ export function mountLabEditor({
     }
     analyzeCircuit(lessonId,current);
     return current;
+  };
+  const WIRE_INSPECTION_SOURCES=new Set(["pointer","native-button"]);
+  const NATIVE_WIRE_INSPECTION_META=Object.freeze({source:"native-button",physicalVerified:false});
+  const wireInspectionSource=meta=>{
+    if(!meta||typeof meta!=="object"||Array.isArray(meta)||Object.getPrototypeOf(meta)!==Object.prototype||
+       !Object.isFrozen(meta)||Reflect.ownKeys(meta).length!==2||
+       !Object.hasOwn(meta,"source")||!Object.hasOwn(meta,"physicalVerified"))return null;
+    const source=Object.getOwnPropertyDescriptor(meta,"source");
+    const physical=Object.getOwnPropertyDescriptor(meta,"physicalVerified");
+    if(!source||!physical||!("value" in source)||!("value" in physical)||
+       source.get||source.set||physical.get||physical.set||physical.value!==false||
+       typeof source.value!=="string"||!WIRE_INSPECTION_SOURCES.has(source.value))return null;
+    return source.value;
+  };
+  const wireInspectionResult=({
+    accepted=false,reason="rejected",wireId=null,from=null,to=null,source=null,
+  }={})=>Object.freeze({
+    accepted:Boolean(accepted),reason:String(reason),lessonId,wireId,from,to,source,
+    mode:accepted?"committed-wire-inspection":"none",
+    learnerGraphOnly:true,visualOnly:true,electricalAuthority:false,physicalVerified:false,
+  });
+  const exactInspectionWire=(wire,wireId,terminalIds)=>{
+    if(!wire||typeof wire!=="object"||Array.isArray(wire)||Object.getPrototypeOf(wire)!==Object.prototype)return null;
+    const keys=Reflect.ownKeys(wire);
+    if(keys.length!==3||!Object.hasOwn(wire,"id")||!Object.hasOwn(wire,"from")||!Object.hasOwn(wire,"to"))return null;
+    const id=Object.getOwnPropertyDescriptor(wire,"id");
+    const from=Object.getOwnPropertyDescriptor(wire,"from");
+    const to=Object.getOwnPropertyDescriptor(wire,"to");
+    if([id,from,to].some(descriptor=>!descriptor||!("value" in descriptor)||descriptor.get||descriptor.set))return null;
+    if(id.value!==wireId||typeof from.value!=="string"||typeof to.value!=="string"||
+       from.value===to.value||!terminalIds.has(from.value)||!terminalIds.has(to.value))return null;
+    return Object.freeze({id:id.value,from:from.value,to:to.value});
+  };
+  const inspectCommittedWire=(wireId,meta,expectedLessonId)=>{
+    const source=wireInspectionSource(meta);
+    const rejected=reason=>wireInspectionResult({reason,wireId:typeof wireId==="string"?wireId:null,source});
+    if(!Number.isInteger(expectedLessonId)||expectedLessonId!==lessonId)return rejected("stale-lesson");
+    if(!editing||stage!=="3d"||!scene||!lessonSupported())return rejected("editor-not-active");
+    if(!source)return rejected("invalid-meta");
+    if(typeof wireId!=="string"||wireId.trim()!==wireId||!/^w[1-9]\d*$/.test(wireId))return rejected("invalid-wire-id");
+    let circuit;
+    try{circuit=currentLearnerCircuit({requireExisting:true});}
+    catch{return rejected("foreign-learner-graph");}
+    if(!circuit)return rejected("no-learner-graph");
+    if(Object.getPrototypeOf(circuit)!==Object.prototype||!Object.hasOwn(circuit,"lessonId")||
+       !Object.hasOwn(circuit,"wires")||circuit.lessonId!==lessonId||
+       !Array.isArray(circuit.wires)||Object.getPrototypeOf(circuit.wires)!==Array.prototype){
+      return rejected("foreign-learner-graph");
+    }
+    const terminalIds=new Set(listTerminals(lessonId).map(item=>item.id));
+    const rawWire=circuit.wires.find(item=>{
+      if(!item||typeof item!=="object")return false;
+      const descriptor=Object.getOwnPropertyDescriptor(item,"id");
+      return !!descriptor&&("value" in descriptor)&&descriptor.value===wireId;
+    });
+    if(!rawWire)return rejected("stale-wire");
+    const wire=exactInspectionWire(rawWire,wireId,terminalIds);
+    if(!wire)return rejected("forged-wire");
+    if(typeof scene.setHighlightedLabWire!=="function")return rejected("highlight-unavailable");
+    let highlighted;
+    try{highlighted=scene.setHighlightedLabWire(wire.id);}
+    catch{return rejected("highlight-rejected");}
+    if(!highlighted||highlighted.active!==true||highlighted.wireId!==wire.id||
+       highlighted.mode!=="committed-wire-highlight"||highlighted.physicalVerified!==false){
+      return rejected("highlight-rejected");
+    }
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      syncPendingScenePreview();
+    }
+    terminalNote.textContent="Đang xem dây "+wire.id+" · "+wire.from+" → "+wire.to+"; không tạo hoặc thay đổi kết nối.";
+    announce("Đã đánh dấu trực quan "+wire.id+" trên learner graph; không thay đổi netlist.");
+    const result=wireInspectionResult({
+      accepted:true,reason:"inspected",wireId:wire.id,from:wire.from,to:wire.to,source,
+    });
+    onWireInspection?.(wire.id,meta,lessonId);
+    return result;
   };
   const connectTerminals = (from,to) => {
     if (!editing || stage!=="3d" || !scene || !lessonSupported()) {
@@ -407,6 +486,7 @@ export function mountLabEditor({
       ...sceneCallbacks,
       onTerminalDragStart:(sourceId,meta)=>onTerminalDragStart(sourceId,meta,callbackLessonId),
       onTerminalLink:(fromId,toId,meta)=>onTerminalLink(fromId,toId,meta,callbackLessonId),
+      onCommittedWireInspect:(wireId,meta)=>inspectCommittedWire(wireId,meta,callbackLessonId),
       enabled:editing && sceneVisible,
       selectedComponentId:editing && sceneVisible ? selectedId : null,
     });
@@ -496,6 +576,17 @@ export function mountLabEditor({
       row.dataset.labWireRow=wire.id;
       const endpoints=create("span",wire.id+" · "+wire.from+" → "+wire.to+" · learner graph only");
       endpoints.dataset.labWireEndpoints=wire.id;
+      const actions=create("div");
+      actions.className="lab-precision-wire-actions";
+      const inspect=create("button","Xem dây");
+      inspect.type="button";
+      inspect.className="lab-precision-wire-inspect";
+      inspect.dataset.labInspectWireId=wire.id;
+      inspect.dataset.labWireLesson=String(lessonId);
+      inspect.style.minHeight="44px";
+      inspect.style.minWidth="44px";
+      inspect.disabled=!editing||stage!=="3d";
+      inspect.setAttribute("aria-label","Xem dây "+wire.id+" từ "+wire.from+" đến "+wire.to+" trên learner graph; chỉ đánh dấu trực quan");
       const remove=create("button","Gỡ dây");
       remove.type="button";
       remove.className="lab-precision-wire-remove";
@@ -505,9 +596,17 @@ export function mountLabEditor({
       remove.style.minWidth="44px";
       remove.disabled=!editing||stage!=="3d";
       remove.setAttribute("aria-label","Gỡ dây "+wire.id+" từ "+wire.from+" đến "+wire.to+" khỏi learner graph trong ứng dụng");
-      row.append(endpoints,remove);
+      actions.append(inspect,remove);
+      row.append(endpoints,actions);
       precisionWireRows.append(row);
     }
+  };
+  const onPrecisionWireInspect=event=>{
+    const button=event.target.closest("[data-lab-inspect-wire-id]");
+    if(!button)return false;
+    const expectedLessonId=Number(button.dataset.labWireLesson);
+    const result=inspectCommittedWire(button.dataset.labInspectWireId,NATIVE_WIRE_INSPECTION_META,expectedLessonId);
+    return result.accepted;
   };
   const onPrecisionWireRemove=event=>{
     const button=event.target.closest("[data-lab-remove-wire-id]");
@@ -551,6 +650,7 @@ export function mountLabEditor({
     [$("labSampleWires"),"click",onSample],
     [$("labClearWires"),"click",onClear],
     [$("labRemoveLastWire"),"click",onRemove],
+    [precisionWireList,"click",onPrecisionWireInspect],
     [precisionWireList,"click",onPrecisionWireRemove],
   ];
   for(const [node,event,fn] of listeners) node.addEventListener(event,fn);
@@ -635,6 +735,7 @@ export function mountLabEditor({
     selectComponent(id){selectComponent(id);return selectedId;},
     selectTerminal(id){onTerminalSelect(id);return firstTerminal;},
     connectTerminals(from,to){return connectTerminals(from,to);},
+    inspectCommittedWire(wireId,meta,expectedLessonId){return inspectCommittedWire(wireId,meta,expectedLessonId);},
     removeWire(wireId,expectedLessonId=lessonId){return removeWireById(wireId,expectedLessonId);},
     clearTerminalSelection(){
       if(firstTerminal===null)return false;

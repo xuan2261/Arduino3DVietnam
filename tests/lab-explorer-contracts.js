@@ -32,6 +32,7 @@ function snapshotFor(lessonId, options = {}) {
       stage: "3d",
       editing: false,
       selectedComponentId: null,
+      selectedWireId: options.selectedWireId ?? null,
       layout: null,
       circuit: null,
       referenceCircuit: null,
@@ -56,6 +57,7 @@ function snapshotFor(lessonId, options = {}) {
     editing: Boolean(options.editing),
     selectedComponentId: options.selectedComponentId ?? null,
     selectedTerminalId: options.selectedTerminalId ?? null,
+    selectedWireId: options.selectedWireId ?? null,
     layout,
     circuit,
     referenceCircuit,
@@ -194,6 +196,152 @@ export function runLabExplorerContracts() {
     );
   });
 
+  check("selected-learner-wire-projects-exact-id-and-endpoints-across-pure-surfaces", () => {
+    const lessonId = 2;
+    const pair = sampleWires(lessonId)[0];
+    const circuit = connectCircuit(createCircuit(lessonId), pair[0], pair[1]);
+    const model = createLabExplorerModel(snapshotFor(lessonId, {
+      circuit,
+      analysis: analyzeCircuit(lessonId, circuit),
+      hasLearnerDraft: true,
+      source: "learner-draft",
+      selectedWireId: "w1",
+      editing: false,
+    }));
+    assert(model.selectedWireId === "w1", "top-level selected wire id mismatch");
+    assert(model.selectedWire?.id === "w1" && model.selectedWire.from === pair[0] && model.selectedWire.to === pair[1],
+      "selected wire must come from exact current learner graph endpoints");
+    assert(Object.isFrozen(model.selectedWire), "selected learner wire projection must be frozen");
+    assert(model.inspector.selectedWire === model.selectedWire && model.inspector.selectedWireId === "w1",
+      "inspector selected wire projection mismatch");
+    assert(model.schematic.selectedWireId === "w1" &&
+      model.schematic.wires.filter(wire => wire.selected).length === 1 &&
+      model.schematic.wires.find(wire => wire.id === "w1")?.selected === true,
+      "schematic must select exactly current learner wire");
+    assert(model.schematic.referenceWires.every(wire => wire.selected === false),
+      "reference/sample wire must never become selected learner wire");
+    assert(model.minimap.selectedWireId === "w1" &&
+      model.minimap.wires.filter(wire => wire.selected).length === 1 &&
+      model.minimap.wires[0]?.from === pair[0] && model.minimap.wires[0]?.to === pair[1],
+      "minimap selected wire projection/endpoints mismatch");
+    assert(model.editing === false, "selected wire projection must survive read-only editing=false state");
+  });
+
+  check("selected-wire-stale-or-reference-only-id-clears-without-selecting-sample", () => {
+    const referenceOnly = createLabExplorerModel(snapshotFor(2, { selectedWireId: "w1" }));
+    assert(referenceOnly.schematic.wires.length === 0 && referenceOnly.schematic.referenceWires.some(wire => wire.id === "w1"),
+      "fixture must contain reference w1 but no learner wires");
+    assert(referenceOnly.selectedWireId === null && referenceOnly.selectedWire === null,
+      "reference-only ID must clear instead of selecting sample wire");
+    assert(referenceOnly.inspector.selectedWireId === null && referenceOnly.minimap.selectedWireId === null,
+      "stale/reference-only selection must clear on all pure surfaces");
+
+    const lessonOne = createLabExplorerModel(snapshotFor(1, { selectedWireId: "w1" }));
+    assert(lessonOne.selectedWireId === null && lessonOne.selectedWire === null,
+      "lesson change to no-netlist lesson must clear selected wire");
+  });
+
+  check("selected-wire-and-snapshot-injection-fail-closed", () => {
+    const snapshotWithUncheckedCircuit = circuit => {
+      const snapshot = snapshotFor(2);
+      snapshot.circuit = circuit;
+      return snapshot;
+    };
+    for (const bad of ["", " w1", "w1 ", "W1", "w0", "__proto__", "w1<script>", 1, {}, []]) {
+      expectThrow(
+        () => createLabExplorerModel(snapshotFor(2, { selectedWireId: bad })),
+        /selectedWireId|wire ID/i,
+        `invalid selectedWireId ${String(bad)}`,
+      );
+    }
+
+    const extra = snapshotFor(2);
+    extra.selectedWire = { id: "w1", from: "D13", to: "R1:A" };
+    expectThrow(() => createLabExplorerModel(extra), /field không được hỗ trợ/i,
+      "caller cannot inject selected wire object/endpoints");
+
+    const symbol = snapshotFor(2);
+    symbol[Symbol("selectedWireId")] = "w1";
+    expectThrow(() => createLabExplorerModel(symbol), /field không được hỗ trợ/i,
+      "symbol snapshot field must fail closed");
+
+    const inherited = Object.create({ selectedWireId: "w1" });
+    Object.assign(inherited, snapshotFor(2));
+    expectThrow(() => createLabExplorerModel(inherited), /plain object/i,
+      "custom-prototype snapshot must fail closed");
+
+    const accessorSnapshot = snapshotFor(2);
+    Object.defineProperty(accessorSnapshot, "selectedWireId", {
+      enumerable: true,
+      get() { throw new Error("getter must never execute"); },
+    });
+    expectThrow(() => createLabExplorerModel(accessorSnapshot), /accessor field/i,
+      "snapshot accessor injection must fail before getter execution");
+
+    const pair = sampleWires(2)[0];
+    const forgedCircuit = createCircuit(2);
+    forgedCircuit.wires = [{ id: "__proto__", from: pair[0], to: pair[1] }];
+    forgedCircuit.nextWireId = 2;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(forgedCircuit)), /wire|ID/i,
+      "prototype-like learner wire id must fail closed");
+
+    const inheritedCircuit = Object.create({
+      get lessonId() { throw new Error("inherited lessonId getter must never execute"); },
+      get wires() { throw new Error("inherited wires getter must never execute"); },
+    });
+    inheritedCircuit.version = 1;
+    inheritedCircuit.supported = true;
+    inheritedCircuit.nextWireId = 1;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(inheritedCircuit)), /plain object/i,
+      "inherited circuit state must fail before inherited getter execution");
+
+    const getterCircuit = createCircuit(2);
+    Object.defineProperty(getterCircuit, "wires", {
+      enumerable: true,
+      get() { throw new Error("circuit wires getter must never execute"); },
+    });
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(getterCircuit)), /own data field|accessor/i,
+      "circuit getter field must fail before getter execution");
+
+    const missingOwnWireField = createCircuit(2);
+    missingOwnWireField.wires = [{ from: pair[0], to: pair[1] }];
+    missingOwnWireField.nextWireId = 2;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(missingOwnWireField)), /\.id.*own data field/i,
+      "wire missing own id must fail closed");
+
+    const inheritedWire = Object.create({ id: "w1" });
+    inheritedWire.from = pair[0];
+    inheritedWire.to = pair[1];
+    const inheritedWireCircuit = createCircuit(2);
+    inheritedWireCircuit.wires = [inheritedWire];
+    inheritedWireCircuit.nextWireId = 2;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(inheritedWireCircuit)), /plain object/i,
+      "wire inherited id/prototype must fail closed");
+
+    const getterWire = { id: "w1", from: pair[0], to: pair[1] };
+    Object.defineProperty(getterWire, "id", {
+      enumerable: true,
+      get() { throw new Error("wire id getter must never execute"); },
+    });
+    const getterWireCircuit = createCircuit(2);
+    getterWireCircuit.wires = [getterWire];
+    getterWireCircuit.nextWireId = 2;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(getterWireCircuit)), /own data field|accessor/i,
+      "wire getter field must fail before getter execution");
+
+    const arrayGetterCircuit = createCircuit(2);
+    const maliciousWires = [];
+    Object.defineProperty(maliciousWires, "0", {
+      enumerable: true,
+      configurable: true,
+      get() { throw new Error("wire array getter must never execute"); },
+    });
+    arrayGetterCircuit.wires = maliciousWires;
+    arrayGetterCircuit.nextWireId = 2;
+    expectThrow(() => createLabExplorerModel(snapshotWithUncheckedCircuit(arrayGetterCircuit)), /own data element/i,
+      "wire array accessor element must fail before getter execution");
+  });
+
   check("model-rejects-cross-lesson-or-physical-claims", () => {
     const wrongCircuit = createCircuit(3);
     expectThrow(
@@ -280,6 +428,93 @@ export function runLabExplorerContracts() {
       host.remove();
     });
 
+    check("dom-selected-wire-projects-all-surfaces-focus-continuity-and-clears-stale", () => {
+      const lessonId = 2;
+      const pair = sampleWires(lessonId)[0];
+      const circuit = connectCircuit(createCircuit(lessonId), pair[0], pair[1]);
+      let current = snapshotFor(lessonId, {
+        circuit,
+        analysis: analyzeCircuit(lessonId, circuit),
+        hasLearnerDraft: true,
+        source: "learner-draft",
+        editing: true,
+        selectedWireId: "w1",
+      });
+      const host = document.createElement("div");
+      document.body.append(host);
+      const explorer = mountLabExplorer(host, { getSnapshot: () => current });
+      const root = host.querySelector("[data-lab-explorer]");
+      const selected = [
+        host.querySelector("[data-explorer-panel='inspector'] [data-explorer-selected-wire='w1']"),
+        host.querySelector("[data-explorer-panel='schematic'] svg [data-explorer-selected-wire='w1']"),
+        host.querySelector("[data-explorer-panel='minimap'] svg [data-explorer-selected-wire='w1']"),
+        host.querySelector("li[data-explorer-wire='w1'][data-explorer-selected-wire='w1']"),
+      ];
+      assert(selected.every(Boolean),
+        "selected wire must project to inspector, schematic, minimap and HTML row");
+      assert(selected.every(node => node.getAttribute("aria-current") === "true"),
+        "four semantic selected-wire projections need aria-current=true");
+      assert(root?.dataset.explorerSelectedWire === "w1",
+        "root selected-wire state mirror missing");
+      assert(root?.getAttribute("aria-current") === null,
+        "explorer root is a container state mirror, not an aria-current wire item");
+      const row = host.querySelector("li[data-explorer-wire='w1']");
+      assert(row?.getAttribute("aria-current") === "true", "accessible learner wire row selection missing");
+      const highlight = host.querySelector("[data-explorer-highlight-wire='w1']");
+      assert(highlight?.getAttribute("aria-pressed") === "true", "highlight control must reflect selected wire");
+      assert(highlight?.style.minWidth === "44px" && highlight?.style.minHeight === "44px",
+        "wire control must retain 44px target");
+      assert(host.querySelector("[data-explorer-connect-from]")?.style.minHeight === "44px",
+        "connector select must retain 44px mobile height");
+      highlight.focus();
+      explorer.update();
+      assert(document.activeElement?.getAttribute("data-explorer-highlight-wire") === "w1",
+        "highlight wire focus must survive same-wire rerender");
+
+      current = { ...current, stage: "2d", editing: false };
+      explorer.update();
+      assert(host.querySelector("[data-explorer-panel='inspector'] [data-explorer-selected-wire='w1']") &&
+        host.querySelector("[data-explorer-panel='schematic'] svg [data-explorer-selected-wire='w1']") &&
+        host.querySelector("[data-explorer-panel='minimap'] svg [data-explorer-selected-wire='w1']") &&
+        host.querySelector("li[data-explorer-wire='w1'][data-explorer-selected-wire='w1']"),
+      "all four semantic wire projections must survive 3D to 2D/read-only stage");
+      assert(host.querySelector("[data-explorer-highlight-wire='w1']")?.disabled === true,
+        "3D highlight action must remain gated while selection projection stays visible");
+
+      const empty = createCircuit(lessonId);
+      current = snapshotFor(lessonId, {
+        circuit: empty,
+        analysis: analyzeCircuit(lessonId, empty),
+        hasLearnerDraft: true,
+        source: "learner-draft",
+        selectedWireId: "w1",
+      });
+      explorer.update();
+      assert(!host.querySelector("[data-explorer-selected-wire='w1']"),
+        "stale selected wire marker must clear after learner wire disappears");
+      assert(host.querySelector("[data-lab-explorer]")?.dataset.explorerSelectedWire === "",
+        "root selected wire state must clear when stale");
+
+      const invalid = { ...current, selectedWireId: "__proto__" };
+      const result = explorer.update(invalid);
+      assert(result.ok === false, "invalid selected wire update must fail closed");
+      const invalidRoot = host.querySelector("[data-lab-explorer]");
+      assert(invalidRoot?.dataset.explorerSelectedWire === "",
+        "invalid update must not retain stale selected wire dataset");
+      assert(invalidRoot?.getAttribute("aria-current") === null,
+        "invalid root remains a container state mirror, never an aria-current wire item");
+      const invalidSemanticSelections = [
+        host.querySelector("[data-explorer-panel='inspector'] [data-explorer-selected-wire]"),
+        host.querySelector("[data-explorer-panel='schematic'] svg [data-explorer-selected-wire]"),
+        host.querySelector("[data-explorer-panel='minimap'] svg [data-explorer-selected-wire]"),
+        host.querySelector("li[data-explorer-wire][data-explorer-selected-wire]"),
+      ];
+      assert(invalidSemanticSelections.every(node => node === null),
+        "invalid update must clear all four semantic selected-wire projections");
+      explorer.dispose();
+      host.remove();
+    });
+
     check("dom-reference-resets-on-lesson-change", () => {
       const host = document.createElement("div");
       document.body.append(host);
@@ -359,6 +594,6 @@ export function runLabExplorerContracts() {
     passed: checks.length,
     failed: 0,
     checks: Object.freeze(checks),
-    api: "mountLabExplorer(host,{getSnapshot,onSelectComponent,onSelectTerminal,onConnect,onDisconnect,onFocus})",
+    api: "snapshot.selectedWireId:string|null -> read-only selected learner wire projection; mount callbacks unchanged",
   });
 }

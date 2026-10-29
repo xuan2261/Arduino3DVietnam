@@ -52,6 +52,36 @@ The direct gesture does not alter `labWireCount`, the committed eight-point rout
 
 All terminal coordinates and ghost geometry remain conceptual. The callback metadata continues to state `physicalVerified:false`; the gesture does not establish CAD placement, breadboard-hole mapping, continuity, measured electrical state, or hardware execution.
 
+## Committed learner jumper pointer inspection
+
+When lab edit is explicitly enabled, the scene can expose inspection of an already committed learner jumper without treating the tap as a connect gesture:
+
+```js
+onCommittedWireInspect(wireId, { source: "pointer", physicalVerified: false })
+```
+
+`onCommittedWireInspect` is a function-or-null `setLabEdit` option and is preserved across partial `setLabEdit` updates. Its metadata object is frozen and contains exactly `source` and `physicalVerified`.
+
+Inspection raycasting is deliberately narrow. It intersects only the primary committed `labWireObjects[].line` objects. Terminal and component hit proxies are tested first, so a terminal or component tap keeps its existing behavior. Pending-wire ghosts, terminal drag preview, highlight overlays, and the authored pair guide are not wire inspection targets.
+
+The line raycaster uses a fixed bounded threshold in conceptual Three.js world units. That tolerance is an interaction aid only; it is not a physical distance or millimetre claim.
+
+A pointerdown on a committed line creates only a tap candidate. If movement crosses the existing pointer-type tap threshold, that candidate becomes a normal camera drag and cannot inspect the wire. `pointercancel` and `lostpointercapture` also produce no inspection callback. Existing terminal touch jitter behavior remains unchanged because terminal/component priority is resolved before wire hit-testing.
+
+Before a tap emits anything, pointerup re-raycasts the current rendered committed line and revalidates all of the following against the current scene:
+
+- lab edit is still enabled and the callback is still installed;
+- the original active lab layout object is still active;
+- the wire ID is an exact bounded non-empty canonical string and is not `__proto__`, `prototype`, or `constructor`;
+- the current `lastWiringModel.wires` still contains that ID;
+- the pointerdown identity and pointerup identity still match by wire ID plus unordered endpoint pair;
+- both endpoints are own canonical entries in the current layout `terminalMap` and have mounted terminal markers;
+- the hit object is still the actual current `labWireObjects[].line` for that canonical wire.
+
+Only after those checks may the scene call the existing `setHighlightedLabWire(wireId)` for visual emphasis and then emit `onCommittedWireInspect`. The inspection path never calls `setWiring`, never changes a circuit/router/reference model, never creates or removes a learner edge, and never reuses the connect preview or authored guide.
+
+Stage/layout clear, lesson change, edit-mode transition, WebGL context loss, and disposal cancel an armed committed-wire pointer candidate. Context restore never replays the inspection callback.
+
 ## Authored missing-pair view-only guide
 
 The scene also exposes a separate read-only authoring aid:
@@ -109,6 +139,7 @@ The guide may coexist with already committed learner wires, and a later `setWiri
 - an armed two-tap first terminal can be cleared by the controller from `onTerminalDragStart` before a different-source drag is cancelled;
 - background, same-endpoint, touch-cancel, and lost-capture paths emit drag-start once but no link; a foreign pointer emits neither;
 - stage clear, lesson change, WebGL context loss, and dispose clear an armed ghost without a stale callback.
+- committed-wire inspection contracts cover exact frozen callback metadata, partial-update preservation, terminal/component priority, touch jitter, camera-drag fallback, cancel/lost-capture, current ID+unordered-endpoint validation, prototype-like ID rejection, stage/lesson/context/dispose cancellation, and zero learner/reference graph mutation.
 - authored guide contracts cover frozen truthful results, exact-own canonical validation, malformed/foreign/stale/prototype rejection, same-layout rebuild, layout-null/lesson/edit cleanup, committed-wire coexistence, `setWiring` after guide mount, WebGL public clear/revalidated standalone restore, explicit-null no-resurrection, and disposal cleanup.
 
 `tests/scene3d-visual-fidelity-contracts.js` keeps the visual-only provenance boundary and confirms direct drag reuses the single transient ghost path.

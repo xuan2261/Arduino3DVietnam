@@ -264,15 +264,27 @@ function makeScene() {
     labEditCalls: 0,
     layoutCalls: 0,
     pendingCalls: 0,
+    highlightedWire: null,
+    highlightCalls: 0,
     setLabEdit(value) { this.labEditCalls += 1; this.labEdit = value; return true; },
     setLabLayout(value) { this.layoutCalls += 1; this.layout = value; return true; },
     setPendingWireTerminal(value) { this.pendingCalls += 1; this.pending = value; return true; },
+    setHighlightedLabWire(value) {
+      this.highlightCalls += 1;
+      this.highlightedWire = value;
+      return Object.freeze({
+        wireId: value,
+        active: value !== null,
+        mode: value === null ? "none" : "committed-wire-highlight",
+        physicalVerified: false,
+      });
+    },
     setAuthoredPairGuide(value) { this.authoredPairGuide = value; return { active: value !== null, mode: "view-only" }; },
     setWiring(value) { this.wiring = value; return { mode: "conceptual-netlist" }; },
   };
 }
 
-function withFixture({ circuits = new Map() } = {}, run) {
+function withFixture({ circuits = new Map(), onWireInspection = null } = {}, run) {
   const nativeBrowserDom = isNativeBrowserDocument(globalThis.document);
   const previousDocument = nativeBrowserDom ? null : globalThis.document;
   const dom = makeDom(nativeBrowserDom ? globalThis.document : new FakeDocument());
@@ -287,6 +299,7 @@ function withFixture({ circuits = new Map() } = {}, run) {
         circuits.set(lessonId, circuit);
         changes.push({ lessonId, circuit, analysis });
       },
+      onWireInspection,
     });
     ui.setScene(scene);
     return run({ ...dom, scene, changes, circuits, ui });
@@ -301,6 +314,7 @@ function withFixture({ circuits = new Map() } = {}, run) {
 }
 
 const pointerMeta = () => Object.freeze({ source: "pointer-drag", physicalVerified: false });
+const wirePointerMeta = () => Object.freeze({ source: "pointer", physicalVerified: false });
 
 export function runLabEditorPrecisionWiresContracts() {
   const checks = [];
@@ -310,6 +324,11 @@ export function runLabEditorPrecisionWiresContracts() {
     const empty = createCircuit(2);
     const one = connectCircuit(empty, "D13", "R1:A");
     const two = connectCircuit(one, "R1:B", "LED:A");
+    expectThrow(
+      () => withFixture({ circuits: new Map([[2, two]]), onWireInspection: {} }, () => {}),
+      /observers must be functions/i,
+      "wire inspection observer must be an opt-in function",
+    );
     withFixture({ circuits: new Map([[2, two]]) }, ({ ui, scene, panel, document, nativeBrowserDom }) => {
       ui.setLesson(2);
       assert(ui.openEditor(), "lesson 2 editor opens");
@@ -321,15 +340,25 @@ export function runLabEditorPrecisionWiresContracts() {
         /learner graph only/.test(provenance.textContent),
       "visible provenance is learner graph only");
       const rows = [...list.querySelectorAll("[data-lab-wire-row]")];
-      const buttons = [...list.querySelectorAll("[data-lab-remove-wire-id]")];
-      assert(rows.length === 2 && buttons.length === 2, "one native removal row per canonical learner wire");
+      const removeButtons = [...list.querySelectorAll("[data-lab-remove-wire-id]")];
+      const inspectButtons = [...list.querySelectorAll("[data-lab-inspect-wire-id]")];
+      assert(rows.length === 2 && removeButtons.length === 2 && inspectButtons.length === 2,
+        "one native inspect/remove action pair per canonical learner wire");
       assert(rows.every(row => row.tagName === "LI") &&
         list.querySelector("[data-lab-precision-wire-rows]")?.tagName === "UL",
       "precision wire inventory uses native ul/li list semantics");
       assert(rows[0].textContent.includes("w1 · D13 → R1:A · learner graph only") &&
         rows[1].textContent.includes("w2 · R1:B → LED:A · learner graph only"),
       "rows expose exact wire IDs/endpoints and provenance via textContent");
-      for (const button of buttons) {
+      for (const button of inspectButtons) {
+        assert(button.tagName === "BUTTON" && button.type === "button", "inspect action is native button");
+        assert(button.textContent === "Xem dây" && button.style.minHeight === "44px" && button.style.minWidth === "44px",
+          "inspect action exposes exact label and >=44px target hooks");
+        assert(/Xem dây w\d+ từ .+ đến .+ trên learner graph/.test(button.getAttribute("aria-label") || ""),
+          "inspect action has exact accessible wire/endpoints name");
+        assert(button.dataset.labWireLesson === "2", "inspect action captures current lesson for stale revalidation");
+      }
+      for (const button of removeButtons) {
         assert(button.tagName === "BUTTON" && button.type === "button", "remove action is native button");
         assert(button.style.minHeight === "44px" && button.style.minWidth === "44px",
           "remove action enforces >=44px target hooks");
@@ -339,12 +368,13 @@ export function runLabEditorPrecisionWiresContracts() {
       }
       if (nativeBrowserDom) {
         const Button = document.defaultView?.HTMLButtonElement;
-        assert(Button && buttons.every(button => button instanceof Button),
-          "browser direct path renders actual native HTMLButtonElement remove controls");
-        assert(buttons.every(button => {
+        const actionButtons = [...inspectButtons, ...removeButtons];
+        assert(Button && actionButtons.every(button => button instanceof Button),
+          "browser direct path renders actual native HTMLButtonElement inspect/remove controls");
+        assert(actionButtons.every(button => {
           const rect = button.getBoundingClientRect();
           return rect.width >= 44 && rect.height >= 44;
-        }), "browser direct path proves each remove control is at least 44x44 CSS px");
+        }), "browser direct path proves each inspect/remove control is at least 44x44 CSS px");
       }
     });
   });
@@ -354,9 +384,44 @@ export function runLabEditorPrecisionWiresContracts() {
     const one = connectCircuit(empty, "D13", "R1:A");
     const two = connectCircuit(one, "R1:B", "LED:A");
     const circuits = new Map([[2, two], [3, createCircuit(3)]]);
-    withFixture({ circuits }, ({ ui, panel, changes, document }) => {
+    const inspections = [];
+    withFixture({
+      circuits,
+      onWireInspection: (wireId, meta, inspectedLessonId) => inspections.push({ wireId, meta, inspectedLessonId }),
+    }, ({ ui, scene, panel, changes, document }) => {
       ui.setLesson(2);
       ui.openEditor();
+      assert(typeof scene.labEdit?.onCommittedWireInspect === "function",
+        "scene edit bridge exposes committed-wire inspection callback");
+      assert(scene.labEdit.onTerminalSelect("D13") === true && ui.snapshot().firstTerminal === "D13",
+        "wire inspection regression starts with an armed two-tap terminal");
+      const pointerInspectionMeta = wirePointerMeta();
+      const inspected = scene.labEdit.onCommittedWireInspect("w1", pointerInspectionMeta);
+      assert(Object.isFrozen(inspected) && inspected.accepted === true && inspected.reason === "inspected" &&
+        inspected.lessonId === 2 && inspected.wireId === "w1" && inspected.from === "D13" && inspected.to === "R1:A" &&
+        inspected.source === "pointer" && inspected.mode === "committed-wire-inspection" &&
+        inspected.learnerGraphOnly === true && inspected.visualOnly === true &&
+        inspected.electricalAuthority === false && inspected.physicalVerified === false,
+      "scene pointer inspection returns exact frozen read-only learner-wire result");
+      assert(scene.highlightedWire === "w1" && scene.highlightCalls === 1 &&
+        ui.snapshot().firstTerminal === null && scene.pending === null && changes.length === 0,
+      "accepted pointer inspection highlights only and clears pending connection intent without graph/history write");
+      assert(inspections.length === 1 && inspections[0].wireId === "w1" &&
+        inspections[0].meta === pointerInspectionMeta && inspections[0].inspectedLessonId === 2,
+      "opt-in onWireInspection receives exact wire/meta/current lesson signature");
+
+      const inspectW2 = panel.querySelector('[data-lab-inspect-wire-id="w2"]');
+      assert(inspectW2, "w2 native inspect action present");
+      inspectW2.focus({ preventScroll: true });
+      inspectW2.click();
+      assert(document.activeElement === inspectW2 && scene.highlightedWire === "w2" && changes.length === 0,
+        "native inspect keeps keyboard focus and remains graph read-only");
+      const nativeReport = inspections.at(-1);
+      assert(inspections.length === 2 && nativeReport.wireId === "w2" && nativeReport.inspectedLessonId === 2 &&
+        Object.isFrozen(nativeReport.meta) && nativeReport.meta.source === "native-button" &&
+        nativeReport.meta.physicalVerified === false && Reflect.ownKeys(nativeReport.meta).length === 2,
+      "native inspect reports strict frozen native-button metadata through same observer callback");
+
       const w1 = [...panel.querySelectorAll("[data-lab-remove-wire-id]")]
         .find(button => button.dataset.labRemoveWireId === "w1");
       assert(w1, "w1 precise remove action present");
@@ -397,6 +462,80 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(ui.removeWire("w1", 2) === true, "programmatic exact removal still succeeds");
       assert(document.activeElement === toggle,
         "programmatic/history-style removal does not steal or restore keyboard focus");
+    });
+
+    const negativeReports = [];
+    withFixture({
+      circuits: new Map([[2, one]]),
+      onWireInspection: (...args) => negativeReports.push(args),
+    }, ({ ui, scene, changes }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      assert(scene.labEdit.onTerminalSelect("D13") === true && ui.snapshot().firstTerminal === "D13",
+        "negative inspection fixture starts with pending terminal intent");
+      const baselineHighlightCalls = scene.highlightCalls;
+      const baselinePending = ui.snapshot().firstTerminal;
+      let forgedGetterReads = 0;
+      const getterMeta = {};
+      Object.defineProperties(getterMeta, {
+        source: { enumerable: true, get() { forgedGetterReads += 1; return "pointer"; } },
+        physicalVerified: { enumerable: true, value: false },
+      });
+      Object.freeze(getterMeta);
+      const negatives = [
+        ["w1", wirePointerMeta(), undefined, "stale-lesson"],
+        ["w1", wirePointerMeta(), 3, "stale-lesson"],
+        ["w1", pointerMeta(), 2, "invalid-meta"],
+        ["w1", { source: "pointer", physicalVerified: false }, 2, "invalid-meta"],
+        ["w1", Object.freeze({ source: "pointer", physicalVerified: false, extra: true }), 2, "invalid-meta"],
+        ["w1", getterMeta, 2, "invalid-meta"],
+        ["w1", Object.freeze(Object.assign(Object.create({ inherited: true }), {
+          source: "pointer", physicalVerified: false,
+        })), 2, "invalid-meta"],
+        ["__proto__", wirePointerMeta(), 2, "invalid-wire-id"],
+        ["w99", wirePointerMeta(), 2, "stale-wire"],
+      ];
+      for (const [wireId, meta, expectedLessonId, reason] of negatives) {
+        const result = ui.inspectCommittedWire(wireId, meta, expectedLessonId);
+        assert(result.accepted === false && result.reason === reason,
+          "inspection rejects stale/forged request: " + reason);
+        assert(scene.highlightCalls === baselineHighlightCalls && negativeReports.length === 0 &&
+          changes.length === 0 && ui.snapshot().firstTerminal === baselinePending,
+        "rejected inspection is highlight/callback/graph/pending side-effect free: " + reason);
+      }
+      assert(forgedGetterReads === 0, "inspection metadata validation never executes forged getters");
+
+      scene.setHighlightedLabWire = () => { throw new RangeError("stale scene wiring"); };
+      const highlightRejected = ui.inspectCommittedWire("w1", wirePointerMeta(), 2);
+      assert(highlightRejected.accepted === false && highlightRejected.reason === "highlight-rejected" &&
+        negativeReports.length === 0 && changes.length === 0 && ui.snapshot().firstTerminal === baselinePending,
+      "scene highlight failure cannot clear pending intent, report inspection, or mutate graph");
+    });
+
+    const forgedWire = Object.assign(Object.create({ inheritedWire: true }), {
+      id: "w1", from: "D13", to: "R1:A",
+    });
+    const forgedCircuit = { ...one, wires: [forgedWire] };
+    const forgedCircuits = new Map([[2, one]]);
+    withFixture({ circuits: forgedCircuits }, ({ ui, scene, changes }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      forgedCircuits.set(2, forgedCircuit);
+      const result = ui.inspectCommittedWire("w1", wirePointerMeta(), 2);
+      assert(result.accepted === false && ["forged-wire", "foreign-learner-graph"].includes(result.reason) &&
+        scene.highlightCalls === 0 && changes.length === 0,
+      "prototype-forged wire record is rejected before visual inspection or graph write");
+    });
+
+    const foreignCircuits = new Map([[2, one]]);
+    withFixture({ circuits: foreignCircuits }, ({ ui, scene, changes }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      foreignCircuits.set(2, createCircuit(3));
+      const result = ui.inspectCommittedWire("w1", wirePointerMeta(), 2);
+      assert(result.accepted === false && result.reason === "foreign-learner-graph" &&
+        scene.highlightCalls === 0 && changes.length === 0,
+      "foreign-lesson graph cannot be inspected as current learner wiring");
     });
   });
 
@@ -457,6 +596,10 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(snapshot.lessonId === 2 && snapshot.readOnlyGuideIn3D === true &&
         snapshot.circuit === null && changes.length === before,
       "guide snapshot/inspection does not create or mutate a learner draft");
+      const missingLearnerInspection = ui.inspectCommittedWire("w1", wirePointerMeta(), 2);
+      assert(missingLearnerInspection.accepted === false &&
+        missingLearnerInspection.reason === "editor-not-active" && scene.highlightCalls === 0,
+      "read-only guide cannot inspect a reference/sample wire while edit mode is off");
 
       const guideCallbacks = scene.labEdit;
       assert(guideCallbacks.onSelectComponent(null) === false &&
@@ -480,6 +623,10 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(ui.openEditor() === true && ui.isReadOnlyGuideIn3D() === false &&
         ui.isEditingIn3D() === true && scene.labEdit.enabled === true,
       "entering editor revokes guide before enabling normal edit callbacks");
+      const noLearnerGraph = ui.inspectCommittedWire("w1", wirePointerMeta(), 2);
+      assert(noLearnerGraph.accepted === false && noLearnerGraph.reason === "no-learner-graph" &&
+        scene.highlightCalls === 0 && changes.length === before,
+      "edit-mode inspection still refuses reference fallback when no learner graph exists");
       assert(ui.setReadOnlyGuideMode(true) === false && ui.isEditingIn3D() === true,
         "guide cannot be enabled over an active editor");
       assert(ui.closeEditor() === true && scene.layout === null && ui.isReadOnlyGuideIn3D() === false,
@@ -601,6 +748,7 @@ export function runLabEditorPrecisionWiresContracts() {
       ui.openEditor();
       const staleLink = scene.labEdit.onTerminalLink;
       const staleDragStart = scene.labEdit.onTerminalDragStart;
+      const staleWireInspect = scene.labEdit.onCommittedWireInspect;
 
       ui.setLesson(3);
       ui.openEditor();
@@ -610,6 +758,10 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(staleDragStart("D13", pointerMeta()) === false && changes.length === before &&
         ui.snapshot().firstTerminal === "5V",
       "old-lesson drag-start callback cannot clear current pending state or mutate graph");
+      const staleInspection = staleWireInspect("w1", wirePointerMeta());
+      assert(staleInspection.accepted === false && staleInspection.reason === "stale-lesson" &&
+        scene.highlightCalls === 0 && changes.length === before && ui.snapshot().firstTerminal === "5V",
+      "old-lesson committed-wire inspection cannot highlight, clear pending state or mutate graph");
       const stale = staleLink("D13", "GND", pointerMeta());
       assert(stale.committed === false && stale.reason === "stale-lesson" && changes.length === before,
         "old scene callback rejected after lesson change");

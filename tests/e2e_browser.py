@@ -207,6 +207,69 @@ def main() -> None:
             {"lessonId": lesson_id, "componentId": component_id, "terminalId": terminal_id},
         )
 
+    def lab_scene_committed_wire_points(page, lesson_id: int, from_id: str, to_id: str,
+                                        wire_index: int = 0):
+        """Candidate screen points on a COMMITTED 8-point conceptual route.
+
+        Compute from the existing public logical layout/Three.js projection;
+        only actual Playwright pointer input on the canvas can prove picking.
+        No internal scene callback or wire ID is invoked by this helper.
+        """
+        return page.evaluate("""async ({lessonId,fromId,toId,wireIndex}) => {
+          const [T,layoutModule,router]=await Promise.all([
+            import('./assets/vendor/three.module.min.js'),
+            import('./src/lab-layout.js'),
+            import('./src/circuit-router.js'),
+          ]);
+          const layout=layoutModule.createLabLayout(lessonId,router.listTerminals(lessonId));
+          const cHeight=kind=>kind==='arduino-uno'?.46:kind==='breadboard'?.34:
+            kind==='ultrasonic-sensor'?.68:kind==='servo'||kind==='driver'?.62:
+            kind==='power-source'?.55:.48;
+          const toWorld=id=>{
+            const anchor=layoutModule.labTerminalAnchor(layout,id);
+            const component=layout.components.find(x=>x.id===anchor.componentId);
+            if(!component)throw new Error('Missing canonical component for '+id);
+            return new T.Vector3(anchor.x*.72,cHeight(component.visualKind)+.10,anchor.z*.72);
+          };
+          const start=toWorld(fromId),end=toWorld(toId);
+          const direction=end.x>=start.x?1:-1;
+          const lead=Math.min(.36,Math.max(.16,Math.abs(end.x-start.x)*.12));
+          const routeOffset=((wireIndex%5)-2)*.085;
+          const laneY=Math.max(start.y,end.y)+.34+(wireIndex%4)*.065;
+          const midX=(start.x+end.x)/2+routeOffset;
+          const points=[start,
+            new T.Vector3(start.x,laneY,start.z),
+            new T.Vector3(start.x+direction*lead,laneY,start.z),
+            new T.Vector3(midX,laneY,start.z),
+            new T.Vector3(midX,laneY,end.z),
+            new T.Vector3(end.x-direction*lead,laneY,end.z),
+            new T.Vector3(end.x,laneY,end.z),end];
+          const canvas=document.querySelector('#sceneMount canvas');
+          const rect=canvas.getBoundingClientRect();
+          const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+          const camera=new T.PerspectiveCamera(38,aspect,.1,100);
+          const fitted=Math.max(16.7,18.5/(2*Math.tan(T.MathUtils.degToRad(19))*Math.max(.45,aspect)));
+          const radius=Math.min(48,Math.max(8,fitted));
+          camera.position.set(radius*Math.sin(.94)*Math.sin(.48),radius*Math.cos(.94)+5,
+            radius*Math.sin(.94)*Math.cos(.48));
+          camera.lookAt(((layout.bounds.minX+layout.bounds.maxX)/2)*.72,.35,
+            ((layout.bounds.minZ+layout.bounds.maxZ)/2)*.72);
+          camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+          const coords=[];
+          for(const [a,b] of [[2,3],[3,4],[4,5],[1,2],[5,6],[0,1],[6,7]]){
+            for(const fraction of [.25,.50,.75]){
+              const projected=points[a].clone().lerp(points[b],fraction).project(camera);
+              const x=rect.left+(projected.x+1)*rect.width/2;
+              const y=rect.top+(1-projected.y)*rect.height/2;
+              if(projected.z>=-1&&projected.z<=1&&x>=rect.left+10&&x<=rect.right-10&&
+                y>=rect.top+10&&y<=rect.bottom-10&&document.elementFromPoint(x,y)===canvas){
+                coords.push({x,y,segment:[a,b],fraction});
+              }
+            }
+          }
+          return coords;
+        }""", {"lessonId":lesson_id,"fromId":from_id,"toId":to_id,"wireIndex":wire_index})
+
     def capture_console(page) -> str:
         nonlocal page_sequence
         page_sequence += 1
@@ -572,7 +635,11 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 175
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 200
+                      and "committed-wire-pointer-tap-inspects-current-canonical-wire" in scene_lifecycle_names
+                      and "committed-wire-pointer-inspection-is-visual-only" in scene_lifecycle_names
+                      and "committed-wire-pointercancel-emits-no-inspection" in scene_lifecycle_names
+                      and "committed-wire-inspection-rejects-stale-same-id-different-endpoints" in scene_lifecycle_names
                       and "authored-pair-guide-valid-result-is-frozen-view-only" in scene_lifecycle_names
                       and "authored-pair-guide-does-not-create-wire-or-scene-state-authority" in scene_lifecycle_names
                       and "authored-pair-guide-survives-setWiring-projection-after-guide-mount" in scene_lifecycle_names
@@ -4812,6 +4879,239 @@ def main() -> None:
                               "document.documentElement.scrollWidth <= innerWidth"))
                 finally:
                     guide_context.close()
+
+                # Post-8d6e420 product phase: a COMMITTED learner wire is an
+                # independently inspectable 3D object. Native controls, real
+                # 3D pointer input, Explorer, 2D SVG/HTML and undo/remove must
+                # agree without manufacturing a single electrical edge.
+                inspect_context=browser.new_context(
+                    viewport={"width":1280,"height":820},service_workers="allow")
+                try:
+                    inspect_page=inspect_context.new_page()
+                    capture_console(inspect_page)
+                    inspect_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(inspect_page)
+                    inspect_page.locator('.lesson-link[data-lesson="2"]').click()
+                    inspect_page.locator("#infoTabPractice").click()
+                    initial_inspect_progress=inspect_page.locator("#progressText").inner_text()
+                    inspect_page.locator("#labEditToggle").click()
+                    for source,target in [("D13","R1:A"),("R1:B","LED:A")]:
+                        inspect_page.locator("#labFromPin").select_option(source)
+                        inspect_page.locator("#labToPin").select_option(target)
+                        inspect_page.locator("#labConnect").click()
+                    inspect_canvas=inspect_page.locator("#sceneMount canvas")
+                    inspect_buttons=inspect_page.locator(
+                        '#labEditor [data-lab-inspect-wire-id]')
+                    inspect_rect=inspect_buttons.first.bounding_box()
+                    check("post-8d6e-precise-native-committed-wire-inspect-controls",
+                          inspect_buttons.count()==2
+                          and inspect_rect is not None
+                          and inspect_rect["width"]>=44 and inspect_rect["height"]>=44
+                          and not inspect_buttons.first.is_disabled()
+                          and "w1" in (inspect_buttons.first.get_attribute("aria-label") or "")
+                          and inspect_canvas.get_attribute("data-lab-wire-count")=="2")
+                    inspect_buttons.first.focus()
+                    inspect_buttons.first.press("Enter")
+                    check("post-8d6e-native-keyboard-wire-inspection-cross-3d-explorer",
+                          inspect_canvas.get_attribute("data-lab-highlighted-wire")=="w1"
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire="w1"]:not([data-lab-explorer])').count()==4
+                          and inspect_page.locator(
+                              '#sceneInspectionStatus [data-committed-wire-dismiss]').count()==1
+                          and "D13" in inspect_page.locator("#sceneInspectionStatus").inner_text()
+                          and inspect_canvas.get_attribute("data-lab-pending-wire-terminal")==""
+                          and inspect_page.locator("#progressText").inner_text()==initial_inspect_progress
+                          and inspect_page.locator("#completeButton").is_hidden())
+                    dismiss_wire=inspect_page.locator(
+                        '#sceneInspectionStatus [data-committed-wire-dismiss]')
+                    dismiss_rect=dismiss_wire.bounding_box()
+                    check("post-8d6e-native-wire-dismiss-is-real-44px-button",
+                          dismiss_rect is not None and dismiss_rect["width"]>=44
+                          and dismiss_rect["height"]>=44)
+                    dismiss_wire.click()
+                    check("post-8d6e-native-wire-dismiss-no-electrical-change",
+                          inspect_canvas.get_attribute("data-lab-highlighted-wire")==""
+                          and inspect_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])').count()==0
+                          and inspect_page.locator(
+                              '#labExplorer [data-lab-explorer]').get_attribute(
+                                  "data-explorer-selected-wire")=="")
+
+                    inspect_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    inspect_page.wait_for_timeout(60)
+                    wire_pixels=lab_scene_committed_wire_points(
+                        inspect_page,2,"R1:B","LED:A",wire_index=1)
+                    actual_wire_pixel=None
+                    for pixel in wire_pixels:
+                        inspect_page.mouse.click(pixel["x"],pixel["y"])
+                        if inspect_canvas.get_attribute("data-lab-highlighted-wire")=="w2":
+                            actual_wire_pixel=pixel
+                            break
+                    check("post-8d6e-real-pointer-3d-committed-wire-hit",
+                          actual_wire_pixel is not None,
+                          json.dumps({"wire":"w2","candidates":wire_pixels,
+                            "chosen":actual_wire_pixel},ensure_ascii=False))
+                    check("post-8d6e-real-3d-wire-inspection-no-ghost-no-router-mutation",
+                          inspect_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and inspect_canvas.get_attribute("data-lab-terminal-drag-preview")=="none"
+                          and inspect_canvas.get_attribute("data-lab-pending-wire-preview")=="none"
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire="w2"]:not([data-lab-explorer])').count()==4
+                          and inspect_page.locator("#progressText").inner_text()==initial_inspect_progress)
+                    inspect_page.locator("#stageTabWiring").click()
+                    check("post-8d6e-3d-pointer-inspect-persisted-in-2d-and-minimap",
+                          inspect_page.locator('.wiring-view [data-wiring-highlight-wire="w2"]').count()>=1
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire="w2"]:not([data-lab-explorer])').count()==4
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire-status="w2"]').count()>0
+                          and inspect_page.locator('.wiring-view .wire-connected').count()==2
+                          and inspect_page.locator("#progressText").inner_text()==initial_inspect_progress)
+                    inspect_page.locator("#stageTab3d").click()
+                    check("post-8d6e-2d-return-restores-only-existing-committed-highlight",
+                          inspect_canvas.get_attribute("data-lab-highlighted-wire")=="w2"
+                          and inspect_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and inspect_canvas.get_attribute("data-lab-pending-wire-terminal")==""
+                          and inspect_page.locator(
+                              '#sceneInspectionStatus [data-committed-wire-dismiss]').count()==1
+                          and "w2" in inspect_page.locator("#sceneInspectionStatus").inner_text())
+                    inspect_page.locator(
+                        '#labEditor [data-lab-remove-wire-id="w2"]').click()
+                    check("post-8d6e-removing-exact-inspected-wire-clears-stale-projection",
+                          inspect_canvas.get_attribute("data-lab-highlighted-wire")==""
+                          and inspect_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])').count()==0
+                          and inspect_page.locator(
+                              '#labExplorer [data-lab-explorer]').get_attribute(
+                                  "data-explorer-selected-wire")=="")
+                    inspect_page.locator("#labUndoWire").click()
+                    check("post-8d6e-undo-restores-wire-not-old-inspection-intent",
+                          inspect_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and inspect_canvas.get_attribute("data-lab-highlighted-wire")==""
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])').count()==0
+                          and inspect_page.locator(
+                              '#labExplorer [data-lab-explorer]').get_attribute(
+                                  "data-explorer-selected-wire")=="")
+                    inspect_page.set_viewport_size({"width":375,"height":812})
+                    inspect_mobile=inspect_page.locator(
+                        '#labEditor [data-lab-inspect-wire-id="w1"]')
+                    inspect_mobile_rect=inspect_mobile.bounding_box()
+                    check("post-8d6e-375px-exact-inspect-accessible-no-overflow",
+                          inspect_mobile_rect is not None
+                          and inspect_mobile_rect["width"]>=44
+                          and inspect_mobile_rect["height"]>=44
+                          and inspect_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    inspect_mobile.focus()
+                    inspect_mobile.press("Enter")
+                    inspect_page.set_viewport_size({"width":1280,"height":820})
+                    # An actual WebGL loss discards the scene's committed-wire
+                    # highlight. The app must revoke the SAME selection across
+                    # Inspector/schematic/minimap/HTML, status and 2D; restoring
+                    # GPU resources must not silently replay inspection intent.
+                    # Exercise the real extension and real canvas events, not
+                    # synthetic dispatch or a model-only clear.
+                    committed_context_cycle=inspect_page.evaluate("""async () => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const extension=gl?.getExtension('WEBGL_lose_context');
+                        if (!extension) {
+                            throw new Error('Real WebGL loss unavailable for committed-wire lifecycle QA');
+                        }
+                        const snapshot=()=>{
+                            const root=document.querySelector('#labExplorer [data-lab-explorer]');
+                            const status=document.querySelector('#sceneInspectionStatus');
+                            return {
+                                context:canvas.dataset.sceneContext,
+                                highlighted:canvas.dataset.labHighlightedWire,
+                                wireCount:canvas.dataset.labWireCount,
+                                rootWire:root?.dataset.explorerSelectedWire,
+                                rootAria:root?.getAttribute('aria-current'),
+                                semantic:[...document.querySelectorAll(
+                                    '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])'
+                                )].map(node=>({
+                                    id:node.dataset.explorerSelectedWire,
+                                    aria:node.getAttribute('aria-current'),
+                                })),
+                                committedStatus:status?.dataset.committedWireInspect||'',
+                                hidden:status?.hidden===true,
+                                dismiss:Boolean(status?.querySelector('[data-committed-wire-dismiss]')),
+                            };
+                        };
+                        const waitEvent=name=>new Promise((resolve,reject)=>{
+                            const timeout=setTimeout(()=>reject(new Error('Timeout awaiting '+name)),10000);
+                            canvas.addEventListener(name,event=>{
+                                clearTimeout(timeout);
+                                resolve(event);
+                            },{once:true});
+                        });
+                        const before=snapshot();
+                        const lost=waitEvent('webglcontextlost');
+                        extension.loseContext();
+                        const lostEvent=await lost;
+                        const loss=snapshot();
+                        await new Promise(resolve=>setTimeout(resolve,0));
+                        const restored=waitEvent('webglcontextrestored');
+                        extension.restoreContext();
+                        await restored;
+                        return {before,loss,after:snapshot(),
+                                defaultPrevented:lostEvent.defaultPrevented};
+                    }""")
+                    wire_loss_before=committed_context_cycle["before"]
+                    wire_loss=committed_context_cycle["loss"]
+                    wire_restored=committed_context_cycle["after"]
+                    check("post-8d6e-real-webgl-loss-revokes-exact-wire-across-surfaces",
+                          wire_loss_before["context"]=="ready"
+                          and wire_loss_before["highlighted"]=="w1"
+                          and wire_loss_before["rootWire"]=="w1"
+                          and len(wire_loss_before["semantic"])==4
+                          and all(item["id"]=="w1" and item["aria"]=="true"
+                                  for item in wire_loss_before["semantic"])
+                          and wire_loss_before["dismiss"]
+                          and committed_context_cycle["defaultPrevented"]
+                          and wire_loss["context"]=="lost"
+                          and wire_loss["highlighted"]==""
+                          and wire_loss["wireCount"]=="2"
+                          and wire_loss["rootWire"]==""
+                          and wire_loss["rootAria"] is None
+                          and wire_loss["semantic"]==[]
+                          and wire_loss["committedStatus"]==""
+                          and wire_loss["hidden"] and not wire_loss["dismiss"],
+                          json.dumps(committed_context_cycle,ensure_ascii=False))
+                    check("post-8d6e-real-webgl-restore-never-replays-stale-wire-selection",
+                          wire_restored["context"]=="ready"
+                          and wire_restored["highlighted"]==""
+                          and wire_restored["wireCount"]=="2"
+                          and wire_restored["rootWire"]==""
+                          and wire_restored["rootAria"] is None
+                          and wire_restored["semantic"]==[]
+                          and wire_restored["committedStatus"]==""
+                          and wire_restored["hidden"] and not wire_restored["dismiss"])
+                    inspect_page.locator("#stageTabWiring").click()
+                    check("post-8d6e-webgl-loss-revokes-2d-committed-wire-projection",
+                          inspect_page.locator(
+                              '.wiring-view [data-wiring-highlight-wire]').count()==0
+                          and inspect_page.locator('.wiring-view .wire-connected').count()==2
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])').count()==0
+                          and inspect_page.locator(
+                              '#labExplorer [data-lab-explorer]').get_attribute(
+                                  "data-explorer-selected-wire")=="")
+                    inspect_page.locator("#stageTab3d").click()
+                    inspect_page.locator('.lesson-link[data-lesson="10"]').click()
+                    check("post-8d6e-lesson-change-clears-selection-and-signal-nonclaims",
+                          inspect_canvas.get_attribute("data-lab-highlighted-wire")==""
+                          and inspect_page.locator(
+                              '#labExplorer [data-explorer-selected-wire]:not([data-lab-explorer])').count()==0
+                          and inspect_page.locator(
+                              '#labExplorer [data-lab-explorer]').get_attribute(
+                                  "data-explorer-selected-wire")==""
+                          and inspect_page.locator("#progressText").inner_text()==initial_inspect_progress)
+                finally:
+                    inspect_context.close()
 
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"

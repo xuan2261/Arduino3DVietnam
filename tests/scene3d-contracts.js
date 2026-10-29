@@ -162,6 +162,52 @@ export async function runScene3DContracts() {
     /if\(select&&!moved\)/.test(finishPointerSource) &&
     /labEdit\.onTerminalSelect/.test(finishPointerSource) &&
     !/setWiring\(|connectCircuit\(|disconnectCircuit\(/.test(finishPointerSource));
+  check("committed-wire-inspect-callback-option-is-validated-and-preserved",
+    /validateLabEditCallback\(options\.onCommittedWireInspect,"onCommittedWireInspect"\)/.test(editOptionSource) &&
+    /onCommittedWireInspect:options\.onCommittedWireInspect===undefined/.test(editOptionSource) &&
+    /\? labEdit\.onCommittedWireInspect : options\.onCommittedWireInspect/.test(editOptionSource));
+  const committedInspectStart = sceneSource.indexOf("function inspectableCommittedWireId");
+  const committedInspectEnd = sceneSource.indexOf("function updatePendingWireHover", committedInspectStart);
+  const committedInspectSource = sceneSource.slice(committedInspectStart, committedInspectEnd);
+  const pointerDownStart = sceneSource.indexOf("function down(event)");
+  const pointerDownEnd = sceneSource.indexOf("function move(event)", pointerDownStart);
+  const pointerDownSource = sceneSource.slice(pointerDownStart, pointerDownEnd);
+  check("committed-wire-inspect-source-raycasts-only-current-rendered-committed-lines",
+    /LAB_COMMITTED_WIRE_PICK_THRESHOLD = Math\.min\(\.20,Math\.max\(\.08,\.16\)\)/.test(sceneSource) &&
+    /committedWireRaycaster\.params\.Line\.threshold=LAB_COMMITTED_WIRE_PICK_THRESHOLD/.test(sceneSource) &&
+    /committedLines=labWireObjects\.map\(item=>item\.line\)/.test(committedInspectSource) &&
+    /committedWireRaycaster\.intersectObjects\(committedLines,false\)/.test(committedInspectSource) &&
+    !/pendingWirePreviewLine|authoredPairGuideDashLine|authoredPairGuideBackdropLine/.test(committedInspectSource));
+  check("committed-wire-inspect-source-revalidates-id-unordered-endpoints-and-layout",
+    /wireId\.trim\(\)===wireId/.test(committedInspectSource) &&
+    /\["__proto__","prototype","constructor"\]\.includes\(wireId\)/.test(committedInspectSource) &&
+    /function sameRenderedCommittedWireIdentity\(rendered,canonical\)/.test(committedInspectSource) &&
+    /id:rendered\.wireId/.test(committedInspectSource) &&
+    /layoutRef!==activeLabLayout/.test(committedInspectSource) &&
+    /lastWiringModel\?\.wires\?\.find\(wire=>wire\.id===rendered\.wireId\)/.test(committedInspectSource) &&
+    /sameRenderedCommittedWireIdentity\(rendered,canonical\)/.test(committedInspectSource) &&
+    /hasOwnProperty\.call\(terminalMap,terminalId\)/.test(committedInspectSource) &&
+    /labTerminals\.has\(terminalId\)/.test(committedInspectSource));
+  check("committed-wire-inspect-source-preserves-terminal-component-priority-and-camera-drag",
+    pointerDownSource.indexOf('kind==="lab-terminal"') >= 0 &&
+    pointerDownSource.indexOf('kind==="lab-component-hit"') >
+      pointerDownSource.indexOf('kind==="lab-terminal"') &&
+    pointerDownSource.indexOf("const wireHit=committedWireHit") >
+      pointerDownSource.indexOf('kind==="lab-component-hit"') &&
+    /drag\.kind==="camera"\|\|drag\.kind==="committed-wire"/.test(pointerMoveSource));
+  check("committed-wire-inspect-source-tap-only-visual-highlight-and-frozen-callback",
+    /finished\.kind==="committed-wire"/.test(finishPointerSource) &&
+    /if\(select&&!moved\)/.test(finishPointerSource) &&
+    /sameCommittedWireIdentity\(finished\.wireIdentity,releaseHit\.canonical\)/.test(finishPointerSource) &&
+    /setHighlightedLabWire\(releaseHit\.canonical\.id\)/.test(finishPointerSource) &&
+    /labEdit\.onCommittedWireInspect\?\.\(/.test(finishPointerSource) &&
+    /Object\.freeze\(\{source:"pointer",physicalVerified:false\}\)/.test(finishPointerSource) &&
+    !/setWiring\(|connectCircuit\(|disconnectCircuit\(/.test(finishPointerSource));
+  check("committed-wire-inspect-source-cancels-with-edit-layout-and-context-lifecycle",
+    /cancelCommittedWireInspectPointer\(false\)/.test(editOptionSource) &&
+    /function clearLabLayout[\s\S]*cancelCommittedWireInspectPointer\(false\)/.test(sceneSource) &&
+    /const onContextLost=event=>\{[\s\S]*if\(drag\)\{try\{canvas\.releasePointerCapture/.test(sceneSource) &&
+    /const onContextLost=event=>\{[\s\S]*drag=null/.test(sceneSource));
   const authoredGuideStart = sceneSource.indexOf("function authoredGuideResult");
   const authoredGuideEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", authoredGuideStart);
   const authoredGuideSource = sceneSource.slice(authoredGuideStart, authoredGuideEnd);
@@ -364,12 +410,8 @@ export async function runScene3DContracts() {
         key: "Home", bubbles: true, cancelable: true,
       }));
     };
-    const projectedTerminalPoint = (sceneCanvas, labLayout, terminalId) => {
+    const projectedWorldPoint = (sceneCanvas, labLayout, worldPoint) => {
       const rect = sceneCanvas.getBoundingClientRect();
-      const anchor = labTerminalAnchor(labLayout, terminalId);
-      const terminal = labLayout.terminalMap[terminalId];
-      const component = labLayout.components.find(item => item.id === terminal.componentId);
-      if (!component) throw new Error("Missing terminal component: " + terminalId);
       const aspect = rect.width / rect.height;
       const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
       const theta = .48, phi = .94;
@@ -388,15 +430,54 @@ export async function runScene3DContracts() {
       ));
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld(true);
-      const point = new T.Vector3(
-        anchor.x * .72,
-        labVisualHeight(component.visualKind) + .10,
-        anchor.z * .72,
-      ).project(camera);
+      const point = worldPoint.clone().project(camera);
       return {
         clientX: rect.left + (point.x + 1) * rect.width / 2,
         clientY: rect.top + (1 - point.y) * rect.height / 2,
       };
+    };
+    const projectedTerminalPoint = (sceneCanvas, labLayout, terminalId) => {
+      const anchor = labTerminalAnchor(labLayout, terminalId);
+      const terminal = labLayout.terminalMap[terminalId];
+      const component = labLayout.components.find(item => item.id === terminal.componentId);
+      if (!component) throw new Error("Missing terminal component: " + terminalId);
+      return projectedWorldPoint(sceneCanvas, labLayout, new T.Vector3(
+        anchor.x * .72,
+        labVisualHeight(component.visualKind) + .10,
+        anchor.z * .72,
+      ));
+    };
+    const projectedComponentPoint = (sceneCanvas, labLayout, componentId) => {
+      const component = labLayout.components.find(item => item.id === componentId);
+      if (!component) throw new Error("Missing component: " + componentId);
+      return projectedWorldPoint(sceneCanvas, labLayout, new T.Vector3(
+        component.x * .72,
+        Math.max(.20, labVisualHeight(component.visualKind) / 2),
+        component.z * .72,
+      ));
+    };
+    const projectedCommittedWirePoint = (sceneCanvas, labLayout, wire, wireIndex = 0) => {
+      const terminalWorld = terminalId => {
+        const anchor = labTerminalAnchor(labLayout, terminalId);
+        const terminal = labLayout.terminalMap[terminalId];
+        const component = labLayout.components.find(item => item.id === terminal.componentId);
+        if (!component) throw new Error("Missing wire terminal component: " + terminalId);
+        return new T.Vector3(
+          anchor.x * .72,
+          labVisualHeight(component.visualKind) + .10,
+          anchor.z * .72,
+        );
+      };
+      const start = terminalWorld(wire.from);
+      const end = terminalWorld(wire.to);
+      const routeOffset = ((wireIndex % 5) - 2) * .085;
+      const laneY = Math.max(start.y, end.y) + .34 + (wireIndex % 4) * .065;
+      const midX = (start.x + end.x) / 2 + routeOffset;
+      return projectedWorldPoint(sceneCanvas, labLayout, new T.Vector3(
+        midX,
+        laneY,
+        (start.z + end.z) / 2,
+      ));
     };
     const dispatchScenePointer = (sceneCanvas, type, point, pointerId, pointerType = "mouse") => {
       const event = new PointerEvent(type, {
@@ -887,6 +968,235 @@ export async function runScene3DContracts() {
       Number(canvas.dataset.labWireGeometryRevision) > 0 &&
       Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length &&
       canvas.dataset.labPendingWirePreview === "none");
+
+    let invalidWireInspectCallbackRejected = false;
+    try { mounted.setLabEdit({ enabled: true, onCommittedWireInspect: "invalid" }); }
+    catch (error) { invalidWireInspectCallbackRejected = error instanceof TypeError; }
+    check("committed-wire-inspect-rejects-nonfunction-callback-transactionally",
+      invalidWireInspectCallbackRejected &&
+      canvas.dataset.labEdit === "off" &&
+      canvas.dataset.labHighlightedWire === "");
+
+    const wireInspectEvents = [];
+    const wireInspectTerminalEvents = [];
+    const wireInspectComponentEvents = [];
+    const wireInspectLinkEvents = [];
+    mounted.setLabEdit({
+      enabled: true,
+      onSelectComponent: componentId => wireInspectComponentEvents.push(componentId),
+      onTerminalSelect: terminalId => wireInspectTerminalEvents.push(terminalId),
+      onTerminalLink: (fromId, toId) => wireInspectLinkEvents.push({ fromId, toId }),
+      onCommittedWireInspect: (wireId, meta) => wireInspectEvents.push({ wireId, meta }),
+    });
+    mounted.setLabEdit({ enabled: true, selectedComponentId: null });
+    resetCameraForTerminalProjection(canvas);
+    const committedWirePoint = projectedCommittedWirePoint(
+      canvas, layout, sampleCircuit.wires[0], 0
+    );
+    const wireCountBeforeInspect = canvas.dataset.labWireCount;
+    const wireRevisionBeforeInspect = canvas.dataset.labWireGeometryRevision;
+    const wireStateBeforeInspect = mounted.getLabViewState();
+    dispatchScenePointer(canvas, "pointerdown", committedWirePoint, 930, "mouse");
+    dispatchScenePointer(canvas, "pointerup", committedWirePoint, 930, "mouse");
+    const committedInspect = wireInspectEvents.at(-1);
+    const wireStateAfterInspect = mounted.getLabViewState();
+    check("committed-wire-pointer-tap-inspects-current-canonical-wire",
+      wireInspectEvents.length === 1 &&
+      committedInspect?.wireId === committedWireId &&
+      committedInspect?.meta?.source === "pointer" &&
+      committedInspect?.meta?.physicalVerified === false &&
+      Object.isFrozen(committedInspect.meta) &&
+      Object.keys(committedInspect.meta).sort().join(",") === "physicalVerified,source" &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints");
+    check("committed-wire-pointer-inspection-is-visual-only",
+      canvas.dataset.labWireCount === wireCountBeforeInspect &&
+      canvas.dataset.labWireGeometryRevision === wireRevisionBeforeInspect &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      wireInspectTerminalEvents.length === 0 &&
+      wireInspectComponentEvents.length === 0 &&
+      wireInspectLinkEvents.length === 0 &&
+      wireStateAfterInspect.selectedComponentId === wireStateBeforeInspect.selectedComponentId &&
+      wireStateAfterInspect.focusedComponentId === wireStateBeforeInspect.focusedComponentId &&
+      JSON.stringify(wireStateAfterInspect.camera) === JSON.stringify(wireStateBeforeInspect.camera));
+
+    const inspectCountBeforeAltPointers = wireInspectEvents.length;
+    for (const [pointerType, pointerId] of [["touch", 944], ["pen", 945]]) {
+      dispatchScenePointer(canvas, "pointerdown", committedWirePoint, pointerId, pointerType);
+      dispatchScenePointer(canvas, "pointerup", committedWirePoint, pointerId, pointerType);
+    }
+    check("committed-wire-pointer-tap-supports-touch-and-pen-without-connect-action",
+      wireInspectEvents.length === inspectCountBeforeAltPointers + 2 &&
+      wireInspectEvents.slice(-2).every(item =>
+        item.wireId === committedWireId &&
+        item.meta?.source === "pointer" &&
+        item.meta?.physicalVerified === false &&
+        Object.isFrozen(item.meta)
+      ) &&
+      wireInspectLinkEvents.length === 0 &&
+      canvas.dataset.labWireCount === wireCountBeforeInspect &&
+      canvas.dataset.labWireGeometryRevision === wireRevisionBeforeInspect);
+
+    mounted.setPendingWireTerminal("D13");
+    const inspectCountBeforePendingSeparation = wireInspectEvents.length;
+    const linkCountBeforePendingSeparation = wireInspectLinkEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", committedWirePoint, 942, "mouse");
+    dispatchScenePointer(canvas, "pointerup", committedWirePoint, 942, "mouse");
+    check("committed-wire-inspection-stays-separate-from-two-tap-pending-preview",
+      wireInspectEvents.length === inspectCountBeforePendingSeparation + 1 &&
+      wireInspectLinkEvents.length === linkCountBeforePendingSeparation &&
+      canvas.dataset.labPendingWireTerminal === "D13" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      canvas.dataset.labWireCount === wireCountBeforeInspect &&
+      canvas.dataset.labWireGeometryRevision === wireRevisionBeforeInspect);
+    mounted.setPendingWireTerminal(null);
+
+    const inspectCountBeforeTerminalPriority = wireInspectEvents.length;
+    const terminalCountBeforeWirePriority = wireInspectTerminalEvents.length;
+    const priorityTerminalPoint = findTerminalPoint(canvas, layout, "D13", 931);
+    dispatchScenePointer(canvas, "pointerdown", priorityTerminalPoint, 932, "touch");
+    dispatchScenePointer(canvas, "pointerup", priorityTerminalPoint, 932, "touch");
+    check("committed-wire-inspection-does-not-steal-terminal-tap-priority",
+      wireInspectEvents.length === inspectCountBeforeTerminalPriority &&
+      wireInspectTerminalEvents.length === terminalCountBeforeWirePriority + 1 &&
+      wireInspectTerminalEvents.at(-1) === "D13");
+
+    const inspectCountBeforeTerminalJitter = wireInspectEvents.length;
+    const terminalCountBeforeWireJitter = wireInspectTerminalEvents.length;
+    const priorityTerminalJitter = {
+      clientX: priorityTerminalPoint.clientX + 11,
+      clientY: priorityTerminalPoint.clientY,
+    };
+    dispatchScenePointer(canvas, "pointerdown", priorityTerminalPoint, 933, "touch");
+    dispatchScenePointer(canvas, "pointermove", priorityTerminalJitter, 933, "touch");
+    dispatchScenePointer(canvas, "pointerup", priorityTerminalJitter, 933, "touch");
+    check("committed-wire-inspection-preserves-terminal-touch-jitter-tap",
+      wireInspectEvents.length === inspectCountBeforeTerminalJitter &&
+      wireInspectTerminalEvents.length === terminalCountBeforeWireJitter + 1);
+
+    const inspectCountBeforeComponentPriority = wireInspectEvents.length;
+    const componentCountBeforeWirePriority = wireInspectComponentEvents.length;
+    const componentPriorityPoint = projectedComponentPoint(canvas, layout, "arduino");
+    dispatchScenePointer(canvas, "pointerdown", componentPriorityPoint, 934, "mouse");
+    dispatchScenePointer(canvas, "pointerup", componentPriorityPoint, 934, "mouse");
+    check("committed-wire-inspection-does-not-steal-component-tap-priority",
+      wireInspectEvents.length === inspectCountBeforeComponentPriority &&
+      wireInspectComponentEvents.length === componentCountBeforeWirePriority + 1 &&
+      wireInspectComponentEvents.at(-1) === "arduino");
+
+    resetCameraForTerminalProjection(canvas);
+    const cameraWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const inspectCountBeforeWireCameraDrag = wireInspectEvents.length;
+    const cameraBeforeWireDrag = mounted.getLabViewState().camera;
+    const cameraWireDragPoint = {
+      clientX: cameraWirePoint.clientX + 24,
+      clientY: cameraWirePoint.clientY + 8,
+    };
+    dispatchScenePointer(canvas, "pointerdown", cameraWirePoint, 935, "mouse");
+    dispatchScenePointer(canvas, "pointermove", cameraWireDragPoint, 935, "mouse");
+    dispatchScenePointer(canvas, "pointerup", cameraWireDragPoint, 935, "mouse");
+    const cameraAfterWireDrag = mounted.getLabViewState().camera;
+    check("committed-wire-pointer-drag-falls-through-to-camera-without-inspection",
+      wireInspectEvents.length === inspectCountBeforeWireCameraDrag &&
+      (cameraAfterWireDrag.theta !== cameraBeforeWireDrag.theta ||
+        cameraAfterWireDrag.phi !== cameraBeforeWireDrag.phi));
+
+    resetCameraForTerminalProjection(canvas);
+    const cancelWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const inspectCountBeforeWireCancel = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", cancelWirePoint, 936, "mouse");
+    dispatchScenePointer(canvas, "pointercancel", cancelWirePoint, 936, "mouse");
+    check("committed-wire-pointercancel-emits-no-inspection",
+      wireInspectEvents.length === inspectCountBeforeWireCancel);
+    dispatchScenePointer(canvas, "pointerdown", cancelWirePoint, 937, "pen");
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      pointerId: 937,
+      pointerType: "pen",
+      clientX: cancelWirePoint.clientX,
+      clientY: cancelWirePoint.clientY,
+      bubbles: true,
+      cancelable: true,
+    }));
+    check("committed-wire-lostcapture-emits-no-inspection",
+      wireInspectEvents.length === inspectCountBeforeWireCancel);
+
+    const staleWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const inspectCountBeforeStaleIdentity = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", staleWirePoint, 938, "mouse");
+    const staleReplacementCircuit = connectCircuit(createCircuit(2), "D13", "GND");
+    mounted.setWiring(staleReplacementCircuit, terminals);
+    dispatchScenePointer(canvas, "pointerup", staleWirePoint, 938, "mouse");
+    check("committed-wire-inspection-rejects-stale-same-id-different-endpoints",
+      staleReplacementCircuit.wires[0].id === committedWireId &&
+      wireInspectEvents.length === inspectCountBeforeStaleIdentity &&
+      canvas.dataset.labHighlightedWire === "");
+
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+    const prototypeWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const prototypeWireCircuit = {
+      ...sampleCircuit,
+      wires: sampleCircuit.wires.map((wire, index) =>
+        index === 0 ? { ...wire, id: "constructor" } : wire
+      ),
+    };
+    mounted.setWiring(prototypeWireCircuit, terminals);
+    const inspectCountBeforePrototypeWire = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", prototypeWirePoint, 939, "mouse");
+    dispatchScenePointer(canvas, "pointerup", prototypeWirePoint, 939, "mouse");
+    check("committed-wire-inspection-rejects-prototype-like-wire-id",
+      wireInspectEvents.length === inspectCountBeforePrototypeWire &&
+      canvas.dataset.labHighlightedWire === "");
+
+    const whitespaceWireCircuit = {
+      ...sampleCircuit,
+      wires: sampleCircuit.wires.map((wire, index) =>
+        index === 0 ? { ...wire, id: wire.id + " " } : wire
+      ),
+    };
+    mounted.setWiring(whitespaceWireCircuit, terminals);
+    const inspectCountBeforeWhitespaceWire = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", prototypeWirePoint, 943, "mouse");
+    dispatchScenePointer(canvas, "pointerup", prototypeWirePoint, 943, "mouse");
+    check("committed-wire-inspection-rejects-nonexact-wire-id",
+      wireInspectEvents.length === inspectCountBeforeWhitespaceWire &&
+      canvas.dataset.labHighlightedWire === "");
+
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+    const stageWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const inspectCountBeforeStageClearWire = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", stageWirePoint, 940, "mouse");
+    mounted.setLabLayout(null);
+    dispatchScenePointer(canvas, "pointerup", stageWirePoint, 940, "mouse");
+    check("committed-wire-inspection-stage-clear-cancels-stale-pointer",
+      wireInspectEvents.length === inspectCountBeforeStageClearWire &&
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireCount === "0");
+    mounted.setLabLayout(layout);
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+    const lessonWirePoint = projectedCommittedWirePoint(canvas, layout, sampleCircuit.wires[0], 0);
+    const inspectCountBeforeLessonClearWire = wireInspectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lessonWirePoint, 941, "mouse");
+    mounted.setLesson({ id: 3 });
+    dispatchScenePointer(canvas, "pointerup", lessonWirePoint, 941, "mouse");
+    check("committed-wire-inspection-lesson-change-cancels-stale-pointer",
+      wireInspectEvents.length === inspectCountBeforeLessonClearWire &&
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireCount === "0");
+    mounted.setLesson({ id: 2 });
+    mounted.setLabLayout(layout);
+    mounted.setWiring(sampleCircuit, terminals);
+    mounted.setLabEdit({
+      enabled: false,
+      onSelectComponent: null,
+      onTerminalSelect: null,
+      onTerminalLink: null,
+      onCommittedWireInspect: null,
+    });
+
     const beforeWireHighlight = mounted.getLabViewState();
     const wireCountBeforeHighlight = canvas.dataset.labWireCount;
     const highlightedWire = mounted.setHighlightedLabWire(committedWireId);
@@ -1402,6 +1712,58 @@ export async function runScene3DContracts() {
       guideLossCanvas.dataset.labAuthoredGuideTo === "");
     flushFrames();
     guideLoss.dispose();
+
+    host.remove();
+    host = makeHost();
+    const wireLoss = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const wireLossCanvas = host.querySelector("canvas");
+    wireLossCanvas.setPointerCapture = () => {};
+    wireLossCanvas.releasePointerCapture = () => {};
+    const wireLossInspectEvents = [];
+    wireLoss.setLesson({ id: 2 });
+    wireLoss.setLabLayout(layout);
+    wireLoss.setWiring(sampleCircuit, terminals);
+    wireLoss.setLabEdit({
+      enabled: true,
+      onCommittedWireInspect: (wireId, meta) => wireLossInspectEvents.push({ wireId, meta }),
+    });
+    resetCameraForTerminalProjection(wireLossCanvas);
+    const wireLossPoint = projectedCommittedWirePoint(
+      wireLossCanvas, layout, sampleCircuit.wires[0], 0
+    );
+    dispatchScenePointer(wireLossCanvas, "pointerdown", wireLossPoint, 950, "mouse");
+    const wireInspectGl = wireLossCanvas.getContext("webgl2");
+    const wireInspectContextExtension = wireInspectGl?.getExtension("WEBGL_lose_context");
+    const wireInspectLostPromise = waitEvent(wireLossCanvas, "webglcontextlost");
+    if (wireInspectContextExtension) wireInspectContextExtension.loseContext();
+    else wireLossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    await wireInspectLostPromise;
+    dispatchScenePointer(wireLossCanvas, "pointerup", wireLossPoint, 950, "mouse");
+    check("committed-wire-inspection-context-loss-cancels-stale-pointer",
+      wireLossInspectEvents.length === 0 &&
+      wireLossCanvas.dataset.sceneContext === "lost" &&
+      wireLossCanvas.dataset.labHighlightedWire === "");
+    await waitTask();
+    const wireInspectRestoredPromise = waitEvent(wireLossCanvas, "webglcontextrestored");
+    if (wireInspectContextExtension) wireInspectContextExtension.restoreContext();
+    else wireLossCanvas.dispatchEvent(new Event("webglcontextrestored"));
+    await wireInspectRestoredPromise;
+    check("committed-wire-inspection-context-restore-does-not-replay-callback",
+      wireLossInspectEvents.length === 0 &&
+      wireLossCanvas.dataset.sceneContext === "ready");
+    flushFrames();
+    resetCameraForTerminalProjection(wireLossCanvas);
+    const wireDisposePoint = projectedCommittedWirePoint(
+      wireLossCanvas, layout, sampleCircuit.wires[0], 0
+    );
+    dispatchScenePointer(wireLossCanvas, "pointerdown", wireDisposePoint, 951, "mouse");
+    wireLoss.dispose();
+    check("committed-wire-inspection-dispose-cancels-stale-pointer",
+      wireLossInspectEvents.length === 0 &&
+      !wireLossCanvas.isConnected &&
+      !host.querySelector("canvas"));
 
     host.remove();
     host = makeHost();

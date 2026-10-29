@@ -26,6 +26,13 @@ const SOURCE_LABELS = Object.freeze({
 });
 
 const SEVERITY_RANK = Object.freeze({ info: 1, warning: 2, error: 3 });
+const SNAPSHOT_FIELDS = new Set([
+  "lessonId", "lesson", "stage", "editing", "selectedComponentId",
+  "selectedTerminalId", "selectedWireId", "layout", "circuit",
+  "referenceCircuit", "hasLearnerDraft", "analysis", "referenceAnalysis",
+  "source", "evidence", "sceneView", "claims",
+]);
+const CANONICAL_WIRE_ID = /^w[1-9][0-9]*$/;
 
 function freezeObject(value) {
   return Object.freeze(value);
@@ -47,7 +54,38 @@ function stringOr(value, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
-function normalizeSource(snapshot, lessonId) {
+function requirePlainSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new TypeError("Lab explorer snapshot phải là object.");
+  }
+  const prototype = Object.getPrototypeOf(snapshot);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("Lab explorer snapshot phải là plain object.");
+  }
+  const unknown = Reflect.ownKeys(snapshot).filter(key =>
+    typeof key !== "string" || !SNAPSHOT_FIELDS.has(key));
+  if (unknown.length) {
+    throw new TypeError("Lab explorer snapshot có field không được hỗ trợ: " + String(unknown[0]));
+  }
+  const accessor = Reflect.ownKeys(snapshot).find(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(snapshot, key);
+    return Boolean(descriptor?.get || descriptor?.set);
+  });
+  if (accessor !== undefined) {
+    throw new TypeError("Lab explorer snapshot không nhận accessor field: " + String(accessor));
+  }
+}
+
+function normalizeSelectedWireId(value) {
+  if (value == null) return null;
+  if (typeof value !== "string" || value !== value.trim() || !CANONICAL_WIRE_ID.test(value)) {
+    throw new TypeError("selectedWireId phải là exact learner wire ID dạng wN hoặc null.");
+  }
+  if (value.length > 32) throw new RangeError("selectedWireId vượt giới hạn 32 ký tự.");
+  return value;
+}
+
+function normalizeSource(snapshot, lessonId, learnerWireCount = 0, referenceWireCount = 0) {
   if (lessonId === 1) {
     return freezeObject({
       kind: "none",
@@ -68,10 +106,38 @@ function normalizeSource(snapshot, lessonId) {
   return freezeObject({
     kind,
     label: SOURCE_LABELS[kind],
-    learnerWireCount: Array.isArray(snapshot?.circuit?.wires) ? snapshot.circuit.wires.length : 0,
-    referenceWireCount: Array.isArray(snapshot?.referenceCircuit?.wires) ? snapshot.referenceCircuit.wires.length : 0,
+    learnerWireCount,
+    referenceWireCount,
     physicalVerified: false,
   });
+}
+
+function requirePlainDataRecord(value, label, allowedFields, requiredFields) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${label} phải là plain object.`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`${label} phải là plain object.`);
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  const invalidKey = ownKeys.find(key => typeof key !== "string" || !allowedFields.has(key));
+  if (invalidKey !== undefined) {
+    throw new TypeError(`${label} có field không được hỗ trợ: ${String(invalidKey)}.`);
+  }
+  for (const key of requiredFields) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
+      throw new TypeError(`${label}.${key} phải là own data field.`);
+    }
+  }
+  for (const key of ownKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
+      throw new TypeError(`${label}.${String(key)} không được là accessor field.`);
+    }
+  }
+  return value;
 }
 
 function terminalGroups(terminals) {
@@ -87,23 +153,53 @@ function terminalGroups(terminals) {
 }
 
 function normalizeCircuit(circuit, lessonId, terminalIds, label) {
-  if (!circuit || typeof circuit !== "object" || Array.isArray(circuit)) {
-    throw new TypeError(`${label} phải là circuit object.`);
+  const allowedCircuitFields = new Set(["version", "engine", "lessonId", "supported", "wires", "nextWireId"]);
+  requirePlainDataRecord(
+    circuit,
+    label,
+    allowedCircuitFields,
+    ["version", "lessonId", "supported", "wires", "nextWireId"],
+  );
+  const version = Object.getOwnPropertyDescriptor(circuit, "version").value;
+  const engine = Object.hasOwn(circuit, "engine")
+    ? Object.getOwnPropertyDescriptor(circuit, "engine").value
+    : null;
+  const circuitLessonId = Object.getOwnPropertyDescriptor(circuit, "lessonId").value;
+  const supported = Object.getOwnPropertyDescriptor(circuit, "supported").value;
+  const wires = Object.getOwnPropertyDescriptor(circuit, "wires").value;
+  const nextWireId = Object.getOwnPropertyDescriptor(circuit, "nextWireId").value;
+  if (version !== 1 || (engine !== null && engine !== "extended-v1")) {
+    throw new RangeError(`${label} có version/engine không được hỗ trợ.`);
   }
-  if (Number(circuit.lessonId) !== lessonId || !Array.isArray(circuit.wires)) {
+  if (circuitLessonId !== lessonId || supported !== true || !Array.isArray(wires)) {
     throw new RangeError(`${label} không thuộc lesson hoặc thiếu wires.`);
   }
-  if (circuit.wires.length > LAB_EXPLORER_LIMITS.maxWires) {
+  if (Object.getPrototypeOf(wires) !== Array.prototype) {
+    throw new TypeError(`${label}.wires phải là Array chuẩn.`);
+  }
+  if (!Number.isInteger(nextWireId) || nextWireId < 1) {
+    throw new TypeError(`${label}.nextWireId không hợp lệ.`);
+  }
+  if (wires.length > LAB_EXPLORER_LIMITS.maxWires) {
     throw new RangeError(`${label} vượt giới hạn wire hiển thị.`);
   }
   const seenIds = new Set();
   const edges = new Set();
-  return freezeArray(circuit.wires.map((wire, index) => {
-    if (!wire || typeof wire !== "object") throw new TypeError(`${label}.wires[${index}] không hợp lệ.`);
-    const id = stringOr(wire.id).trim();
-    const from = stringOr(wire.from).trim();
-    const to = stringOr(wire.to).trim();
-    if (!id || !from || !to || from === to || !terminalIds.has(from) || !terminalIds.has(to)) {
+  let greatestWireNumber = 0;
+  const normalized = [];
+  for (let index = 0; index < wires.length; index += 1) {
+    const entryDescriptor = Object.getOwnPropertyDescriptor(wires, String(index));
+    if (!entryDescriptor || !("value" in entryDescriptor) || entryDescriptor.get || entryDescriptor.set) {
+      throw new TypeError(`${label}.wires[${index}] phải là own data element.`);
+    }
+    const wire = entryDescriptor.value;
+    const wireLabel = `${label}.wires[${index}]`;
+    requirePlainDataRecord(wire, wireLabel, new Set(["id", "from", "to"]), ["id", "from", "to"]);
+    const id = Object.getOwnPropertyDescriptor(wire, "id").value;
+    const from = Object.getOwnPropertyDescriptor(wire, "from").value;
+    const to = Object.getOwnPropertyDescriptor(wire, "to").value;
+    if (!CANONICAL_WIRE_ID.test(id) || from !== from.trim() || to !== to.trim() ||
+        !from || !to || from === to || !terminalIds.has(from) || !terminalIds.has(to)) {
       throw new RangeError(`${label}.wires[${index}] dùng ID/terminal không hợp lệ.`);
     }
     if (seenIds.has(id)) throw new RangeError(`${label} có wire id trùng ${id}.`);
@@ -111,8 +207,13 @@ function normalizeCircuit(circuit, lessonId, terminalIds, label) {
     const edge = from < to ? `${from}\u0000${to}` : `${to}\u0000${from}`;
     if (edges.has(edge)) throw new RangeError(`${label} có wire endpoint trùng.`);
     edges.add(edge);
-    return { id, from, to };
-  }));
+    greatestWireNumber = Math.max(greatestWireNumber, Number(id.slice(1)));
+    normalized.push({ id, from, to });
+  }
+  if (nextWireId <= greatestWireNumber) {
+    throw new RangeError(`${label}.nextWireId phải lớn hơn wire ID hiện có.`);
+  }
+  return freezeArray(normalized);
 }
 
 function normalizeIssues(analysis, lessonId, terminalIds) {
@@ -207,7 +308,10 @@ function schematicGeometry(terminals) {
   };
 }
 
-function buildSchematic(terminals, wires, referenceWires, issues, analysis, source, editing, selectedTerminalId) {
+function buildSchematic(
+  terminals, wires, referenceWires, issues, analysis, source, editing,
+  selectedTerminalId, selectedWireId
+) {
   const geometry = schematicGeometry(terminals);
   const terminalById = new Map(terminals.map(terminal => [terminal.id, terminal]));
   const terminalsView = freezeArray(terminals.map(terminal => {
@@ -234,6 +338,7 @@ function buildSchematic(terminals, wires, referenceWires, issues, analysis, sour
       x2: to.x,
       y2: to.y,
       issueSeverity: worstSeverity(related),
+      selected: wire.id === selectedWireId,
       editable: source.kind === "learner-draft" && Boolean(editing),
     };
   }));
@@ -249,6 +354,7 @@ function buildSchematic(terminals, wires, referenceWires, issues, analysis, sour
       x2: to.x,
       y2: to.y,
       editable: false,
+      selected: false,
       referenceOnly: true,
     };
   }));
@@ -259,6 +365,7 @@ function buildSchematic(terminals, wires, referenceWires, issues, analysis, sour
     scope,
     signalOnly: scope === "signal-only",
     selectedTerminalId,
+    selectedWireId,
     editableConnections: Boolean(editing),
     editableWireDeletion: source.kind === "learner-draft" && Boolean(editing),
     components: geometry.components,
@@ -288,15 +395,19 @@ function mapCoordinate(value, min, max, span) {
   return ((value - min) / (max - min)) * span;
 }
 
-function buildMinimap(layout, terminals, selectedComponentId, selectedTerminalId, sceneView) {
+function buildMinimap(
+  layout, terminals, wires, selectedComponentId, selectedTerminalId, selectedWireId, sceneView
+) {
   if (!layout) {
     return freezeObject({
       mode: "none",
       available: false,
       components: freezeArray([]),
       terminals: freezeArray([]),
+      wires: freezeArray([]),
       selectedComponentId: null,
       selectedTerminalId: null,
+      selectedWireId: null,
       focusedComponentId: null,
       physicalVerified: false,
     });
@@ -339,6 +450,22 @@ function buildMinimap(layout, terminals, selectedComponentId, selectedTerminalId
       physicalVerified: false,
     };
   }));
+  const terminalPosition = new Map(terminalsView.map(terminal => [terminal.terminalId, terminal]));
+  const wiresView = freezeArray(wires.map(wire => {
+    const from = terminalPosition.get(wire.from);
+    const to = terminalPosition.get(wire.to);
+    return {
+      id: wire.id,
+      from: wire.from,
+      to: wire.to,
+      x1: from.x,
+      y1: from.y,
+      x2: to.x,
+      y2: to.y,
+      selected: wire.id === selectedWireId,
+      physicalVerified: false,
+    };
+  }));
   const focused = typeof sceneView?.focusedComponentId === "string" ? sceneView.focusedComponentId : null;
   return freezeObject({
     mode: "logical-plan",
@@ -348,8 +475,10 @@ function buildMinimap(layout, terminals, selectedComponentId, selectedTerminalId
     bounds: freezeObject({ ...bounds }),
     components,
     terminals: terminalsView,
+    wires: wiresView,
     selectedComponentId: components.some(component => component.id === selectedComponentId) ? selectedComponentId : null,
     selectedTerminalId: terminalsView.some(terminal => terminal.terminalId === selectedTerminalId) ? selectedTerminalId : null,
+    selectedWireId: wiresView.some(wire => wire.id === selectedWireId) ? selectedWireId : null,
     focusedComponentId: components.some(component => component.id === focused) ? focused : null,
     physicalVerified: false,
     breadboardHoleMapping: false,
@@ -357,13 +486,17 @@ function buildMinimap(layout, terminals, selectedComponentId, selectedTerminalId
   });
 }
 
-function buildInspector(layout, terminals, selectedComponentId, selectedTerminalId, issues, source) {
+function buildInspector(
+  layout, terminals, selectedComponentId, selectedTerminalId, selectedWire, issues, source
+) {
   if (!layout || typeof selectedComponentId !== "string") {
     return freezeObject({
       selectedComponentId: null,
       component: null,
       terminals: freezeArray([]),
       selectedTerminalId: null,
+      selectedWireId: selectedWire?.id ?? null,
+      selectedWire: selectedWire ?? null,
       issues: freezeArray([]),
       source,
     });
@@ -375,6 +508,8 @@ function buildInspector(layout, terminals, selectedComponentId, selectedTerminal
       component: null,
       terminals: freezeArray([]),
       selectedTerminalId: null,
+      selectedWireId: selectedWire?.id ?? null,
+      selectedWire: selectedWire ?? null,
       issues: freezeArray([]),
       source,
     });
@@ -403,20 +538,21 @@ function buildInspector(layout, terminals, selectedComponentId, selectedTerminal
       issueSeverity: worstSeverity(issues, terminal.id),
     }))),
     selectedTerminalId: selectedTerminalIds.has(selectedTerminalId) ? selectedTerminalId : null,
+    selectedWireId: selectedWire?.id ?? null,
+    selectedWire: selectedWire ?? null,
     issues: freezeArray(selectedIssues.map(issue => ({ ...issue, terminals: Object.freeze([...issue.terminals]) }))),
     source,
   });
 }
 
 export function createLabExplorerModel(snapshot) {
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    throw new TypeError("Lab explorer snapshot phải là object.");
-  }
+  requirePlainSnapshot(snapshot);
   const lessonId = requireLessonId(snapshot.lessonId);
+  const requestedSelectedWireId = normalizeSelectedWireId(snapshot.selectedWireId);
   const lesson = snapshot.lesson && typeof snapshot.lesson === "object" ? snapshot.lesson : null;
-  const source = normalizeSource(snapshot, lessonId);
 
   if (lessonId === 1) {
+    const source = normalizeSource(snapshot, lessonId, 0, 0);
     return freezeObject({
       schemaVersion: 1,
       lessonId,
@@ -425,14 +561,17 @@ export function createLabExplorerModel(snapshot) {
       stage: stringOr(snapshot.stage, "3d"),
       editing: false,
       selectedTerminalId: null,
+      selectedWireId: null,
+      selectedWire: null,
       source,
-      inspector: buildInspector(null, [], null, null, [], source),
+      inspector: buildInspector(null, [], null, null, null, [], source),
       schematic: freezeObject({
         mode: "none",
         source: "none",
         scope: "none",
         signalOnly: false,
         selectedTerminalId: null,
+        selectedWireId: null,
         editableConnections: false,
         editableWireDeletion: false,
         components: freezeArray([]),
@@ -444,7 +583,7 @@ export function createLabExplorerModel(snapshot) {
         physicalVerified: false,
         electricalFlow: false,
       }),
-      minimap: buildMinimap(null, [], null, null, snapshot.sceneView),
+      minimap: buildMinimap(null, [], [], null, null, null, snapshot.sceneView),
       reference: freezeObject({ available: false, wireCount: 0, label: "Bài 01 dùng LED L tích hợp, không có netlist ngoài." }),
       boundaries: freezeObject({
         conceptualOnly: true,
@@ -467,6 +606,11 @@ export function createLabExplorerModel(snapshot) {
   const referenceWires = snapshot.referenceCircuit
     ? normalizeCircuit(snapshot.referenceCircuit, lessonId, terminalIds, "referenceCircuit")
     : freezeArray([]);
+  const source = normalizeSource(snapshot, lessonId, learnerWires.length, referenceWires.length);
+  const selectedWire = requestedSelectedWireId === null
+    ? null
+    : learnerWires.find(wire => wire.id === requestedSelectedWireId) ?? null;
+  const selectedWireId = selectedWire?.id ?? null;
   const issues = normalizeIssues(snapshot.analysis, lessonId, terminalIds);
   const layout = normalizeLayout(snapshot.layout, lessonId, terminals);
   const selectedComponentId = typeof snapshot.selectedComponentId === "string"
@@ -485,10 +629,15 @@ export function createLabExplorerModel(snapshot) {
   const editing = Boolean(snapshot.editing);
   const schematic = buildSchematic(
     terminals, learnerWires, referenceWires, issues,
-    snapshot.analysis, source, editing, selectedTerminalId
+    snapshot.analysis, source, editing, selectedTerminalId, selectedWireId
   );
-  const minimap = buildMinimap(layout, terminals, selectedComponentId, selectedTerminalId, snapshot.sceneView);
-  const inspector = buildInspector(layout, terminals, selectedComponentId, selectedTerminalId, issues, source);
+  const minimap = buildMinimap(
+    layout, terminals, learnerWires, selectedComponentId, selectedTerminalId,
+    selectedWireId, snapshot.sceneView
+  );
+  const inspector = buildInspector(
+    layout, terminals, selectedComponentId, selectedTerminalId, selectedWire, issues, source
+  );
   const scope = schematic.signalOnly ? "signal-only" : "topology";
 
   return freezeObject({
@@ -499,6 +648,8 @@ export function createLabExplorerModel(snapshot) {
     stage: stringOr(snapshot.stage, "3d"),
     editing,
     selectedTerminalId,
+    selectedWireId,
+    selectedWire,
     source,
     scope,
     inspector,

@@ -66,6 +66,9 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   // Authored corrective guidance is a *view-only* visual annotation of two
   // canonical terminal IDs, not the user's armed first endpoint or circuit.
   let suggestedPair=null;
+  // Cross-surface inspection may point at ONE already-committed learner wire.
+  // This is presentation state only; it never creates/changes an edge or history.
+  let highlightedWire=null;
 
   host.replaceChildren();
   host.classList.add("wiring-workbench");
@@ -152,6 +155,100 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     const dx=end.x-start.x,bulge=Math.max(16,Math.abs(dx)*.30);
     return `M ${start.x.toFixed(1)},${start.y.toFixed(1)} C ${(start.x+bulge).toFixed(1)},${start.y.toFixed(1)} ${(end.x-bulge).toFixed(1)},${end.y.toFixed(1)} ${end.x.toFixed(1)},${end.y.toFixed(1)}`;
   }
+  function primitiveWireId(value) {
+    if(typeof value!=="string"||!/^w[1-9][0-9]*$/.test(value)){
+      throw new TypeError("wireId phải là canonical learner wire ID dạng wN (N >= 1).");
+    }
+    const numeric=Number(value.slice(1));
+    if(!Number.isSafeInteger(numeric)||numeric<1){
+      throw new RangeError("wireId vượt phạm vi số nguyên an toàn.");
+    }
+    return value;
+  }
+  function ownData(record,key,label) {
+    const descriptor=Object.getOwnPropertyDescriptor(record,key);
+    if(!descriptor||!("value" in descriptor)){
+      throw new TypeError(label+"."+key+" phải là own data property canonical.");
+    }
+    return descriptor.value;
+  }
+  function canonicalCurrentWire(wireId) {
+    const key=primitiveWireId(wireId);
+    if(!circuit||typeof circuit!=="object"||Array.isArray(circuit)||Object.getPrototypeOf(circuit)!==Object.prototype){
+      throw new TypeError("Learner circuit hiện tại phải là plain canonical object.");
+    }
+    const lesson=ownData(circuit,"lessonId","circuit");
+    const wires=ownData(circuit,"wires","circuit");
+    if(lesson!==id||!Array.isArray(wires)||Object.getPrototypeOf(wires)!==Array.prototype){
+      throw new RangeError("Learner circuit hiện tại không thuộc đúng lesson/wires canonical.");
+    }
+    let exact=null;
+    const seen=new Set();
+    for(let index=0;index<wires.length;index+=1){
+      const wire=wires[index];
+      if(!wire||typeof wire!=="object"||Array.isArray(wire)||Object.getPrototypeOf(wire)!==Object.prototype){
+        throw new TypeError("circuit.wires["+index+"] phải là plain canonical wire object.");
+      }
+      const names=Object.getOwnPropertyNames(wire).sort().join("\u0001");
+      if(names!=="from\u0001id\u0001to"){
+        throw new RangeError("circuit.wires["+index+"] có field ngoài canonical id/from/to.");
+      }
+      const currentId=primitiveWireId(ownData(wire,"id","circuit.wires["+index+"]"));
+      const from=ownData(wire,"from","circuit.wires["+index+"]");
+      const to=ownData(wire,"to","circuit.wires["+index+"]");
+      if(typeof from!=="string"||!from||typeof to!=="string"||!to||from===to){
+        throw new TypeError("circuit.wires["+index+"] có from/to không canonical.");
+      }
+      if(seen.has(currentId))throw new RangeError("Learner circuit có wire ID trùng.");
+      seen.add(currentId);
+      if(currentId===key)exact=wire;
+    }
+    if(!exact)throw new RangeError("wireId không thuộc learner circuit hiện tại.");
+    return exact;
+  }
+  function highlightedMatches(wire) {
+    return Boolean(highlightedWire)&&wire.id===highlightedWire.id&&
+      wire.from===highlightedWire.from&&wire.to===highlightedWire.to;
+  }
+  function reconcileCommittedHighlight() {
+    if(!highlightedWire)return false;
+    try{
+      const wire=canonicalCurrentWire(highlightedWire.id);
+      if(wire.from===highlightedWire.from&&wire.to===highlightedWire.to)return true;
+    }catch{}
+    highlightedWire=null;
+    return false;
+  }
+  function wireRowLabel(wire,highlighted=false) {
+    return highlighted
+      ? `Dây ${wire.id} đang được đánh dấu chỉ đọc: ${wire.from} nối ${wire.to}. Không tạo dây mới và không thay đổi learner graph.`
+      : `Dây ${wire.id}: ${wire.from} nối ${wire.to}.`;
+  }
+  function graphFingerprint(state) {
+    if(!state||!Array.isArray(state.wires))return null;
+    return state.wires.map(wire=>`${wire.id}\u0000${wire.from}\u0000${wire.to}`).sort().join("\u0001");
+  }
+  function applyCommittedHighlightRow() {
+    connectionsList.querySelectorAll("[data-wiring-wire-id]").forEach(row=>{
+      const wireId=row.getAttribute("data-wiring-wire-id");
+      const wire=(circuit.wires||[]).find(item=>item.id===wireId);
+      const on=Boolean(wire)&&highlightedMatches(wire);
+      row.classList.toggle("is-highlighted",on);
+      if(on){
+        row.setAttribute("data-wiring-highlight-wire",wire.id);
+        row.setAttribute("aria-current","true");
+      }else{
+        if(typeof row.removeAttribute==="function"){
+          row.removeAttribute("data-wiring-highlight-wire");
+          row.removeAttribute("aria-current");
+        }else if(row.attributes&&typeof row.attributes.delete==="function"){
+          row.attributes.delete("data-wiring-highlight-wire");
+          row.attributes.delete("aria-current");
+        }
+      }
+      if(wire)row.setAttribute("aria-label",wireRowLabel(wire,on));
+    });
+  }
   function requestDraw(){
     if(raf||disposed)return;
     raf=requestAnimationFrame(()=>{
@@ -163,8 +260,24 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
         const start=terminalPoint(wire.from),end=terminalPoint(wire.to);
         if(!start||!end)return;
         const color=["#12988f","#e1a443","#547fc3","#c87961","#8b79bc"][index%5];
-        svg.append(createSvg("path",{d:curved(start,end),fill:"none",stroke:"#ffffff","stroke-width":7,"stroke-linecap":"round"}));
-        svg.append(createSvg("path",{d:curved(start,end),fill:"none",stroke:color,"stroke-width":4,"stroke-linecap":"round"}));
+        const highlighted=highlightedMatches(wire);
+        const halo=createSvg("path",{
+          d:curved(start,end),fill:"none",stroke:highlighted?"#17202a":"#ffffff",
+          "stroke-width":highlighted?10:7,"stroke-linecap":"round",
+          class:highlighted?"wire-committed-path wire-committed-halo is-highlighted":"wire-committed-path wire-committed-halo",
+          "data-wiring-wire-id":wire.id,
+        });
+        const visual=createSvg("path",{
+          d:curved(start,end),fill:"none",stroke:highlighted?"#ffe45c":color,
+          "stroke-width":highlighted?5.5:4,"stroke-linecap":"round",
+          class:highlighted?"wire-committed-path wire-committed-visual is-highlighted":"wire-committed-path wire-committed-visual",
+          "data-wiring-wire-id":wire.id,
+        });
+        if(highlighted){
+          halo.setAttribute("data-wiring-highlight-wire",wire.id);
+          visual.setAttribute("data-wiring-highlight-wire",wire.id);
+        }
+        svg.append(halo,visual);
       });
       if(suggestedPair){
         const start=terminalPoint(suggestedPair[0]);
@@ -192,6 +305,9 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     // mutable closure again after a callback can accidentally submit an old
     // valid graph instead of the learner's newly-invalid edit.
     const changedCircuit=circuit;
+    // Any learner-graph mutation invalidates a prior cross-surface selection.
+    // The app may explicitly reselect after it revalidates the fresh model.
+    highlightedWire=null;
     suggestedPair=null;
     const changedAnalysis=analyzeCircuit(id,changedCircuit);
     analysis=changedAnalysis;
@@ -215,6 +331,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   }
   function render(message="") {
     analysis=analyzeCircuit(id,circuit);
+    reconcileCommittedHighlight();
     workspace.querySelectorAll("[data-terminal]").forEach(button=>{
       const chosen=selected===button.dataset.terminal;
       button.classList.toggle("is-selected",chosen);
@@ -257,6 +374,9 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     if(!count)connectionsList.append(create("p","wire-empty","Chưa nối dây nào."));
     for(const wire of circuit.wires) {
       const row=create("div","wire-connected");
+      row.setAttribute("role","group");
+      row.setAttribute("data-wiring-wire-id",wire.id);
+      row.setAttribute("aria-label",wireRowLabel(wire,false));
       row.append(create("span","",`${wire.from}  →  ${wire.to}`));
       const remove=create("button","wire-remove","Gỡ");
       remove.type="button";
@@ -264,6 +384,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       remove.setAttribute("aria-label",`Gỡ dây ${wire.from} nối ${wire.to}`);
       row.append(remove);connectionsList.append(row);
     }
+    applyCommittedHighlightRow();
     requestDraw();
   }
   function connect(from,to) {
@@ -345,12 +466,12 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   const sample=()=>{
     try{
       circuit=sampleCircuit(id);
-      selected=null;suggestedPair=null;
+      selected=null;suggestedPair=null;highlightedWire=null;
       notify();render("Đã nối mạch mẫu để đối chiếu với bài học.");
     }catch(error){render("Không thể tạo mạch mẫu: "+(error?.message||"Không rõ lỗi"));}
   };
   const clear=()=>{
-    circuit=createCircuit(id);selected=null;suggestedPair=null;
+    circuit=createCircuit(id);selected=null;suggestedPair=null;highlightedWire=null;
     notify();render("Đã tháo toàn bộ dây.");
   };
   const activate=()=>{
@@ -420,6 +541,35 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       return true;
     },
     getSuggestedPair:()=>suggestedPair,
+    highlightCommittedWire(wireId){
+      if(disposed)return false;
+      if(wireId===null){
+        const changed=highlightedWire!==null;
+        highlightedWire=null;
+        applyCommittedHighlightRow();
+        requestDraw();
+        return Object.freeze({
+          wireId:null,highlighted:false,changed,mode:"learner-wire-read-only",
+          graphMutated:false,historyMutated:false,progressMutated:false,
+        });
+      }
+      let wire;
+      try{
+        wire=canonicalCurrentWire(wireId);
+      }catch(error){
+        highlightedWire=null;
+        applyCommittedHighlightRow();
+        requestDraw();
+        throw error;
+      }
+      highlightedWire=Object.freeze({id:wire.id,from:wire.from,to:wire.to});
+      applyCommittedHighlightRow();
+      requestDraw();
+      return Object.freeze({
+        wireId:wire.id,from:wire.from,to:wire.to,highlighted:true,
+        mode:"learner-wire-read-only",graphMutated:false,historyMutated:false,progressMutated:false,
+      });
+    },
     // Reconcile canonical changes made by the separate 3D/schematic editor.
     // Never notify recursively or infer an electrical source from the SVG.
     setCircuit(next, options = {}) {
@@ -427,15 +577,19 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       if(!next || Number(next.lessonId)!==id || !Array.isArray(next.wires)){
         throw new TypeError("Workbench nhận netlist của bài khác hoặc thiếu wires.");
       }
+      const previousFingerprint=graphFingerprint(circuit);
       const nextAnalysis=analyzeCircuit(id,next);
+      const nextFingerprint=graphFingerprint(next);
       circuit=next;
       analysis=nextAnalysis;
       selected=null;preview=null;pointerStart=null;suggestedPair=null;
+      if(previousFingerprint!==nextFingerprint)highlightedWire=null;
+      else reconcileCommittedHighlight();
       active=Boolean(options.active) && nextAnalysis.ok===true && nextAnalysis.functional===true;
       render("Bàn 2D đã cập nhật theo netlist dùng chung; không xác nhận mạch điện thực.");
     },
     dispose(){
-      if(disposed)return;disposed=true;
+      if(disposed)return;disposed=true;highlightedWire=null;
       observer.disconnect();if(raf)cancelAnimationFrame(raf);
       workspace.removeEventListener("click",click);
       workspace.removeEventListener("pointerdown",down);

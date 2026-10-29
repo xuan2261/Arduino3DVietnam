@@ -25,6 +25,8 @@ function textNode(doc, tag, text, className = "") {
 function button(doc, label, attributes = {}) {
   const node = textNode(doc, "button", label);
   node.type = "button";
+  node.style.minWidth = "44px";
+  node.style.minHeight = "44px";
   for (const [name, value] of Object.entries(attributes)) {
     if (value != null) node.setAttribute(name, String(value));
   }
@@ -71,6 +73,18 @@ function renderInspector(doc, model) {
   const source = textNode(doc, "p", model.source.label, "lab-explorer-source");
   source.dataset.explorerSource = model.source.kind;
   panel.append(source);
+  if (model.inspector.selectedWire) {
+    const wire = model.inspector.selectedWire;
+    const selectedWire = textNode(
+      doc,
+      "p",
+      `Dây learner đang chọn: ${wire.id} · ${wire.from} ↔ ${wire.to}. Đây là projection read-only của wire hiện có.`,
+      "lab-explorer-selected-wire"
+    );
+    selectedWire.dataset.explorerSelectedWire = wire.id;
+    selectedWire.setAttribute("aria-current", "true");
+    panel.append(selectedWire);
+  }
   if (!model.supported) {
     panel.append(textNode(doc, "p", "Bài 01 dùng LED L tích hợp trên bo; không có linh kiện netlist ngoài để inspect.", "lab-explorer-empty-copy"));
     return panel;
@@ -191,6 +205,8 @@ function renderSchematicSvg(doc, model, showReference) {
       x2: wire.x2,
       y2: wire.y2,
       "data-explorer-wire": wire.id,
+      "data-explorer-selected-wire": wire.selected ? wire.id : null,
+      "aria-current": wire.selected ? "true" : null,
     });
     line.classList.add("lab-explorer-wire-line");
     if (wire.issueSeverity) line.dataset.severity = wire.issueSeverity;
@@ -251,10 +267,12 @@ function renderConnector(doc, model) {
   wrapper.className = "lab-explorer-connect";
   const fromLabel = textNode(doc, "label", "Từ terminal");
   const from = doc.createElement("select");
+  from.style.minHeight = "44px";
   from.dataset.explorerConnectFrom = "";
   fromLabel.append(from);
   const toLabel = textNode(doc, "label", "Đến terminal");
   const to = doc.createElement("select");
+  to.style.minHeight = "44px";
   to.dataset.explorerConnectTo = "";
   toLabel.append(to);
   for (const terminal of model.schematic.terminals) {
@@ -300,6 +318,10 @@ function renderSchematicEquivalent(doc, model, showReference) {
     for (const wire of model.schematic.wires) {
       const li = doc.createElement("li");
       li.dataset.explorerWire = wire.id;
+      if (wire.selected) {
+        li.dataset.explorerSelectedWire = wire.id;
+        li.setAttribute("aria-current", "true");
+      }
       const copy = textNode(doc, "span", `${wire.id}: ${wire.from} ↔ ${wire.to}`);
       if (wire.issueSeverity) li.dataset.severity = wire.issueSeverity;
       li.append(copy);
@@ -310,6 +332,7 @@ function renderSchematicEquivalent(doc, model, showReference) {
         "data-explorer-highlight-wire": wire.id,
         "aria-label": `Làm nổi bật dây ${wire.id} từ ${wire.from} đến ${wire.to} trong mô hình 3D khái niệm`,
         "aria-disabled": canFocus(model) ? "false" : "true",
+        "aria-pressed": wire.selected ? "true" : "false",
       });
       inspectWire.className = "lab-explorer-highlight-wire-button";
       inspectWire.disabled = !canFocus(model);
@@ -360,6 +383,16 @@ function renderSchematic(doc, model, showReference) {
   );
   terminalStatus.dataset.explorerSelectedTerminalStatus = model.selectedTerminalId || "none";
   panel.append(terminalStatus);
+  const wireStatus = textNode(
+    doc,
+    "p",
+    model.selectedWire
+      ? `Dây learner đang chọn: ${model.selectedWire.id} · ${model.selectedWire.from} ↔ ${model.selectedWire.to}.`
+      : "Chưa có learner wire được chọn từ projection 3D/2D hiện tại.",
+    "lab-explorer-wire-status"
+  );
+  wireStatus.dataset.explorerSelectedWireStatus = model.selectedWireId || "none";
+  panel.append(wireStatus);
 
   if (!model.supported) {
     const empty = textNode(doc, "p", "Bài 01 không có netlist ngoài; sơ đồ dây ngoài không áp dụng.", "lab-explorer-empty-copy");
@@ -417,6 +450,19 @@ function renderMinimapSvg(doc, model) {
   svg.classList.add("lab-explorer-minimap-svg");
   svg.dataset.explorerMinimap = "logical-plan";
   svg.append(svgNode(doc, "rect", { x: 0, y: 0, width: minimap.width, height: minimap.height, class: "lab-explorer-minimap-ground" }));
+  for (const wire of minimap.wires) {
+    const line = svgNode(doc, "line", {
+      x1: wire.x1,
+      y1: wire.y1,
+      x2: wire.x2,
+      y2: wire.y2,
+      "data-explorer-minimap-wire": wire.id,
+      "data-explorer-selected-wire": wire.selected ? wire.id : null,
+      "aria-current": wire.selected ? "true" : null,
+    });
+    line.classList.add("lab-explorer-minimap-wire");
+    svg.append(line);
+  }
   for (const component of minimap.components) {
     const group = svgNode(doc, "g", {
       "data-explorer-component": component.id,
@@ -510,7 +556,10 @@ function renderMinimap(doc, model) {
 
 function focusToken(node) {
   if (!node?.getAttribute) return null;
-  for (const attr of ["data-explorer-disconnect", "data-explorer-terminal", "data-explorer-focus", "data-explorer-component"]) {
+  for (const attr of [
+    "data-explorer-highlight-wire", "data-explorer-disconnect", "data-explorer-terminal",
+    "data-explorer-focus", "data-explorer-component",
+  ]) {
     const value = node.getAttribute(attr);
     if (value != null) return { attr, value };
   }
@@ -578,6 +627,8 @@ export function mountLabExplorer(host, options = {}) {
   function renderError(error) {
     currentModel = null;
     content.replaceChildren();
+    root.dataset.explorerSelectedTerminal = "";
+    root.dataset.explorerSelectedWire = "";
     const alert = textNode(doc, "p", `Không thể hiển thị Lab Explorer: ${error?.message || "snapshot không hợp lệ"}`, "lab-explorer-error");
     alert.setAttribute("role", "alert");
     content.append(alert);
@@ -600,9 +651,11 @@ export function mountLabExplorer(host, options = {}) {
       root.dataset.explorerSource = model.source.kind;
       root.dataset.explorerScope = model.supported ? model.scope : "none";
       root.dataset.explorerSelectedTerminal = model.selectedTerminalId || "";
+      root.dataset.explorerSelectedWire = model.selectedWireId || "";
       status.textContent = model.supported
         ? `${model.source.label} · ${model.schematic.wires.length} dây người học · ${model.reference.wireCount} dây mẫu tham khảo.` +
-          (model.selectedTerminalId ? ` Terminal đang chọn: ${model.selectedTerminalId}.` : " Chưa chọn terminal.")
+          (model.selectedTerminalId ? ` Terminal đang chọn: ${model.selectedTerminalId}.` : " Chưa chọn terminal.") +
+          (model.selectedWire ? ` Dây đang chọn: ${model.selectedWire.id}.` : " Chưa chọn learner wire.")
         : "Bài 01: không có netlist ngoài; explorer chỉ hiển thị ranh giới áp dụng.";
       restoreFocus(root, token);
       return freezeResult(true, "updated", model);

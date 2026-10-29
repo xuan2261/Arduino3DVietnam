@@ -25,6 +25,11 @@
 .lab-precision-wire-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,auto); align-items:center; gap:8px 12px; min-width:0; padding:10px; border:1px solid #d0e1d8; border-radius:8px; background:#fff; }
 .lab-precision-wire-row [data-lab-wire-endpoints] { min-width:0; overflow-wrap:anywhere; font-weight:780; color:#245348; }
 .lab-precision-wire-row [data-lab-wire-provenance] { display:block; min-width:0; font-size:11px; color:#4f6a60; overflow-wrap:anywhere; }
+.lab-precision-wire-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; min-width:0; }
+.lab-precision-wire-inspect { min-width:44px; min-height:44px; padding:9px 11px; border:1px solid #8ebeb0; border-radius:7px; background:#edf8f4; color:#185c4c; font:inherit; font-size:12px; font-weight:760; cursor:pointer; }
+.lab-precision-wire-inspect:hover:not(:disabled) { background:#d8f0e7; }
+.lab-precision-wire-inspect:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
+.lab-precision-wire-inspect:disabled { opacity:.54; cursor:not-allowed; }
 .lab-precision-wire-remove { min-width:44px; min-height:44px; padding:9px 11px; border:1px solid #cba69c; border-radius:7px; background:#fff5f0; color:#793c2f; font:inherit; font-size:12px; font-weight:760; cursor:pointer; }
 .lab-precision-wire-remove:hover:not(:disabled) { background:#fbe3d9; }
 .lab-precision-wire-remove:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
@@ -112,5 +117,5 @@
 @media(max-width:800px) { .lab-editor-grid { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:790px) { .practice-checkpoint-trail-list { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:580px) { .lab-edit-entry { padding:12px; } .lab-editor { padding:15px 12px; } .lab-editor-group { padding:12px; } .lab-wire-fields { grid-template-columns:minmax(0,1fr); } .lab-wire-fields label,.lab-wire-fields select { grid-row:auto; } .lab-pending-wire-actions { grid-template-columns:minmax(0,1fr); } .lab-pending-wire-actions button { width:100%; } }
-@media(max-width:580px) { .lab-precision-wire-row { grid-template-columns:minmax(0,1fr); } .lab-precision-wire-remove { width:100%; } .practice-checkpoint-trail { padding:11px; } .practice-checkpoint-trail-nav-button { flex:1 1 120px; } }
+@media(max-width:580px) { .lab-precision-wire-row { grid-template-columns:minmax(0,1fr); } .lab-precision-wire-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .lab-precision-wire-inspect,.lab-precision-wire-remove { width:100%; } .practice-checkpoint-trail { padding:11px; } .practice-checkpoint-trail-nav-button { flex:1 1 120px; } }
 @media(prefers-reduced-motion:reduce) { .lab-editor * { scroll-behavior:auto !important; transition-duration:.001ms !important; } }

@@ -77,6 +77,113 @@ lesson IDs, stale/missing wire IDs, foreign graphs, invalid router IDs, inactive
 The legacy "Gỡ dây cuối" control remains for compatibility but now delegates to
 the same exact-ID removal path for its current last learner wire.
 
+## Exact committed learner-wire inspection
+
+The controller exposes one read-only inspection command for an **already
+committed learner edge**:
+
+```js
+controller.inspectCommittedWire(wireId, meta, expectedLessonId)
+```
+
+This is not a connect, remove, undo/redo, simulator execution, Sketch compile,
+or electrical-analysis authority. It is only an exact learner-graph membership
+check followed by a scene visual highlight.
+
+The command accepts exactly two metadata shapes, both frozen plain objects with
+no extra string/symbol fields:
+
+```js
+// Scene pointer inspection
+Object.freeze({ source: "pointer", physicalVerified: false })
+
+// Native per-wire button inspection
+Object.freeze({ source: "native-button", physicalVerified: false })
+```
+
+`expectedLessonId` is mandatory and must equal the controller's current lesson.
+Inspection additionally requires a supported current lesson, stage `3d`, an
+attached scene, and edit mode already ON. Guide/view-only mode is therefore not
+an inspection authority.
+
+The controller reads only `getCircuit(currentLesson)` with
+`requireExisting:true`; there is no `createCircuit()` or
+`createSampleCircuit()` fallback for this path. The graph must still belong to
+the exact current lesson. The requested wire ID must be canonical `w<number>`
+form and still identify an **own** plain wire record with exactly own
+`id/from/to` fields whose two endpoints remain canonical terminals for the
+lesson. Inherited/prototype wire records, foreign endpoints, stale IDs, foreign
+lesson graphs, or missing learner graphs are rejected before visual state is
+changed.
+
+Only after those checks does the controller call:
+
+```js
+scene.setHighlightedLabWire(wireId)
+```
+
+The scene must truthfully return the same wire ID as an active
+`committed-wire-highlight` with `physicalVerified:false`; otherwise inspection
+is rejected. A successful inspection then revokes any pending two-tap first
+terminal/preview so a read-only inspection cannot leave a latent connection
+intent. It does **not** leave edit mode, mutate the graph, invoke
+`onCircuitChange`, create a history step, or execute/compile code.
+
+Successful inspection returns a frozen result:
+
+```js
+{
+  accepted: true,
+  reason: "inspected",
+  lessonId,
+  wireId,
+  from,
+  to,
+  source, // "pointer" | "native-button"
+  mode: "committed-wire-inspection",
+  learnerGraphOnly: true,
+  visualOnly: true,
+  electricalAuthority: false,
+  physicalVerified: false,
+}
+```
+
+Rejected calls return `accepted:false` with a fail-closed reason and do not
+clear pending UI, highlight a wire, report an inspection, or write the graph.
+
+Hosts may opt in to successful inspection reporting when mounting the editor:
+
+```js
+mountLabEditor({
+  ...,
+  onWireInspection(wireId, meta, lessonId) {
+    // observer only; the controller remains the validator
+  },
+})
+```
+
+The callback fires only after the exact learner wire has been accepted and the
+scene highlight has succeeded. The exact frozen source metadata object is
+forwarded unchanged. The scene-side bridge installed through `setLabEdit(...)`
+is:
+
+```js
+onCommittedWireInspect: (wireId, meta) =>
+  inspectCommittedWire(wireId, meta, capturedLessonId)
+```
+
+Prime/scene integration owns emitting the pointer metadata above. The controller
+captures lesson identity so stale callbacks from a previous lesson cannot
+highlight a same-named wire in the current lesson.
+
+Each precision-wire row also includes a native `<button type="button">Xem
+dây</button>` with `data-lab-inspect-wire-id`, the captured lesson ID, exact
+wire/endpoints in its accessible name, and a minimum 44 × 44 CSS px target.
+Native activation uses the same controller command with the strict
+`native-button` metadata. Because inspection does not rerender the list, keyboard
+focus remains on the activated inspection button. Existing Remove focus
+restoration remains independent and unchanged.
+
 ## Explicit read-only conceptual guide layout
 
 The lab controller now exposes an explicit host API for keeping only the
@@ -251,11 +358,14 @@ fails, and stale scene callbacks invoked outside active 3D edit mode return
 Bun contracts covering:
 
 1. native per-wire rows, exact endpoints, `learner graph only` provenance,
-   ARIA names, stable selectors and 44 px target hooks, plus native keyboard
-   focus restoration after list rerender without stealing focus from
-   programmatic removal;
+   ARIA names, stable selectors and 44 px inspect/remove target hooks, plus
+   native keyboard inspection focus and Remove focus restoration without
+   stealing focus from programmatic removal;
 2. exact-ID removal through `onCircuitChange`, router wire-ID preservation,
-   stale wire/lesson rejection and injection-like ID rejection;
+   exact committed-wire inspection through the scene highlight + opt-in
+   `onWireInspection(wireId,meta,lessonId)` callback, pending-intent revocation
+   only after success, stale/forged/prototype/foreign/reference negatives, then
+   exact-ID removal through `onCircuitChange` with router wire-ID preservation;
 3. empty learner graph behavior with no reference fallback and read-only
    inspection/snapshot behavior; this same contract now exercises guide mode on
    fake DOM and native browser DOM, proving canonical layout visibility with

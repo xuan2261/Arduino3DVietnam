@@ -156,7 +156,8 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
   overflow-wrap: anywhere;
 }
 .scene-inspection-status[hidden] { display: none; }
-.scene-inspection-status[data-authored-guide="view-only"] {
+.scene-inspection-status[data-authored-guide="view-only"],
+.scene-inspection-status[data-committed-wire-inspect="view-only"] {
   pointer-events: auto;
   display: flex;
   flex-direction: column;
@@ -165,7 +166,8 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
   max-height: min(245px, calc(100% - 64px));
   overflow-y: auto;
 }
-.scene-inspection-status[data-authored-guide="view-only"] [data-authored-guide-dismiss] {
+.scene-inspection-status[data-authored-guide="view-only"] [data-authored-guide-dismiss],
+.scene-inspection-status[data-committed-wire-inspect="view-only"] [data-committed-wire-dismiss] {
   pointer-events: auto;
   min-width: 44px;
   min-height: 44px;

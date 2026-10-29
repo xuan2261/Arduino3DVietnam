@@ -59,6 +59,8 @@ const state = {
   inspectedTerminalId: null,
   // An authored checkpoint guide is visual-only and never a learner wire.
   authoredGuide: null,
+  // Only the exact currently owned learner edge may be inspected across views.
+  selectedCommittedWire: null,
   breadboardUI: null, resistiveUI: null, avrEvidence: null,
   learningSteps: new Map(), learningHints: new Set(),
   practiceObservations: createPracticeObservationJournal(),
@@ -80,6 +82,20 @@ function refreshSceneInspectionNote(){
     return;
   }
   delete note.dataset.authoredGuide;
+  const inspectedWire=state.stageTab==="3d"?selectedCommittedLearnerWire():null;
+  if(inspectedWire && state.labEditorUI?.isEditingIn3D?.()){
+    const dismiss=el("button","button button-soft","Bỏ chọn dây");
+    dismiss.type="button";
+    dismiss.dataset.committedWireDismiss="";
+    note.replaceChildren(
+      el("span","",`Đang xem dây ${inspectedWire.id}: ${inspectedWire.from} ↔ ${inspectedWire.to}. Đây là cạnh learner graph đã nối, chỉ được làm nổi bật để đối chiếu 3D/2D; chưa xác minh nối dây hoặc điện thực.`),
+      dismiss,
+    );
+    note.dataset.committedWireInspect="view-only";
+    note.hidden=false;
+    return;
+  }
+  delete note.dataset.committedWireInspect;
   const id=state.stageTab==="3d" && !state.labEditorUI?.snapshot?.()?.editing
     ? state.inspectedTerminalId
     : null;
@@ -153,6 +169,39 @@ function displayedCircuit(lessonId = state.lessonId) {
   // NEVER feed this fallback to learner progress or editable wire operations.
   return state.circuitModels.get(lessonId) ?? createSampleCircuit(lessonId);
 }
+function selectedCommittedLearnerWire(){
+  const selected=state.selectedCommittedWire;
+  if(!selected||selected.lessonId!==state.lessonId)return null;
+  const wire=learnerCircuit(state.lessonId)?.wires?.find(candidate=>candidate.id===selected.id);
+  if(!wire)return null;
+  return (wire.from===selected.from&&wire.to===selected.to)||
+    (wire.from===selected.to&&wire.to===selected.from) ? wire:null;
+}
+function clearCommittedWireInspection(){
+  if(!state.selectedCommittedWire)return false;
+  state.selectedCommittedWire=null;
+  state.scene?.setHighlightedLabWire?.(null);
+  state.wiringUI?.highlightCommittedWire?.(null);
+  refreshSceneInspectionNote();
+  refreshLabExplorer();
+  return true;
+}
+function acceptCommittedWireInspection(wireId,expectedLessonId=state.lessonId){
+  if(expectedLessonId!==state.lessonId||
+     typeof wireId!=="string"||!/^w[1-9]\d*$/.test(wireId)||
+     !supportedWiringLessons().includes(state.lessonId)||
+     !state.labEditorUI?.isEditingIn3D?.())return false;
+  const learner=learnerCircuit();
+  const wire=learner?.wires?.find(item=>item.id===wireId);
+  if(!wire)return false;
+  const result=state.scene?.setHighlightedLabWire?.(wire.id);
+  if(result?.active!==true||result?.wireId!==wire.id||result?.physicalVerified!==false)return false;
+  state.selectedCommittedWire=Object.freeze({lessonId:state.lessonId,id:wire.id,from:wire.from,to:wire.to});
+  state.wiringUI?.highlightCommittedWire?.(wire.id);
+  refreshSceneInspectionNote();
+  refreshLabExplorer();
+  return result;
+}
 function explorerSnapshot() {
   const lessonId=state.lessonId;
   const supported=supportedWiringLessons().includes(lessonId);
@@ -167,6 +216,7 @@ function explorerSnapshot() {
     editing:lab?.editing===true,selectedComponentId:lab?.selectedId??null,
     selectedTerminalId:lab?.editing===true
       ? (lab?.firstTerminal??null) : state.inspectedTerminalId,
+    selectedWireId:selectedCommittedLearnerWire()?.id??null,
     layout:lab?.layout??null,
     circuit,referenceCircuit,
     hasLearnerDraft,
@@ -216,7 +266,10 @@ function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,m
   // A new canonical graph may reuse a wire ID for different endpoints (w1,
   // w2...). Never carry an earlier 3D inspection to a different learner edge.
   // Merely inspecting or refreshing the layout does not call this mutator.
+  state.selectedCommittedWire=null;
   state.scene?.setHighlightedLabWire?.(null);
+  state.wiringUI?.highlightCommittedWire?.(null);
+  refreshSceneInspectionNote();
   state.circuitHistories.set(lessonId,updatedHistory);
   state.circuitModels.set(lessonId,model);
   // Canonical mutations from 2D/schematic must not leave a half-completed
@@ -266,6 +319,7 @@ function requestLearnerUndo(request){return moveLearnerHistory("undo",request);}
 function requestLearnerRedo(request){return moveLearnerHistory("redo",request);}
 function explorerSelectComponent(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
+  clearCommittedWireInspection();
   clearAuthoredGuide();
   // Inspector selection never switches stage or enables editing.
   state.inspectedTerminalId=null;
@@ -279,6 +333,7 @@ function explorerSelectTerminal(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
   const terminal=listTerminals(state.lessonId).find(item=>item.id===id);
   if(!terminal)return false;
+  clearCommittedWireInspection();
   clearAuthoredGuide();
   if(state.labEditorUI.snapshot().editing){
     // Two-terminal wiring is possible ONLY after explicit edit opt-in.
@@ -301,6 +356,7 @@ function inspectTerminalReadOnly(id){
   if(!supportedWiringLessons().includes(state.lessonId) ||
       !listTerminals(state.lessonId).some(terminal=>terminal.id===id))return false;
   clearAuthoredGuide();
+  clearCommittedWireInspection();
   // Inspect is not a wiring gesture. Revoke any pending 3D terminal and
   // exit editor explicitly without touching the canonical learner circuit.
   state.labEditorUI?.closeEditor?.();
@@ -351,6 +407,7 @@ function previewAuthoredMissingPairIn2D(pair, lessonId, stepIndex){
   const verified=validatedMissingAuthoredPair(pair,lessonId,stepIndex);
   if(!verified)return false;
   clearAuthoredGuide();
+  clearCommittedWireInspection();
 
   // A visual 2D suggestion cannot inherit an armed 3D first-terminal gesture.
   // No connectCircuit, applyCanonicalCircuit, progress or journal callback.
@@ -366,6 +423,7 @@ function previewAuthoredMissingPairIn3D(pair, lessonId, stepIndex){
   const verified=validatedMissingAuthoredPair(pair,lessonId,stepIndex);
   if(!verified||!state.scene?.setAuthoredPairGuide||!state.labEditorUI?.setReadOnlyGuideMode)return false;
   clearAuthoredGuide();
+  clearCommittedWireInspection();
   // Do not silently enable edit. The visual overlay is read-only even if the
   // learner had previously opted into editing a different layout/stage.
   state.labEditorUI.closeEditor();
@@ -432,10 +490,7 @@ function explorerHighlightWire(wireId){
   // Inspector-to-3D projection of ONE already-existing learner edge.
   // The scene may mark its committed render visually; it must never create
   // an electrical authority or reuse the immutable reference sample here.
-  if(!state.labEditorUI?.isEditingIn3D?.())return false;
-  const learner=learnerCircuit();
-  if(typeof wireId!=="string"||!learner?.wires?.some(wire=>wire.id===wireId))return false;
-  return state.scene?.setHighlightedLabWire?.(wireId)??false;
+  return acceptCommittedWireInspection(wireId);
 }
 function refresh3DWiring() {
   if (!state.scene?.setWiring) return;
@@ -446,6 +501,12 @@ function refresh3DWiring() {
   if (!circuit) { state.scene.setWiring(null); return; }
   const analysis = analyzeCircuit(state.lessonId, circuit);
   state.scene.setWiring(circuit, listTerminals(state.lessonId), analysis);
+  const selected=selectedCommittedLearnerWire();
+  if(selected&&state.labEditorUI?.isEditingIn3D?.()){
+    // The scene can rebuild committed line geometry on layout/stage updates;
+    // reapply this visual selection only after the learner projection exists.
+    state.scene.setHighlightedLabWire?.(selected.id);
+  }
 }
 function renderElectricalPanel() {
   const section = $("electricalSection"), host = $("electricalResult");
@@ -488,6 +549,9 @@ function refreshCircuitViews() {
   if(canonical && state.wiringUI?.getCircuit?.()!==canonical){
     state.wiringUI?.setCircuit?.(canonical,{active:state.activeCircuits.has(state.lessonId)});
   }
+  const selected=selectedCommittedLearnerWire();
+  if(selected)state.wiringUI?.highlightCommittedWire?.(selected.id);
+  else if(state.selectedCommittedWire)clearCommittedWireInspection();
   refreshLearnerHistoryControls();
   if (state.infoTab === "practice") renderInfo();
   refreshLabExplorer();
@@ -880,6 +944,10 @@ function renderStage() {
   viewport.classList.toggle("is-not-3d",state.stageTab!=="3d");
   const lesson=currentLesson();
   state.labEditorUI?.setStage(state.stageTab);
+  // Stage changes can re-enable an existing 3D-edit session. Resolve the
+  // accessible wire-status/dismiss note AFTER the controller's stage changes,
+  // otherwise returning from 2D shows a highlighted line with a stale note.
+  refreshSceneInspectionNote();
   if(state.stageTab==="wiring"){
     const panel=el("div","wiring-view");
     viewport.append(panel);
@@ -918,6 +986,8 @@ function renderStage() {
           updateSnapshot(true);
         }
       });
+      const selected=selectedCommittedLearnerWire();
+      if(selected)state.wiringUI?.highlightCommittedWire?.(selected.id);
     } else {
       panel.innerHTML=`<div class="wiring-unsupported"><strong>${lesson.id === 1 ? "LED L có sẵn trên Arduino Uno" : "Sơ đồ tham khảo · chưa hỗ trợ đấu dây tự do"}</strong><p>${lesson.id === 1 ? "Bài nhập môn sử dụng LED L trên bo và không cần nối mạch ngoài. Có thể quan sát các chân D13 và GND bên dưới." : "Bài này có bảng chân để học tập."} ${supportedWiringLessons().length} bài khác có bàn đấu dây có giới hạn theo từng sơ đồ; đây không phải bộ giải điện học tổng quát.</p></div>
       <div class="wiring-diagram">${lesson.wiring.map(([from,to])=>
@@ -1165,6 +1235,7 @@ function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
   clearAuthoredGuide();
+  clearCommittedWireInspection();
   stopClock();
   state.inspectedTerminalId=null;
   refreshSceneInspectionNote();
@@ -1302,6 +1373,10 @@ function wireRovingTabs(selector) {
   });
 }
 function wireEvents(){
+  $("sceneInspectionStatus").addEventListener("click",event=>{
+    if(!event.target.closest("[data-committed-wire-dismiss]"))return;
+    if(clearCommittedWireInspection())$("stageTab3d").focus({preventScroll:true});
+  });
   $("sceneInspectionStatus").addEventListener("click",event=>{
     if(!event.target.closest("[data-authored-guide-dismiss]"))return;
     if(clearAuthoredGuide()){
@@ -1489,6 +1564,7 @@ async function init(){
     getCircuit: lessonId => learnerCircuit(lessonId),
     onEditModeChange(){
       if(state.authoredGuide)clearAuthoredGuide();
+      if(!state.labEditorUI?.isEditingIn3D?.())clearCommittedWireInspection();
       state.inspectedTerminalId=null;
       state.scene?.setInspectedTerminal?.(null);
       refreshSceneInspectionNote();
@@ -1498,6 +1574,14 @@ async function init(){
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange:refreshLabExplorer,
+    onWireInspection(wireId,meta,lessonId){
+      // Pure visual inspection, exact source and current learner edge only;
+      // the 3D controller never supplies authority to create/remove an edge.
+      if(!Object.isFrozen(meta)||Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==2||meta?.physicalVerified!==false||
+         !["pointer","native-button"].includes(meta.source))return false;
+      return acceptCommittedWireInspection(wireId,lessonId);
+    },
     onCircuitChange(lessonId,model,analysis){
       applyCanonicalCircuit(lessonId,model,analysis);
     },
@@ -1557,10 +1641,13 @@ async function init(){
   // Scene WebGL can lose context while a first wiring terminal is armed.
   // The visual ghost then disappears, so revoke the controller gesture too:
   // otherwise the next post-restore click could silently become terminal #2.
+  // A committed-wire highlight is likewise erased by the scene on loss;
+  // clear its app/2D/Explorer projection rather than replaying stale intent.
   // Capture on the stable host also catches non-bubbling canvas loss events.
   $("sceneMount").addEventListener("webglcontextlost", event=>{
     if(event.target?.tagName==="CANVAS"){
       clearAuthoredGuide();
+      clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
     }
   },true);
