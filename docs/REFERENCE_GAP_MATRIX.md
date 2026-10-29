@@ -101,3 +101,15 @@ Baseline matrix ở trên cố ý chốt tại commit `8992c32…`. Trong shared
 | Mobile/offline/a11y/package | `src/scene3d.js`, `src/lab-explorer-ui.js`, `scripts/build_site.py`, `sw.js`, `tests/e2e_browser.py` | **Đã bổ sung mã và gate**: LOD, fallback, role=group SVG tương tác, touch targets và allowlist 83 assets. Browser cuối và GitHub Actions exact-SHA là điều kiện phát hành, không suy PASS từ source. |
 
 **Khoảng cách còn lại:** fidelity hình học/kết nối thật của từng lỗ/chân, so khớp hành vi chương trình C++ người dùng với AVR, các ngoại vi PWM/USART RX/servo/sensor/motor, đa ngôn ngữ, và kiểm thử screen-reader/thiết bị phần cứng thực. Chúng không được thay bằng animation hoặc số liệu tự tạo. R2 và R4 tiếp tục là cùng một họ sản phẩm; R3 là bài button hẹp; R1 là reference pedagogy, không phải mô phỏng Arduino.
+
+## 8. Hậu v1.6 — bằng chứng thực hành theo từng bước (ứng viên, chưa phát hành)
+
+v1.6.0 đã được công bố ở SHA `341449b12d50c681be3f04d6e291965bf6015d99`, cùng GitHub compiler/Chromium/preflight/Pages PASS, HTTPS 83/83 và backup an toàn. Nhánh `feature/post-v16-practice-evidence` là phần triển khai **sau mốc đó**; không sửa tag/production v1.6.
+
+| Reference liên quan | Khoảng thiếu v1.6.0 | Thực hiện ở ứng viên hậu v1.6 | Chưa đạt/không được suy diễn |
+| --- | --- | --- | --- |
+| R1 — Guided Atelier (staged learning + evidence) | Coach có bước, hint/checkpoint nhưng nút Next chỉ điều hướng nội dung; chưa có trạng thái đối chiếu riêng cho bước đang xem | `src/practice-evidence.js` chia mẫu mạch thành các nhóm cạnh deterministic/cumulative, so với **learner draft** canonical, phân biệt not-attempted/incomplete/needs-correction/topology-match và signal-only; `src/practice-evidence-ui.js` hiển thị edge thiếu/sai, nút mở 2D và kiểm tra lại | Nhóm cạnh **không phải** mapping sư phạm đã xác thực; copy sample không chứng minh học viên thao tác/hiểu bài; quiz/completion vẫn độc lập |
+| R2/R4 — Learn Arduino cùng họ (inspector/schematic/minimap/learning) | Bản v1.6 hiển thị inspector và status toàn mạch, chưa đưa phản hồi theo từng bước vào coach | Tab Thực hành dùng graph của cùng `circuit-router`; stage 2D/3D vẫn là các view, không có authority thứ hai | Không suy dòng điện/đo áp từ SVG hay location 3D, không chấm khả năng phần cứng |
+| R3 — Button KR (socket/touch lesson) | Các thao tác canvas đã có nhưng cần phản hồi hiện trạng thao tác cho cả 16 bài thay vì duy nhất bài button | Cùng màn hình học tiếng Việt phản hồi ngay khi nối/gỡ dây; HTML/keyboard và mobile375 có regression | Chưa có socket-to-breadboard physical-hole placement verified; không copy hard-coded validator hoặc code/assets từ R3 |
+
+Phạm vi QA: Bun pure 47/47, DOM 14/14, Python 90/90, local Chromium 320/320 và dist 87+marker=88 đã có bằng chứng. Đã sửa P1 chọn chân 3D còn treo khi chuyển stage, giới hạn nhận định về hoạt động của người học ở **bản thảo trong ứng dụng** và cảnh báo nhóm cạnh deterministic cho mọi trạng thái. **Chưa có CI/release/deploy SHA mới**, nên không ghi nhận đây là tính năng website công khai. Mapping physical hole, compile user Sketch, PWM/USART RX và hardware vẫn là các P1/P2 độc lập.

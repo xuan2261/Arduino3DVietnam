@@ -41,7 +41,9 @@ const ASSETS = [
   "./docs/LAB_EXPLORER_V16.md", "./docs/BREADBOARD_TOPOLOGY_V16.md",
   "./docs/TIMER2_V16.md", "./docs/SCENE3D_V16.md",
   "./src/dc-resistor-network.js", "./src/resistive-study-ui.js",
-  "./docs/DC_RESISTOR_NETWORK_V16.md"
+  "./docs/DC_RESISTOR_NETWORK_V16.md",
+  "./src/practice-evidence.js", "./src/practice-evidence-ui.js",
+  "./styles/practice-evidence.css", "./docs/PRACTICE_EVIDENCE_NEXT.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

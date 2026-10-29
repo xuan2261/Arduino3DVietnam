@@ -343,7 +343,19 @@ export function mountLabEditor({
       renderedLayout=null;
       render();
     },
-    setStage(value){stage=value;render();},
+    setStage(value){
+      // A half-completed 3D terminal gesture cannot survive a switch to 2D
+      // or another view. Keep the edit mode/layout, but revoke its transient
+      // first-terminal intent before any later 3D terminal click.
+      const revokeFirstTerminal=stage==="3d" && value!=="3d" && firstTerminal!==null;
+      stage=value;
+      if(revokeFirstTerminal){
+        firstTerminal=null;
+        terminalNote.textContent="Đã hủy chọn chân đầu tiên khi rời không gian 3D; không tạo dây mới.";
+      }
+      render();
+      if(revokeFirstTerminal)onSelectionChange(selectedId,lessonId);
+    },
     update(){lastMessage="";render();},
     openEditor(){
       if(!lessonSupported()||stage!=="3d"||!scene)return false;

@@ -10,6 +10,8 @@ import { mountLabExplorer } from "./lab-explorer-ui.js";
 import { getLessonGuidance } from "./learning-coach.js";
 import { mountBreadboardStudy } from "./breadboard-topology-ui.js";
 import { mountResistiveStudy } from "./resistive-study-ui.js";
+import { inspectPracticeEvidence } from "./practice-evidence.js";
+import { renderPracticeEvidence } from "./practice-evidence-ui.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -315,6 +317,31 @@ function renderInfo() {
           wrapper.append(issueList);
         }
       }else wrapper.append(el("p","","Bài 01 dùng đèn L tích hợp, không yêu cầu dây ngoài."));
+      // Per-step evidence observes ONLY the current canonical learner draft.
+      // Neither the reference sample nor lesson-JS simulation may be credited
+      // as a learner action, firmware execution or physical validation.
+      const evidence=inspectPracticeEvidence({
+        lesson,
+        stepIndex:current,
+        circuit:analysis?learnerCircuit(lesson.id):null,
+        referenceCircuit:analysis?createSampleCircuit(lesson.id):null,
+        analysis,
+        hasLearnerDraft,
+      });
+      wrapper.append(renderPracticeEvidence(document,evidence,{
+        onOpenWiring(){
+          if(lesson.id!==state.lessonId || !supportedWiringLessons().includes(lesson.id))return;
+          state.stageTab="wiring";
+          renderStage();
+          refreshLabExplorer();
+          $("stageTabWiring").focus({preventScroll:true});
+        },
+        onRecheck(){
+          if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
+          renderInfo();
+          $("infoContent").querySelector("[data-practice-recheck]")?.focus({preventScroll:true});
+        },
+      }));
       const actions=el("div","coach-actions");
       const previous=el("button","","← Bước trước");
       previous.id="coachPrevious";previous.type="button";previous.dataset.coachAction="previous";

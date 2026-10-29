@@ -1,0 +1,172 @@
+.practice-evidence {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  margin: 13px 0 2px;
+  padding: 14px;
+  border: 1px solid #cbded5;
+  border-radius: 10px;
+  background: #fbfdfb;
+  color: #294b42;
+  box-shadow: 0 1px 0 rgba(30, 82, 65, .04);
+  overflow-wrap: anywhere;
+}
+
+.practice-evidence-heading {
+  margin: 0 0 9px;
+  color: #1d5645;
+  font-size: 13px;
+  font-weight: 820;
+  letter-spacing: .01em;
+}
+
+.practice-evidence p { margin: 7px 0; font-size: 12.5px; line-height: 1.65; }
+
+.practice-evidence-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin: 0 0 4px !important;
+  padding: 5px 9px;
+  border: 1px solid #cadbd4;
+  border-radius: 999px;
+  background: #eef5f1;
+  color: #36574d;
+  font-size: 11.5px !important;
+  font-weight: 820;
+  letter-spacing: .02em;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.practice-evidence[data-practice-tone="match"] .practice-evidence-status {
+  border-color: #a8d3bd;
+  background: #e8f6ed;
+  color: #1d6549;
+}
+
+.practice-evidence[data-practice-tone="warning"] .practice-evidence-status,
+.practice-evidence[data-practice-tone="signal"] .practice-evidence-status {
+  border-color: #dfc892;
+  background: #fff6df;
+  color: #74521b;
+}
+
+.practice-evidence[data-practice-tone="manual"] .practice-evidence-status {
+  border-color: #bdcddc;
+  background: #eef4fa;
+  color: #34546b;
+}
+
+.practice-evidence-detail,
+.practice-evidence-summary,
+.practice-evidence-count { color: #405c53; }
+
+.practice-evidence-manual,
+.practice-evidence-signal-note,
+.practice-evidence-group-note,
+.practice-evidence-boundary,
+.practice-evidence-next {
+  padding: 8px 10px;
+  border-radius: 7px;
+}
+
+.practice-evidence-manual {
+  border-left: 3px solid #7696b0;
+  background: #f0f5f9;
+  color: #3a566c;
+}
+
+.practice-evidence-signal-note {
+  border-left: 3px solid #ad7b22;
+  background: #fff7e5;
+  color: #71531d;
+  font-weight: 700;
+}
+
+.practice-evidence-group-note {
+  border-left: 3px solid #8a9b92;
+  background: #f4f7f5;
+  color: #4c5f57;
+}
+
+.practice-evidence-pairs,
+.practice-evidence-issues {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #e0ebe5;
+}
+
+.practice-evidence-subheading {
+  margin: 0 0 5px;
+  color: #315b4f;
+  font-size: 11.5px;
+  font-weight: 820;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.practice-evidence-list {
+  margin: 5px 0 0;
+  padding-left: 19px;
+  color: #344f47;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.practice-evidence-list li { padding: 3px 0; overflow-wrap: anywhere; }
+.practice-evidence-empty,
+.practice-evidence-truncated { color: #5c6f68; }
+.practice-evidence-truncated { font-size: 11.5px !important; }
+
+.practice-evidence-next {
+  margin-top: 11px !important;
+  border: 1px solid #cde0d6;
+  background: #edf7f1;
+  color: #245546;
+  font-weight: 720;
+}
+
+.practice-evidence-boundary {
+  border-left: 3px solid #8d988e;
+  background: #f5f7f4;
+  color: #4d5e57;
+}
+
+.practice-evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.practice-evidence-button {
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid #a9c9bc;
+  border-radius: 7px;
+  background: #fff;
+  color: #17564a;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.25;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.practice-evidence-button-primary { background: #eaf7f0; }
+.practice-evidence-button:hover:not(:disabled) { background: #d8eee2; border-color: #83b9a4; }
+.practice-evidence-button:focus-visible { outline: 3px solid #11887b; outline-offset: 2px; }
+.practice-evidence-button:disabled { cursor: not-allowed; opacity: .52; }
+
+@media (max-width: 580px) {
+  .practice-evidence { padding: 12px; }
+  .practice-evidence-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .practice-evidence-button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .practice-evidence * { transition-duration: .001ms !important; }
+}

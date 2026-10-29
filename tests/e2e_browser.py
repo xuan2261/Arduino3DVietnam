@@ -673,6 +673,22 @@ def main() -> None:
                       and learning_contracts["passed"] == len(learning_contracts["checks"])
                       and learning_contracts["total"] > 0,
                       f"{learning_contracts['passed']}/{learning_contracts['total']} passed")
+                practice_contracts = run_page_contract(
+                    page, "./tests/practice-evidence-contracts.js", "runPracticeEvidenceContracts")
+                check("post-v16-practice-evidence-16-lesson-pure-contracts",
+                      practice_contracts["passed"] == practice_contracts["total"]
+                      and practice_contracts["passed"] == len(practice_contracts["checks"])
+                      and practice_contracts["total"] >= 40,
+                      f"{practice_contracts['passed']}/{practice_contracts['total']} passed")
+                practice_ui_contracts = run_page_contract(
+                    page, "./tests/practice-evidence-ui-contracts.js",
+                    "runPracticeEvidenceUiContracts")
+                check("post-v16-practice-evidence-dom-aria-contracts",
+                      practice_ui_contracts["passed"] == practice_ui_contracts["total"]
+                      and practice_ui_contracts["passed"] ==
+                          len(practice_ui_contracts["checks"])
+                      and practice_ui_contracts["total"] >= 12,
+                      f"{practice_ui_contracts['passed']}/{practice_ui_contracts['total']} passed")
                 # Timer1 is a strict direct peripheral model contract only.
                 # Do NOT attach it to stock bundled Arduino-core firmware: the
                 # current model intentionally fails closed outside Normal WGM0.
@@ -2240,6 +2256,203 @@ def main() -> None:
                               json.dumps(resistive_mobile, ensure_ascii=False))
                     context.close()
 
+                # Post-v1.6 candidate: inspect actual step-specific learner
+                # topology against a separately sourced reference sample.
+                # Evidence of matching sample edges is NOT proof of mastery,
+                # physical wiring, measured current or firmware execution.
+                practice_context = browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    service_workers="allow",
+                )
+                try:
+                    practice_page = practice_context.new_page()
+                    capture_console(practice_page)
+                    practice_page.goto(base, wait_until="domcontentloaded", timeout=20000)
+                    ready(practice_page)
+                    for lesson_id in range(1, 17):
+                        practice_page.locator(
+                            f'.lesson-link[data-lesson="{lesson_id}"]'
+                        ).click()
+                        practice_page.locator("#infoTabPractice").click()
+                        evidence = practice_page.locator(
+                            "#learningCoach [data-practice-evidence]")
+                        status = evidence.get_attribute("data-practice-status")
+                        scope = evidence.get_attribute("data-practice-scope")
+                        check(f"post-v16-practice-lesson-{lesson_id:02d}-truthful-empty-evidence",
+                              evidence.count() == 1
+                              and evidence.get_attribute("data-practice-lesson") == str(lesson_id)
+                              and evidence.get_attribute("data-practice-step") == "0"
+                              and evidence.get_attribute("data-practice-matched") == "0"
+                              and (
+                                  scope == "manual" and status == "manual-checkpoint"
+                                  if lesson_id == 1 else
+                                  status == "not-attempted"
+                                  and "Ứng dụng chưa ghi nhận bản tự đấu" in evidence.inner_text()
+                                  and evidence.locator("[data-practice-grouping-note]").count() == 1
+                                  and "không phải yêu cầu đấu dây theo bước" in evidence.inner_text()
+                                  and "Chưa có thao tác đấu dây của người học" not in evidence.inner_text()
+                              )
+                              and practice_page.locator("#completeButton").is_hidden(),
+                              json.dumps({"lesson": lesson_id, "status": status, "scope": scope},
+                                         ensure_ascii=False))
+                    practice_page.locator('.lesson-link[data-lesson="2"]').click()
+                    practice_page.locator("#infoTabPractice").click()
+                    # A half-completed 3D terminal gesture must be cancelled
+                    # when the learner navigates to 2D through Practice. The
+                    # first click after returning to 3D must not create a
+                    # spurious wire from the stale previous terminal.
+                    practice_page.locator("#labEditToggle").click()
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="D13"]'
+                    ).click()
+                    armed_before_stage_switch = practice_page.locator(
+                        "#labExplorer .lab-explorer").get_attribute(
+                            "data-explorer-selected-terminal")
+                    practice_page.locator(
+                        "#learningCoach [data-practice-open-wiring]").click()
+                    selected_on_2d = practice_page.locator(
+                        "#labExplorer .lab-explorer").get_attribute(
+                            "data-explorer-selected-terminal")
+                    practice_page.locator("#stageTab3d").click()
+                    selected_on_return = practice_page.locator(
+                        "#labExplorer .lab-explorer").get_attribute(
+                            "data-explorer-selected-terminal")
+                    practice_page.locator(
+                        '#labExplorer .lab-explorer-terminal-actions [data-explorer-terminal="R1:A"]'
+                    ).click()
+                    check("post-v16-practice-3d-pending-terminal-revoked-on-2d-stage-switch",
+                          armed_before_stage_switch == "D13"
+                          and selected_on_2d in ("", None)
+                          and selected_on_return in ("", None)
+                          and practice_page.locator(
+                              "#labExplorer .lab-explorer").get_attribute(
+                                  "data-explorer-selected-terminal") == "R1:A"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-wire-count") == "0",
+                          json.dumps({
+                              "armed": armed_before_stage_switch,
+                              "in2D": selected_on_2d,
+                              "back3D": selected_on_return,
+                          }, ensure_ascii=False))
+                    practice_page.locator("#labEditToggle").click()
+                    evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
+                    goto_wires = evidence.locator("[data-practice-open-wiring]")
+                    goto_wires.focus()
+                    goto_wires.press("Enter")
+                    check("post-v16-practice-open-wiring-keyboard-no-implicit-netlist",
+                          practice_page.locator("#stageTabWiring").get_attribute("aria-selected") == "true"
+                          and practice_page.locator(".wire-connected").count() == 0
+                          and practice_page.locator("#completeButton").is_hidden())
+                    first_expected = practice_page.evaluate("""() => import('./src/circuit-router.js').then(m => {
+                        const first = m.createSampleCircuit(2).wires[0];
+                        return {from:first.from,to:first.to};
+                    })""")
+                    practice_page.locator(
+                        f'[data-terminal="{first_expected["from"]}"]').click()
+                    practice_page.locator(
+                        f'[data-terminal="{first_expected["to"]}"]').click()
+                    evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
+                    check("post-v16-practice-current-learner-wire-updates-evidence",
+                          practice_page.locator(".wire-connected").count() == 1
+                          and evidence.get_attribute("data-practice-status") != "not-attempted"
+                          and int(evidence.get_attribute("data-practice-matched") or "-1") >= 1
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          json.dumps({"status": evidence.get_attribute("data-practice-status"),
+                                      "matched": evidence.get_attribute("data-practice-matched")},
+                                     ensure_ascii=False))
+                    practice_page.locator("#coachNext").click()
+                    check("post-v16-practice-step-navigator-refreshes-evidence",
+                          practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-step") == "1"
+                          and "BƯỚC 2/" in practice_page.locator(".coach-progress").inner_text())
+                    check("post-v16-practice-incomplete-step-is-not-pedagogy-verified",
+                          practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-status") == "incomplete"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-grouping-note]").count() == 1
+                          and "không phải yêu cầu đấu dây theo bước" in
+                              practice_page.locator(
+                                  "#learningCoach [data-practice-grouping-note]").inner_text())
+                    practice_page.locator(".wire-actions .wire-action").first.click()
+                    evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
+                    check("post-v16-reference-copied-graph-is-only-sample-group-match",
+                          evidence.get_attribute("data-practice-status") in
+                              ("step-sample-match", "topology-match")
+                          and int(evidence.get_attribute("data-practice-required") or "0") > 0
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          evidence.inner_text()[:450])
+                    for _ in range(16):
+                        if practice_page.locator("#coachNext").is_disabled():
+                            break
+                        practice_page.locator("#coachNext").click()
+                    evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
+                    check("post-v16-reference-copied-full-topology-does-not-complete-quiz",
+                          evidence.get_attribute("data-practice-status") == "topology-match"
+                          and practice_page.locator("#completeButton").is_hidden()
+                          and practice_page.locator("#quizFeedback").get_attribute("data-result") is None,
+                          evidence.inner_text()[:450])
+                    practice_page.locator("#learningCoach [data-practice-recheck]").click()
+                    check("post-v16-practice-recheck-preserves-canonical-wire-count",
+                          practice_page.locator(".wire-connected").count() ==
+                              practice_page.evaluate(
+                                  "() => import('./src/circuit-router.js').then(m => m.createSampleCircuit(2).wires.length)")
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-recheck]").count() == 1)
+                    practice_page.locator(".wire-actions .wire-action").nth(1).click()
+                    practice_page.locator('[data-terminal="D13"]').click()
+                    practice_page.locator('[data-terminal="GND"]').click()
+                    evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
+                    check("post-v16-practice-short-circuit-never-matches-reference",
+                          evidence.get_attribute("data-practice-status") == "needs-correction"
+                          and practice_page.locator("#completeButton").is_hidden()
+                          and "D13" in evidence.inner_text(),
+                          evidence.inner_text()[:450])
+                    for signal_lesson in (10, 14):
+                        practice_page.locator(
+                            f'.lesson-link[data-lesson="{signal_lesson}"]').click()
+                        practice_page.locator("#infoTabPractice").click()
+                        practice_page.locator(
+                            "#learningCoach [data-practice-open-wiring]").click()
+                        practice_page.locator(".wire-actions .wire-action").first.click()
+                        for _ in range(16):
+                            if practice_page.locator("#coachNext").is_disabled():
+                                break
+                            practice_page.locator("#coachNext").click()
+                        evidence = practice_page.locator(
+                            "#learningCoach [data-practice-evidence]")
+                        check(f"post-v16-practice-signal-only-{signal_lesson:02d}-never-functional",
+                              evidence.get_attribute("data-practice-status") == "signal-topology-match"
+                              and evidence.get_attribute("data-practice-scope") == "signal-only"
+                              and practice_page.locator(".wire-activate").is_disabled()
+                              and practice_page.locator("#completeButton").is_hidden(),
+                              evidence.inner_text()[:450])
+                    practice_page.locator('.lesson-link[data-lesson="2"]').click()
+                    practice_page.locator("#infoTabPractice").click()
+                    practice_page.set_viewport_size({"width": 375, "height": 812})
+                    mobile_evidence = practice_page.evaluate("""() => {
+                        const root = document.querySelector('[data-practice-evidence]');
+                        const controls = Array.from(root?.querySelectorAll('button') || []);
+                        return {
+                            innerWidth,
+                            documentWidth: document.documentElement.scrollWidth,
+                            buttons: controls.length,
+                            smallButtons: controls.filter(x => {
+                                const rect=x.getBoundingClientRect();
+                                return rect.height < 44 || rect.width < 44;
+                            }).length,
+                            status: root?.dataset.practiceStatus || '',
+                        };
+                    }""")
+                    check("post-v16-practice-mobile375-no-overflow-touch-targets",
+                          mobile_evidence["documentWidth"] <= mobile_evidence["innerWidth"]
+                          and mobile_evidence["buttons"] >= 2
+                          and mobile_evidence["smallButtons"] == 0,
+                          json.dumps(mobile_evidence, ensure_ascii=False))
+                finally:
+                    practice_context.close()
+
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
                 if not (dist / ".arduino-3d-viet-generated").is_file():
@@ -2495,6 +2708,24 @@ def main() -> None:
                 check("v16-offline-explorer-breadboard-timer2-modules-cached",
                       all(offline_v16_modules.values()),
                       json.dumps(offline_v16_modules, ensure_ascii=False))
+                practice_offline = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [pure, ui, style] = await Promise.all([
+                        import(new URL('./src/practice-evidence.js', baseUrl).href),
+                        import(new URL('./src/practice-evidence-ui.js', baseUrl).href),
+                        fetch(new URL('./styles/practice-evidence.css', baseUrl),
+                              {cache:'no-store'}),
+                    ]);
+                    return {
+                        pure: typeof pure.inspectPracticeEvidence === 'function',
+                        ui: typeof ui.renderPracticeEvidence === 'function',
+                        css: style.ok && (await style.text()).includes('.practice-evidence'),
+                        lesson01: document.querySelectorAll('.lesson-link[data-lesson]').length === 16,
+                    };
+                }""")
+                check("post-v16-practice-modules-and-css-available-offline",
+                      all(practice_offline.values()),
+                      json.dumps(practice_offline, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

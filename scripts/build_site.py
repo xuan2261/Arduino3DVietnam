@@ -56,6 +56,12 @@ V16_RELEASE_FILES = [
     "src/resistive-study-ui.js",
     "docs/DC_RESISTOR_NETWORK_V16.md",
 ]
+PRACTICE_RELEASE_FILES = [
+    "src/practice-evidence.js",
+    "src/practice-evidence-ui.js",
+    "styles/practice-evidence.css",
+    "docs/PRACTICE_EVIDENCE_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -105,6 +111,7 @@ FILES = [
     "docs/LEARNING_COACH.md",
     "docs/TIMER1_RUNTIME.md",
     *V16_RELEASE_FILES,
+    *PRACTICE_RELEASE_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

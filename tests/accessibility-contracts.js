@@ -408,6 +408,40 @@ export async function runAccessibilityContracts() {
     }),
     "Learning coach cần accessible name/buttons và disclosure rằng tiến độ/hướng dẫn không đo hay xác nhận phần cứng.", "P1");
 
+  // Post-v1.6 step-specific evidence belongs to the same practice panel.
+  // It compares canonical learner edges against sample groups and must not
+  // use unlabeled buttons, colors alone or a mastery/physical-success claim.
+  const practiceEvidence = coach?.querySelector("[data-practice-evidence]");
+  const practiceStatus = practiceEvidence?.querySelector("[data-practice-status-label]");
+  const practiceButtons = [
+    practiceEvidence?.querySelector("[data-practice-open-wiring]"),
+    practiceEvidence?.querySelector("[data-practice-recheck]"),
+  ];
+  const practiceBoundary = practiceEvidence?.querySelector(".practice-evidence-boundary")?.textContent || "";
+  record("post-v16-practice-evidence-named-accessible-physical-boundary",
+    Boolean(practiceEvidence && accessibleName(practiceEvidence)) &&
+    practiceEvidence.tagName === "SECTION" &&
+    practiceEvidence.getAttribute("data-practice-lesson") === "2" &&
+    practiceEvidence.getAttribute("data-practice-status") === "not-attempted" &&
+    practiceStatus?.getAttribute("role") === "status" &&
+    practiceStatus?.getAttribute("aria-live") === "polite" &&
+    practiceButtons.every(button =>
+      button && button.tagName === "BUTTON" && Boolean(accessibleName(button)) &&
+      button.getBoundingClientRect().height >= 44) &&
+    /không đo|không xác nhận phần cứng/i.test(practiceBoundary) &&
+    /không tự xác nhận mức độ hiểu|không.*hoàn thành bài/i.test(practiceBoundary),
+    JSON.stringify({
+      status: practiceEvidence?.getAttribute("data-practice-status"),
+      name: accessibleName(practiceEvidence),
+      statusRole: practiceStatus?.getAttribute("role"),
+      buttons: practiceButtons.map(button => ({
+        name: accessibleName(button),
+        height: button?.getBoundingClientRect().height,
+      })),
+      boundary: practiceBoundary,
+    }),
+    "Bằng chứng thực hành từng bước cần region/status có tên, nút native >=44px và tuyên bố rõ không đo/không tự xác nhận hoàn thành.", "P1");
+
   // v1.6 Lab Explorer exposes the same canonical lesson state through three
   // equivalent surfaces. SVG surfaces need explicit names/roles AND HTML
   // equivalents so a screen reader is not forced to interpret geometry.
