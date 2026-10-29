@@ -34,7 +34,14 @@ const ASSETS = [
   "./docs/GPIO_RUNTIME.md", "./docs/TIMER0_RUNTIME.md",
   "./docs/ANALOG_SERIAL_RUNTIME.md", "./docs/AVR_BOARD_LAB.md",
   "./docs/LAB_LAYOUT.md", "./docs/SCENE3D_LAB.md",
-  "./docs/LEARNING_COACH.md", "./docs/TIMER1_RUNTIME.md"
+  "./docs/LEARNING_COACH.md", "./docs/TIMER1_RUNTIME.md",
+  "./src/lab-explorer.js", "./src/lab-explorer-ui.js",
+  "./src/breadboard-topology.js", "./src/breadboard-topology-ui.js",
+  "./src/avr-timer2.js", "./styles/lab-explorer.css",
+  "./docs/LAB_EXPLORER_V16.md", "./docs/BREADBOARD_TOPOLOGY_V16.md",
+  "./docs/TIMER2_V16.md", "./docs/SCENE3D_V16.md",
+  "./src/dc-resistor-network.js", "./src/resistive-study-ui.js",
+  "./docs/DC_RESISTOR_NETWORK_V16.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

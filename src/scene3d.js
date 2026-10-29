@@ -14,6 +14,8 @@ const CONCEPTUAL_WIRING_ARIA = "Lớp dây là sơ đồ net khái niệm từ n
 const LAB_LAYOUT_NOTICE = "LAYOUT KHÁI NIỆM · KHÔNG PHẢI TỌA ĐỘ LỖ BREADBOARD";
 const LAB_EDIT_ARIA = "Chế độ chỉnh bố trí 3D đang bật. Click hoặc chạm để chọn component; kéo component di động trên mặt phẳng bố trí. Các phím W A S D di chuyển component đã chọn theo lưới, Q/E xoay 90 độ, Escape bỏ chọn. Phím mũi tên vẫn điều khiển camera.";
 const LAB_WORLD_SCALE = .72;
+const SCENE_QUALITY_PROFILE = "v16";
+const SCENE_LOD_BREAKPOINT = 560;
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
   checked: 0x188b80,
@@ -27,6 +29,11 @@ const createSharedMaterials = () => ({
   plasticMat: material(palette.dark, { roughness: .7 }),
   metallicMat: material(palette.metal, { metalness: .6, roughness: .32 }),
   pinMat: material(0xb8c6c4, { metalness: .48 }),
+  traceMat: material(0x287b88, { roughness: .72 }),
+  socketMat: material(0x171f23, { roughness: .78 }),
+  collarMat: material(0x6d7877, { roughness: .66 }),
+  holeMat: material(0x9caead, { roughness: .82 }),
+  railHoleMat: material(0xa6b4b0, { roughness: .82 }),
 });
 
 function box(parent, size, colorOrMaterial, pos = [0,0,0], extras = {}) {
@@ -61,6 +68,11 @@ function canvasLabel(parent, text, x, y, z, width = 1.6, fontSize = 46, color = 
   if (!horizontal) mesh.rotation.x = -Math.PI / 2;
   parent.add(mesh);
   return mesh;
+}
+function fineDetail(object) {
+  if (!object) return object;
+  object.userData = { ...object.userData, sceneDetail: "fine", physicalVerified: false };
+  return object;
 }
 function disposeTree(obj, keepMaterials = new Set()) {
   const geometries = new Set();
@@ -295,17 +307,41 @@ function makeLabArduinoVisual(parent, width, depth, shared) {
   const bottomZ = -depth * .39;
   box(parent,[width * .76,.22,.30],shared.plasticMat,[-width * .02,.35,topZ]);
   box(parent,[width * .62,.22,.30],shared.plasticMat,[width * .12,.35,bottomZ]);
-  canvasLabel(parent,"ARDUINO UNO",0,.255,.02,Math.max(1.5,width*.56),34);
-  canvasLabel(parent,"DIGITAL D0–D13",0,.265,topZ - .25,Math.max(1.45,width*.52),25);
-  canvasLabel(parent,"ANALOG A0–A5",width*.05,.265,bottomZ + .25,Math.max(1.4,width*.48),25);
-  canvasLabel(parent,"5V · 3V3 · GND",width*.27,.265,depth*.16,Math.max(1.2,width*.38),24);
+  canvasLabel(parent,"ARDUINO UNO",0,.285,.02,Math.max(1.5,width*.58),38);
+  canvasLabel(parent,"DIGITAL D0–D13",0,.505,topZ - .30,Math.max(1.55,width*.58),29);
+  canvasLabel(parent,"ANALOG A0–A5",width*.05,.505,bottomZ + .30,Math.max(1.5,width*.54),29);
+  canvasLabel(parent,"5V · 3V3 · GND",width*.27,.505,depth*.16,Math.max(1.3,width*.42),27);
+  const socketCount = 12;
+  for (let i = 0; i < socketCount; i += 1) {
+    const px = -width*.31 + i * (width*.62/(socketCount-1));
+    fineDetail(cylinder(parent,.035,.035,.026,shared.socketMat,[px,.485,topZ],8));
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const px = -width*.23 + i * (width*.46/7);
+    fineDetail(cylinder(parent,.035,.035,.026,shared.socketMat,[px,.485,bottomZ],8));
+  }
+  fineDetail(canvasLabel(parent,"HEADER VISUAL · KHÔNG PHẢI PIN MAP",0,.515,depth*.47,Math.max(1.8,width*.74),20,"#d9eee8"));
+  fineDetail(box(parent,[width*.15,.08,depth*.10],0x486c6f,[width*.31,.31,-depth*.10]));
+  fineDetail(canvasLabel(parent,"RESET",width*.31,.52,-depth*.10,.60,20,"#d9eee8"));
 }
 
-function makeLabBreadboardVisual(parent, width, depth) {
-  box(parent,[width,.26,depth],0xfdfefd,[0,.14,0]);
+function makeLabBreadboardVisual(parent, width, depth, shared) {
+  const base=box(parent,[width,.26,depth],0xfdfefd,[0,.14,0]);
+  base.userData={kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
   box(parent,[width*.90,.012,.025],0xd77b65,[0,.285,-depth*.37]);
   box(parent,[width*.90,.012,.025],0x65a9d5,[0,.285,depth*.37]);
   box(parent,[.12,.014,depth*.74],0xe0e6e3,[0,.292,0]);
+  box(parent,[width*.86,.012,.026],0xd77b65,[0,.285,-depth*.44]);
+  box(parent,[width*.86,.012,.026],0x65a9d5,[0,.285,depth*.44]);
+  const columns = 12, rows = 6;
+  for (let i = 0; i < columns; i += 1) {
+    const x=-width*.39+i*(width*.78/(columns-1));
+    for (let j = 0; j < rows; j += 1) {
+      const z=-depth*.25+j*(depth*.50/(rows-1));
+      fineDetail(cylinder(parent,.025,.025,.014,shared.holeMat,[x,.292,z],7));
+    }
+  }
+  fineDetail(canvasLabel(parent,"VISUAL GRID · KHÔNG CÓ HOLE MAP",0,.305,depth*.31,Math.max(1.5,width*.72),18,"#7a8f89"));
   canvasLabel(parent,"BREADBOARD · KHÁI NIỆM",0,.30,-depth*.43,Math.max(1.5,width*.70),25,"#607c74");
 }
 
@@ -319,7 +355,7 @@ function makeLabGenericVisual(parent, component, shared) {
       makeLabArduinoVisual(parent,width,depth,shared);
       break;
     case "breadboard":
-      makeLabBreadboardVisual(parent,width,depth);
+      makeLabBreadboardVisual(parent,width,depth,shared);
       break;
     case "resistor": {
       const body = new T.Group();
@@ -327,6 +363,9 @@ function makeLabGenericVisual(parent, component, shared) {
       body.position.y = .34;
       parent.add(body);
       cylinder(body,.10,.10,Math.max(.56,width*.58),0xe7d2a6,[0,0,0],18);
+      [-.16,-.05,.07,.18].forEach((v,index)=>{
+        fineDetail(cylinder(body,.104,.104,.034,[0xa83d31,0x1a1b1f,0x7d5117,0xc9a64c][index],[0,v,0],16));
+      });
       box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,Math.max(.38,width*.48),0]);
       box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,-Math.max(.38,width*.48),0]);
       break;
@@ -341,18 +380,38 @@ function makeLabGenericVisual(parent, component, shared) {
     case "button":
       box(parent,[width*.72,.22,depth*.72],plasticMat,[0,.20,0]);
       cylinder(parent,Math.min(.28,width*.24),Math.min(.28,width*.24),.24,palette.coral,[0,.43,0],22);
+      fineDetail(canvasLabel(parent,"PUSH",0,.56,0,Math.max(.55,width*.44),18,"#f7e5df"));
       break;
     case "potentiometer":
       cylinder(parent,Math.min(.36,width*.27),Math.min(.36,width*.27),.22,0x32444b,[0,.22,0],24);
       cylinder(parent,Math.min(.24,width*.18),Math.min(.24,width*.18),.28,0xe3e7e1,[0,.47,0],20);
       break;
-    case "photoresistor":
-    case "force-sensor":
-    case "temperature-sensor":
-    case "soil-sensor":
-      box(parent,[width*.74,.14,depth*.70],component.visualKind === "soil-sensor" ? 0x6d8b70 : 0x7d918e,[0,.22,0]);
-      canvasLabel(parent,component.label,0,.30,0,Math.max(.75,width*.72),23,"#eef7f2");
+    case "photoresistor": {
+      const disk=cylinder(parent,Math.min(.34,width*.24),Math.min(.34,width*.24),.10,0xb3936f,[0,.24,0],24);
+      fineDetail(box(disk,[.34,.015,.045],0x3b3c2e,[0,.055,0]));
+      fineDetail(box(disk,[.045,.015,.34],0x3b3c2e,[0,.057,0]));
+      canvasLabel(parent,"LDR",0,.39,0,Math.max(.65,width*.52),24,"#eef7f2");
       break;
+    }
+    case "force-sensor": {
+      cylinder(parent,Math.min(.34,width*.25),Math.min(.34,width*.25),.07,0x7d918e,[0,.22,0],26);
+      fineDetail(cylinder(parent,Math.min(.22,width*.16),Math.min(.22,width*.16),.012,0xdbe8e3,[0,.263,0],24));
+      canvasLabel(parent,"FSR",0,.36,0,Math.max(.62,width*.50),24,"#eef7f2");
+      break;
+    }
+    case "temperature-sensor": {
+      box(parent,[width*.44,.30,depth*.32],0x27353a,[0,.28,0]);
+      for(const x of [-width*.14,0,width*.14])fineDetail(box(parent,[.025,.24,.025],metallicMat,[x,.08,0]));
+      canvasLabel(parent,"TEMP",0,.47,0,Math.max(.66,width*.55),22,"#eef7f2");
+      break;
+    }
+    case "soil-sensor": {
+      box(parent,[width*.58,.16,depth*.52],0x6d8b70,[0,.31,0]);
+      fineDetail(box(parent,[width*.16,.48,.08],0x8aa188,[-width*.16,.04,0]));
+      fineDetail(box(parent,[width*.16,.48,.08],0x8aa188,[width*.16,.04,0]));
+      canvasLabel(parent,"SOIL",0,.48,0,Math.max(.66,width*.54),22,"#eef7f2");
+      break;
+    }
     case "ultrasonic-sensor":
       box(parent,[width*.80,.15,depth*.70],0x24909a,[0,.24,0]);
       for (const x of [-width*.22,width*.22]) {
@@ -366,6 +425,9 @@ function makeLabGenericVisual(parent, component, shared) {
     case "driver":
       box(parent,[width*.82,.18,depth*.76],0x315f67,[0,.22,0]);
       box(parent,[width*.34,.16,depth*.32],plasticMat,[0,.37,0]);
+      fineDetail(box(parent,[width*.17,.15,depth*.22],0x2b3034,[-width*.24,.37,0]));
+      fineDetail(box(parent,[width*.17,.15,depth*.22],0x2b3034,[width*.24,.37,0]));
+      fineDetail(canvasLabel(parent,"DRIVER",0,.52,0,Math.max(.72,width*.55),20,"#dcece7"));
       break;
     case "servo": {
       box(parent,[width*.72,.42,depth*.64],0x314654,[0,.30,0]);
@@ -375,6 +437,8 @@ function makeLabGenericVisual(parent, component, shared) {
     }
     case "power-source":
       box(parent,[width*.78,.38,depth*.72],0x5d7278,[0,.28,0]);
+      fineDetail(cylinder(parent,.08,.08,.08,0xd66759,[-width*.20,.51,0],14));
+      fineDetail(cylinder(parent,.08,.08,.08,0x2a3337,[width*.20,.51,0],14));
       canvasLabel(parent,"+   NGUỒN   −",0,.49,0,Math.max(.9,width*.68),25,"#f5f7f2");
       break;
     default:
@@ -391,16 +455,19 @@ function makeBoard(scene, shared) {
   const { bodyMat, plasticMat, metallicMat, pinMat } = shared;
   const board = new T.Group();
   board.position.x = -2.65;
+  board.userData={kind:"arduino-uno-visual",physicalVerified:false};
   scene.add(board);
-  box(board, [8.1,.23,5.15], bodyMat, [0,.34,0]);
+  // Visual proportions follow the published Uno Rev3 board aspect ratio only.
+  // Scene units are not millimetres and no pin/header coordinate is physical truth.
+  box(board, [7.20,.23,5.60], bodyMat, [0,.34,0]);
   // Metal traces are represented as subtle decorative silk traces.
   for (let i = 0; i < 17; i++) {
     const z = -1.85 + (i % 9) * .43;
     const x = -2.65 + Math.floor(i / 9) * 4.2;
-    box(board, [2.1,.008,.019], 0x287b88, [x,.462,z]);
+    fineDetail(box(board, [2.1,.008,.019], shared.traceMat, [x,.462,z]));
   }
   // Mounting holes: four recessed-looking rings.
-  for (const x of [-3.65,3.65]) for (const z of [-2.12,2.12]) {
+  for (const x of [-3.18,3.18]) for (const z of [-2.42,2.42]) {
     cylinder(board,.19,.19,.013,0xdbebd4,[x,.472,z],26);
     cylinder(board,.115,.115,.019,0x2e5860,[x,.486,z],26);
   }
@@ -417,18 +484,27 @@ function makeBoard(scene, shared) {
   box(board,[.9,.58,.55],0x263238,[-3.81,.8,-1.12]);
   cylinder(board,.48,.48,.76,plasticMat,[-3.68,.78,1.41],26,Math.PI/2);
   cylinder(board,.20,.20,.78,metallicMat,[-3.67,.78,1.41],26,Math.PI/2);
-  // Header rows and pin collars.
-  const headers = [[-2.02,2.19,16], [.48,-2.19,14], [2.75,1.98,6]];
-  for (const [x,z,count] of headers) {
+  // Header rows are visually grouped for readability; they are not a verified pin map.
+  const headers = [
+    [-1.68,2.36,8,"D0–D7"],
+    [1.25,2.36,8,"D8–D13"],
+    [-1.36,-2.36,8,"POWER"],
+    [1.72,-2.36,6,"A0–A5"],
+  ];
+  for (const [x,z,count,label] of headers) {
     const delta = .34;
     const left = x-(count-1)*delta/2;
     box(board,[count*delta+.15,.38,.55],plasticMat,[x,.67,z]);
     for (let i=0;i<count;i++) {
       const p = left+i*delta;
-      cylinder(board,.094,.094,.018,0x6d7877,[p,.867,z],10);
-      cylinder(board,.043,.043,.023,0x161f25,[p,.88,z],9);
+      cylinder(board,.094,.094,.018,shared.collarMat,[p,.867,z],10);
+      cylinder(board,.043,.043,.023,shared.socketMat,[p,.88,z],9);
     }
+    fineDetail(canvasLabel(board,label,x,.49,z>0?2.02:-2.02,1.18,18,"#d8eee7"));
   }
+  fineDetail(canvasLabel(board,"DIGITAL HEADER · VISUAL",-.90,.485,2.02,2.55,20,"#d8eee7"));
+  fineDetail(canvasLabel(board,"POWER / ANALOG HEADER · VISUAL",.68,.485,-2.02,2.80,19,"#d8eee7"));
+  fineDetail(canvasLabel(board,"PWM ~ 3 · 5 · 6 · 9 · 10 · 11",-.70,.488,1.33,2.70,19,"#c5e6dd"));
   canvasLabel(board,"UNO  R3",1.85,.468,.62,2.45,52);
   canvasLabel(board,"DIGITAL   D0–D13",-.9,.48,1.58,2.3,29);
   canvasLabel(board,"ANALOG    A0–A5",.7,.48,-1.53,2.0,32);
@@ -436,6 +512,13 @@ function makeBoard(scene, shared) {
   canvasLabel(board,"A0   A1   A2   A3   A4   A5",.72,.485,-1.78,2.25,23);
   canvasLabel(board,"5V · 3V3 · GND",2.54,.485,1.55,1.35,22);
   canvasLabel(board,"ARDUINO 3D",1.8,.468,-1.12,2.05,30);
+  const reset=box(board,[.38,.14,.42],0x547a7d,[2.75,.56,.35]);
+  reset.userData={kind:"reset-button-visual",physicalVerified:false};
+  fineDetail(canvasLabel(board,"RESET",2.75,.49,.63,.72,23,"#dceee8"));
+  const crystal=box(board,[.82,.12,.28],metallicMat,[1.20,.55,.22]);
+  crystal.userData={kind:"crystal-visual",physicalVerified:false};
+  fineDetail(canvasLabel(board,"16 MHz",1.20,.49,-.02,.76,20,"#dceee8"));
+  fineDetail(canvasLabel(board,"VISUAL LABELS · KHÔNG PHẢI PIN MAP",.25,.49,-1.15,3.25,18,"#b9dbd2"));
   // Physical onboard LED L (material animated through state update).
   const ledMat = material(0x4b6d56, { emissive: 0x36cc80, emissiveIntensity: .04 });
   const led = cylinder(board,.13,.13,.09,ledMat,[2.9,.56,-.76],18);
@@ -447,9 +530,10 @@ function makeBoard(scene, shared) {
   return {board,led};
 }
 
-function makeBreadboard(scene) {
+function makeBreadboard(scene, shared) {
   const base = new T.Group();
   base.position.set(5.15,.01,0);
+  base.userData={kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
   scene.add(base);
   box(base,[5.25,.33,5.03],0xffffff,[0,.3,0]);
   box(base,[.19,.012,4.28],0xe2e6e5,[-.10,.48,0]);
@@ -457,12 +541,20 @@ function makeBreadboard(scene) {
     const x=-2.17+row*.43;
     for (let col=0;col<10;col++) {
       const z=-2.0+col*.425;
-      cylinder(base,.037,.037,.014,0x9caead,[x,.476,z],8);
+      const hole=fineDetail(cylinder(base,.037,.037,.014,shared.holeMat,[x,.476,z],8));
+      hole.userData={...hole.userData,kind:"breadboard-visual-hole",breadboardHoleMapping:false};
     }
   }
   for (const z of [-2.28,2.28]) {
     box(base,[4.76,.008,.035],z < 0?0xd77b65:0x65a9d5,[0,.492,z]);
+    for(let i=0;i<12;i++){
+      const x=-2.05+i*(4.1/11);
+      const hole=fineDetail(cylinder(base,.032,.032,.012,shared.railHoleMat,[x,.482,z],7));
+      hole.userData={...hole.userData,kind:"breadboard-rail-visual-hole",breadboardHoleMapping:false};
+    }
   }
+  fineDetail(canvasLabel(base,"RAIL VISUAL",0,.50,2.12,1.15,20,"#748b83"));
+  fineDetail(canvasLabel(base,"NO VERIFIED HOLE MAP",0,.50,-2.10,1.75,19,"#748b83"));
   canvasLabel(base,"BREADBOARD",0,.51,-2.43,2.35,33,"#748b83");
   return base;
 }
@@ -585,6 +677,7 @@ export function mountScene(host, onSelect = () => {}) {
   let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
   let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
   let activeLabLayer=null,activeLabLayout=null,lastWiringModel=null,selectedLabComponentId=null;
+  let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0;
   let labWireLayer=null;
   const labComponents=new Map(),labTerminals=new Map(),labWireObjects=[];
   let labEdit={enabled:false,onSelectComponent:null,onMoveComponent:null,onTerminalSelect:null};
@@ -609,8 +702,28 @@ export function mountScene(host, onSelect = () => {}) {
     sharedMaterialSet.forEach(item => item.dispose());
     throw new Error("Trình duyệt không tạo được WebGL: " + (error?.message || "Không rõ nguyên nhân"));
   }
-  board=makeBoard(scene,sharedMaterials);breadboard=makeBreadboard(scene);
+  board=makeBoard(scene,sharedMaterials);breadboard=makeBreadboard(scene,sharedMaterials);
   const defaultPosition=()=>{theta=.48;phi=.94;zoom=1;};
+  function labCameraTarget(){
+    if(activeLabLayout&&focusedLabComponentId){
+      const entry=labComponents.get(focusedLabComponentId);
+      if(entry){
+        return new T.Vector3(
+          entry.x*LAB_WORLD_SCALE,
+          Math.max(.35,labComponentHeight(entry.component.visualKind)*.48),
+          entry.z*LAB_WORLD_SCALE
+        );
+      }
+    }
+    if(activeLabLayout){
+      return new T.Vector3(
+        ((activeLabLayout.bounds.minX+activeLabLayout.bounds.maxX)/2)*LAB_WORLD_SCALE,
+        .35,
+        ((activeLabLayout.bounds.minZ+activeLabLayout.bounds.maxZ)/2)*LAB_WORLD_SCALE
+      );
+    }
+    return new T.Vector3(1.15,.35,0);
+  }
   function updateCamera() {
     // At portrait widths the same fixed camera distance clips the board and
     // breadboard. Fit the full lab first, then apply the learner's zoom.
@@ -618,16 +731,40 @@ export function mountScene(host, onSelect = () => {}) {
       (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, camera.aspect)));
     const radius = Math.min(48, Math.max(8, fitted * zoom));
     camera.position.set(radius*Math.sin(phi)*Math.sin(theta),radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
-    const targetX=activeLabLayout ? ((activeLabLayout.bounds.minX+activeLabLayout.bounds.maxX)/2)*LAB_WORLD_SCALE : 1.15;
-    const targetZ=activeLabLayout ? ((activeLabLayout.bounds.minZ+activeLabLayout.bounds.maxZ)/2)*LAB_WORLD_SCALE : 0;
-    camera.lookAt(targetX,.35,targetZ);
+    camera.lookAt(labCameraTarget());
   }
   function draw(){raf=0;if(disposed||contextLost||document.hidden)return;updateCamera();renderer.render(scene,camera);}
   function invalidate(){if(!raf && !disposed && !contextLost && !document.hidden) raf=requestAnimationFrame(draw);}
+  function applySceneLod(w,h){
+    const nextLod=(w<SCENE_LOD_BREAKPOINT||h<340)?"reduced":"full";
+    currentLod=nextLod;
+    const nextPixelRatio=Math.min(window.devicePixelRatio||1,nextLod==="reduced"?1.25:1.7);
+    if(Math.abs(nextPixelRatio-rendererPixelRatio)>1e-6){
+      rendererPixelRatio=nextPixelRatio;
+      renderer.setPixelRatio(rendererPixelRatio);
+    }
+    renderer.shadowMap.enabled=nextLod==="full";
+    sun.castShadow=nextLod==="full";
+    fineDetailCount=0;
+    scene.traverse(child=>{
+      if(child?.userData?.sceneDetail!=="fine")return;
+      fineDetailCount+=1;
+      child.visible=nextLod==="full";
+    });
+    if(renderer.domElement){
+      renderer.domElement.dataset.sceneQuality=SCENE_QUALITY_PROFILE;
+      renderer.domElement.dataset.sceneLod=nextLod;
+      renderer.domElement.dataset.scenePixelRatio=String(rendererPixelRatio);
+      renderer.domElement.dataset.sceneFineDetailCount=String(fineDetailCount);
+      renderer.domElement.dataset.scenePhysicalMap="none";
+    }
+  }
   function resize(){
     if(disposed||contextLost)return;
     const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);
-    camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);invalidate();
+    camera.aspect=w/h;camera.updateProjectionMatrix();
+    applySceneLod(w,h);
+    renderer.setSize(w,h,false);invalidate();
   }
   const observer = new ResizeObserver(resize);observer.observe(host);
   const canvas=renderer.domElement;
@@ -656,6 +793,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labComponentCount="0";
     canvas.dataset.labTerminalCount="0";
     canvas.dataset.labWireCount="0";
+    canvas.dataset.labFocusedComponent="";
     canvas.dataset.labPhysicalVerified="false";
     canvas.dataset.labBreadboardHoleMapping="false";
     canvas.dataset.labElectricalPower="false";
@@ -747,6 +885,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   function clearLabLayout(redraw=true){
+    const hadFocus=focusedLabComponentId!==null;
     clearLabWireLayer();
     if(activeLabLayer){
       scene.remove(activeLabLayer);
@@ -754,7 +893,8 @@ export function mountScene(host, onSelect = () => {}) {
       activeLabLayer=null;
     }
     activeLabLayout=null;
-    labComponents.clear();labTerminals.clear();selectedLabComponentId=null;
+    labComponents.clear();labTerminals.clear();selectedLabComponentId=null;focusedLabComponentId=null;
+    if(hadFocus)zoom=1;
     if(board?.board)board.board.visible=true;
     if(breadboard)breadboard.visible=true;
     if(activeModule?.module)activeModule.module.visible=true;
@@ -772,6 +912,59 @@ export function mountScene(host, onSelect = () => {}) {
       maxZ:layout.bounds.maxZ*LAB_WORLD_SCALE,
     });
   }
+  function getLabViewState(){
+    const target=labCameraTarget();
+    const claims=Object.freeze({
+      physicalVerified:false,
+      breadboardHoleMapping:false,
+      electricalPower:false,
+    });
+    const cameraState=Object.freeze({
+      theta,phi,zoom,
+      targetX:target.x,targetY:target.y,targetZ:target.z,
+    });
+    return Object.freeze({
+      viewVersion:1,
+      qualityProfile:SCENE_QUALITY_PROFILE,
+      mode:activeLabLayout?"conceptual-layout":"legacy",
+      disposed,
+      lessonId:Number.isFinite(currentLessonId)?currentLessonId:null,
+      focusedComponentId:focusedLabComponentId,
+      selectedComponentId:selectedLabComponentId,
+      editEnabled:labEdit.enabled,
+      lod:currentLod,
+      camera:cameraState,
+      worldScale:LAB_WORLD_SCALE,
+      worldBounds:activeLabLayout?labBoundsSummary(activeLabLayout):null,
+      renderer:Object.freeze({
+        pixelRatio:rendererPixelRatio,
+        shadows:renderer?.shadowMap?.enabled===true,
+        fineDetailCount,
+      }),
+      claims,
+    });
+  }
+  function focusLabComponent(componentId){
+    if(componentId!==null&&(typeof componentId!=="string"||!componentId)){
+      throw new TypeError("componentId focus phải là chuỗi không rỗng hoặc null");
+    }
+    if(componentId===null){
+      focusedLabComponentId=null;
+      zoom=1;
+      canvas.dataset.labFocusedComponent="";
+      invalidate();
+      return getLabViewState();
+    }
+    if(!activeLabLayout)throw new RangeError("Không có lab layout để focus component");
+    const entry=labComponents.get(componentId);
+    if(!entry)throw new RangeError("Không có component trong lab layout: "+componentId);
+    focusedLabComponentId=componentId;
+    const logicalSpan=Math.max(entry.component.width,entry.component.depth);
+    zoom=Math.max(.42,Math.min(.58,.40+logicalSpan*.02));
+    canvas.dataset.labFocusedComponent=componentId;
+    invalidate();
+    return getLabViewState();
+  }
   function setLabLayout(layout){
     if(disposed)return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
     if(layout==null)return clearLabLayout(true);
@@ -781,6 +974,8 @@ export function mountScene(host, onSelect = () => {}) {
       throw new RangeError("Lab layout 3D không thuộc bài học đang hiển thị");
     }
     const previousSelection=selectedLabComponentId;
+    const previousFocus=focusedLabComponentId;
+    const previousZoom=zoom;
     clearLabLayout(false);
     activeLabLayout=layout;
     activeLabLayer=new T.Group();
@@ -865,12 +1060,21 @@ export function mountScene(host, onSelect = () => {}) {
     const nextSelection=previousSelection&&labComponents.has(previousSelection)
       ? previousSelection : null;
     selectLabComponent(nextSelection,"layout",false);
+    if(previousFocus&&labComponents.has(previousFocus)){
+      focusedLabComponentId=previousFocus;
+      zoom=previousZoom;
+      canvas.dataset.labFocusedComponent=previousFocus;
+    }else{
+      focusedLabComponentId=null;
+      canvas.dataset.labFocusedComponent="";
+    }
     canvas.dataset.labLayoutMode="conceptual-layout";
     canvas.dataset.labComponentCount=String(layout.components.length);
     canvas.dataset.labTerminalCount=String(layout.terminals.length);
     canvas.dataset.labPhysicalVerified="false";
     canvas.dataset.labBreadboardHoleMapping="false";
     canvas.dataset.labElectricalPower="false";
+    applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight));
     refreshCanvasAccessibility();
     invalidate();
     return Object.freeze({
@@ -1135,7 +1339,11 @@ export function mountScene(host, onSelect = () => {}) {
     else if(event.key==="ArrowDown")phi=Math.min(1.45,phi+.12);
     else if(["+","=","Add"].includes(event.key))zoom=Math.max(minZoom,zoom-.10);
     else if(["-","_","Subtract"].includes(event.key))zoom=Math.min(maxZoom,zoom+.10);
-    else if(event.key==="Home")defaultPosition();
+    else if(event.key==="Home"){
+      defaultPosition();
+      focusedLabComponentId=null;
+      canvas.dataset.labFocusedComponent="";
+    }
     else if(labEdit.enabled&&activeLabLayout&&["w","a","s","d"].includes(event.key.toLowerCase())){
       const entry=labComponents.get(selectedLabComponentId);
       if(!entry||entry.component.fixed){handled=false;}
@@ -1284,11 +1492,15 @@ export function mountScene(host, onSelect = () => {}) {
     else if(action==="right")theta+=.32;
     else if(action==="in")zoom=Math.max(minZoom,zoom-.12);
     else if(action==="out")zoom=Math.min(maxZoom,zoom+.12);
-    else if(action==="reset")defaultPosition();
+    else if(action==="reset"){
+      defaultPosition();
+      focusedLabComponentId=null;
+      canvas.dataset.labFocusedComponent="";
+    }
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -1321,6 +1533,7 @@ export function mountScene(host, onSelect = () => {}) {
     labWireObjects.length=0;
     labWireLayer=null;
     activeLabLayout=null;
+    focusedLabComponentId=null;
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     if(board){scene.remove(board.board);disposeTree(board.board,sharedMaterialSet);}

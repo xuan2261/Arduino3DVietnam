@@ -21,12 +21,15 @@ const create = (tag, text = "") => {
 };
 
 /** Mount once, then call setScene/setLesson/setStage as the application changes. */
-export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange = () => {} }) {
+export function mountLabEditor({
+  getCircuit, onCircuitChange, onEditModeChange = () => {},
+  onSelectionChange = () => {}, onLayoutChange = () => {},
+}) {
   if (typeof getCircuit !== "function" || typeof onCircuitChange !== "function") {
     throw new TypeError("Lab editor requires real circuit read/write callbacks.");
   }
-  if (typeof onEditModeChange !== "function") {
-    throw new TypeError("Lab editor view mode callback must be a function.");
+  if ([onEditModeChange,onSelectionChange,onLayoutChange].some(callback=>typeof callback!=="function")) {
+    throw new TypeError("Lab editor change observers must be functions.");
   }
   const entry = $("labEditEntry"), panel = $("labEditor"), toggle = $("labEditToggle");
   const componentSelect = $("labComponent"), posX = $("labPositionX"), posZ = $("labPositionZ");
@@ -82,6 +85,7 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
       explicitlyDeselected = true;
       announce(explanation || "Đã bỏ chọn linh kiện trên 3D; không có đối tượng nào được di chuyển.");
       render();
+      onSelectionChange(null, lessonId);
       return;
     }
     const component = layout.components.find(item => item.id === id);
@@ -91,6 +95,7 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
     if (component.fixed) announce("Đã chọn Arduino Uno cố định; không thể di chuyển hoặc xoay bo.");
     else if (explanation) announce(explanation);
     render();
+    onSelectionChange(selectedId, lessonId);
   };
   const moveComponent = (id, x, z) => {
     const layout = layoutFor();
@@ -108,6 +113,7 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
       explicitlyDeselected = false;
       announce("Đã cập nhật vị trí minh họa của " + id + ". Netlist điện không thay đổi.");
       render();
+      onLayoutChange(next,lessonId);
       return true;
     } catch (error) {
       announce("Không thể đặt linh kiện: " + (error?.message || "tọa độ không hợp lệ"),"error");
@@ -129,6 +135,7 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
       layouts.set(lessonId,next);
       announce("Đã xoay " + selectedId + " theo ô 90° của mô hình khái niệm.");
       render();
+      onLayoutChange(next,lessonId);
     } catch(error) {
       announce("Không thể xoay: " + (error?.message || "không hỗ trợ"),"error");
     }
@@ -310,6 +317,7 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
     lastMessage="";
     render();
     announce("Đã khôi phục bố trí minh họa mặc định; các dây netlist được giữ nguyên.");
+    onLayoutChange(layoutFor(),lessonId);
   };
 
   const listeners=[
@@ -337,6 +345,22 @@ export function mountLabEditor({ getCircuit, onCircuitChange, onEditModeChange =
     },
     setStage(value){stage=value;render();},
     update(){lastMessage="";render();},
+    openEditor(){
+      if(!lessonSupported()||stage!=="3d"||!scene)return false;
+      if(!editing){
+        editing=true;firstTerminal=null;lastMessage="";render();onEditModeChange();
+      }
+      return true;
+    },
+    selectComponent(id){selectComponent(id);return selectedId;},
+    selectTerminal(id){onTerminalSelect(id);return firstTerminal;},
+    connectTerminals(from,to){connectTerminals(from,to);},
+    clearTerminalSelection(){
+      if(firstTerminal===null)return false;
+      firstTerminal=null;
+      terminalNote.textContent="Đã hủy chọn chân đầu tiên sau khi netlist thay đổi.";
+      return true;
+    },
     isEditingIn3D(){return lessonSupported() && editing && stage==="3d";},
     setAvrEvidence(evidence){avrEvidence=evidence;showAvrEvidence();},
     snapshot(){

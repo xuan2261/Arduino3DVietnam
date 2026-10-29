@@ -39,6 +39,40 @@
 .learning-coach button { padding:8px 11px; min-height:44px; background:#fff; color:#17564a; border:1px solid #a8ccbb; border-radius:7px; font-size:11px; font-weight:730; }
 .learning-coach button:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
 .learning-coach button:disabled { opacity:.48; }
+.learning-coach .coach-topology-feedback { font-weight:800; color:#215b4e; padding:7px 10px; background:#e5f2ec; border-left:3px solid #117e71; border-radius:4px; }
+.learning-coach[data-coach-topology="unsafe"] .coach-topology-feedback { color:#822f2a; background:#fff0ec; border-left-color:#bd5244; }
+.learning-coach[data-coach-topology="signal-only-complete"] .coach-topology-feedback { color:#755319; background:#fff4da; border-left-color:#ac7c20; }
+.learning-coach .coach-issues { padding-left:19px; margin:8px 0 4px; color:#344e48; font-size:11px; line-height:1.6; }
+.learning-coach .coach-issues li { padding:4px 0; }
+.learning-coach .coach-issue-advice { display:block; color:#3c5a51; }
+.breadboard-study-body { padding:15px 20px 19px; color:#38564d; font-size:12px; line-height:1.7; }
+.breadboard-study-body p { margin:0 0 12px; }
+.breadboard-study-fields { display:grid; grid-template-columns:minmax(120px,auto) minmax(0,1fr); align-items:center; gap:10px 14px; max-width:740px; }
+.breadboard-study-fields label { font-weight:800; color:#244f44; }
+.breadboard-study-fields select,.breadboard-study-fields input { width:100%; min-height:44px; border:1px solid #adc9bf; padding:9px 10px; color:#1b3830; background:#fff; border-radius:7px; font:inherit; }
+.breadboard-study-fields button { grid-column:2; justify-self:start; min-height:44px; }
+.breadboard-study-hint,.breadboard-study-warning { color:#415b53; margin-top:13px!important; }
+.breadboard-study-result { max-width:820px; padding:10px 13px; border-radius:8px; color:#244e41; background:#e7f4eb; border:1px solid #badcc9; }
+.breadboard-study-result[data-result="unknown"] { color:#684a19; background:#fff4de; border-color:#e6d19c; }
+.breadboard-study-result[data-result="error"] { color:#7d3027; background:#fff0e9; border-color:#edc4b5; }
+.breadboard-study-warning { padding:9px 12px; background:#f5f7f0; border-left:3px solid #7f9a8d; }
+.breadboard-study-diagram { max-width:820px; width:100%; min-height:160px; margin:13px 0; border-radius:9px; overflow:hidden; }
+.breadboard-study-diagram svg { display:block; width:100%; height:auto; max-height:260px; }
+.resistive-study-body { padding:15px 20px 19px; color:#36554b; font-size:12px; line-height:1.7; }
+.resistive-study-body p { margin:0 0 12px; }
+.resistive-study-fields { display:grid; grid-template-columns:minmax(165px,auto) minmax(0,240px); align-items:center; gap:9px 14px; }
+.resistive-study-fields label { font-size:11px; font-weight:750; color:#23564b; }
+.resistive-study-fields input { min-width:0; min-height:44px; padding:8px 10px; border:1px solid #a9c9bd; border-radius:7px; font:inherit; color:#1d4638; }
+.resistive-study-fields button { grid-column:2; justify-self:start; min-height:44px; }
+.resistive-study-status { margin-top:14px!important; padding:10px 12px; border:1px solid #bedccc; background:#eaf6ee; color:#215948; border-radius:8px; }
+.resistive-study-status[data-result="error"] { background:#fff0e9; border-color:#deb3a2; color:#823a30; }
+.resistive-study-results { max-width:100%; overflow-x:auto; }
+.resistive-study-table { border-collapse:collapse; width:100%; min-width:470px; font-size:11px; margin-bottom:10px; }
+.resistive-study-table td,.resistive-study-table th { border-bottom:1px solid #dcebe2; padding:10px 9px; text-align:left; }
+.resistive-study-table th { color:#31584e; background:#f2f8f4; }
+.resistive-study-boundary { padding:10px 12px; border-left:3px solid #a48e66; background:#f7f5ef; color:#5d543e; }
+@media(max-width:590px){.resistive-study-body{padding:14px 12px}.resistive-study-fields{grid-template-columns:minmax(0,1fr);gap:5px}.resistive-study-fields button{grid-column:auto;justify-self:stretch}}
+@media(max-width:590px) { .breadboard-study-body { padding:14px 12px; } .breadboard-study-fields { grid-template-columns:minmax(0,1fr); gap:5px; } .breadboard-study-fields button { grid-column:auto; justify-self:stretch; } }
 @media(max-width:800px) { .lab-editor-grid { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:580px) { .lab-edit-entry { padding:12px; } .lab-editor { padding:15px 12px; } .lab-editor-group { padding:12px; } .lab-wire-fields { grid-template-columns:minmax(0,1fr); } .lab-wire-fields label,.lab-wire-fields select { grid-row:auto; } }
 @media(prefers-reduced-motion:reduce) { .lab-editor * { scroll-behavior:auto !important; transition-duration:.001ms !important; } }

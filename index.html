@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="styles/wiring.css">
   <link rel="stylesheet" href="styles/avr-panel.css">
   <link rel="stylesheet" href="styles/lab-editor.css">
+  <link rel="stylesheet" href="styles/lab-explorer.css">
   <script type="module" src="src/app.js"></script>
 </head>
 <body>
@@ -40,7 +41,7 @@
     <div class="main-column">
       <header class="topbar">
         <div class="topbar-left"><button id="openSidebar" class="icon-button hamburger" aria-label="Mở danh sách bài học" aria-expanded="false" aria-controls="sidebar">☰</button><span class="workspace-label">KHÔNG GIAN HỌC TẬP</span><span class="topbar-separator"></span><span class="topbar-path">Arduino Uno R3 <span>/</span> <span id="breadcrumb">Bài 01</span></span></div>
-        <div class="topbar-right"><span class="version-pill">PHÒNG THỰC HÀNH 1.5</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
+        <div class="topbar-right"><span class="version-pill">PHÒNG THỰC HÀNH 1.6</span><button class="help-button" id="helpButton" aria-label="Xem hướng dẫn">? <span>Hướng dẫn</span></button></div>
       </header>
 
       <main class="content" id="content">
@@ -83,6 +84,46 @@
 
           <aside class="info-panel panel" aria-labelledby="infoHeading"><div class="panel-heading"><div><span class="panel-index">02 / KHÁM PHÁ KIẾN THỨC</span><h2 id="infoHeading">Hướng dẫn bài học</h2></div><span class="info-icon" aria-hidden="true">✦</span></div><div class="info-tabs" role="tablist" aria-label="Nội dung bài học"><button id="infoTabOverview" role="tab" data-info="overview" aria-controls="infoContent" aria-selected="true" tabindex="0">Tổng quan</button><button id="infoTabPinout" role="tab" data-info="pinout" aria-controls="infoContent" aria-selected="false" tabindex="-1">Chân nối</button><button id="infoTabPractice" role="tab" data-info="practice" aria-controls="infoContent" aria-selected="false" tabindex="-1">Thực hành</button></div><div class="info-content" id="infoContent" role="tabpanel" aria-labelledby="infoTabOverview" tabindex="-1"><p class="loading-text">Đang tải nội dung học...</p></div><div class="info-footer"><div class="tip-symbol" aria-hidden="true">i</div><p id="safetyNote">Đây là mô phỏng học tập trên máy tính. Khi dùng linh kiện thật, kiểm tra sơ đồ và nguồn điện trước khi cấp nguồn.</p></div></aside>
         </div>
+
+        <div id="labExplorer">
+          <p class="loading-text">Đang chuẩn bị sơ đồ khái niệm từ dữ liệu bài học và netlist hiện tại...</p>
+        </div>
+
+        <section class="panel breadboard-study" id="breadboardStudy" aria-labelledby="breadboardStudyHeading">
+          <div class="panel-heading small-heading"><div><span class="panel-index">MÔ HÌNH TOPOLOGY ĐƯỢC GIỚI HẠN</span><h2 id="breadboardStudyHeading">Khám phá nhóm lỗ breadboard</h2></div></div>
+          <div class="breadboard-study-body">
+            <p>Kiểm tra nhóm tiếp xúc trong <strong>một profile breadboard cụ thể</strong>. Đây không phải phép đo, không chứng minh lỗ hay chân linh kiện trong cảnh 3D đã cắm đúng, và không tự thêm dây vào mạch học.</p>
+            <div class="breadboard-study-fields">
+              <label for="bbProfile">Loại breadboard</label>
+              <select id="bbProfile"><option value="generic-63x10-terminal-strips">Loại phổ thông · hai dải 5 lỗ, rail chưa xác minh</option><option value="busboard-bb830-rev7">BusBoard BB830 Rev 7 · profile riêng</option></select>
+              <label for="bbHoleA">Lỗ thứ nhất</label><input id="bbHoleA" type="text" maxlength="12" value="A1" autocapitalize="characters" spellcheck="false" aria-describedby="bbFormat">
+              <label for="bbHoleB">Lỗ thứ hai</label><input id="bbHoleB" type="text" maxlength="12" value="E1" autocapitalize="characters" spellcheck="false" aria-describedby="bbFormat">
+              <button id="bbCompare" type="button" class="button button-soft">So sánh hai lỗ</button>
+            </div>
+            <p id="bbFormat" class="breadboard-study-hint">Nhập A1–J63. Rail P1+1/P1-1/P2+1/P2-1 chỉ được xét khi chọn profile BB830; các dấu +/− trên rail là ký hiệu, không tự cấp điện.</p>
+            <p id="bbResult" role="status" aria-live="polite" class="breadboard-study-result">Chưa thực hiện đối chiếu.</p>
+            <div id="bbTopologyDiagram" class="breadboard-study-diagram" role="img" aria-label="Minh họa khái niệm nhóm năm lỗ và ranh giới rail theo profile, không phải hình chân vật lý của bài học."></div>
+            <p id="bbMappingWarning" class="breadboard-study-warning">Các chân linh kiện Arduino và vị trí 3D hiện chưa có ánh xạ lỗ breadboard vật lý được chứng minh; kết quả ở đây không đổi netlist 2D/3D.</p>
+          </div>
+        </section>
+
+        <section class="panel resistive-study" id="resistiveStudy" aria-labelledby="resistiveStudyHeading">
+          <div class="panel-heading small-heading">
+            <div><span class="panel-index">THỬ NGHIỆM ĐIỆN TRỞ · MÔ HÌNH TOÁN HỌC ĐỘC LẬP</span><h2 id="resistiveStudyHeading">Mạng điện trở DC tuyến tính</h2></div>
+          </div>
+          <div class="resistive-study-body">
+            <p>Tự khai báo một mạch chia áp gồm <strong>hai điện trở nối tiếp</strong> và nguồn DC lý tưởng 0–5 V. Kết quả được tính bằng bộ giải nút tuyến tính, <strong>không lấy từ dây 3D, cảm biến hoặc firmware</strong> và không phải số đo trên Arduino.</p>
+            <div class="resistive-study-fields">
+              <label for="resistiveV">Nguồn DC lý tưởng (V)</label><input id="resistiveV" type="number" min="0" max="5" step="0.1" value="5" inputmode="decimal">
+              <label for="resistiveR1">R1 từ VCC → MID (Ω)</label><input id="resistiveR1" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal">
+              <label for="resistiveR2">R2 từ MID → GND (Ω)</label><input id="resistiveR2" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal">
+              <button type="button" class="button button-soft" id="resistiveSolve">Tính theo mô hình</button>
+            </div>
+            <p id="resistiveResult" class="resistive-study-status" role="status" aria-live="polite">Chưa giải mạng điện trở; giá trị mặc định chỉ là ví dụ để người học thử.</p>
+            <div class="resistive-study-results" id="resistiveDetails" aria-label="Kết quả toán học của từng node và điện trở"></div>
+            <p class="resistive-study-boundary">Chỉ có điện trở tuyến tính và các nguồn nút cố định được khai báo; không hỗ trợ LED, transistor, động cơ, servo, nguồn Arduino có nội trở, dây/lỗ breadboard thực. Giá trị dòng và công suất mang nhãn <strong>ước tính lý tưởng</strong>, không phải giới hạn an toàn phần cứng.</p>
+          </div>
+        </section>
 
         <section class="electrical-section panel" id="electricalSection" aria-labelledby="electricalHeading" hidden>
           <div class="panel-heading small-heading"><div><span class="panel-index">TÍNH DÒNG CÓ GIỚI HẠN · BÀI 02 / 03 / 05</span><h2 id="electricalHeading">Ước tính dòng LED từ mạch đã kiểm tra</h2></div></div>

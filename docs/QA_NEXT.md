@@ -1,4 +1,4 @@
-# QA release/PWA — v1.4.0 công khai và đợt kiểm chứng v1.5.0
+# QA release/PWA — v1.5.0 công khai và ứng viên nguồn v1.6.0
 
 Tài liệu này bổ sung các gate phát hành có thể chạy hoàn toàn offline bằng Python. Trọng tâm là tính toàn vẹn của `dist/`, cache Service Worker theo nội dung, GitHub Pages project subpath và đường CI thực sự được deploy.
 
@@ -11,7 +11,7 @@ python -m unittest discover -s tests -v
 python scripts/build_site.py
 ```
 
-`tests/test_release.py` hiện kiểm tra **12 hợp đồng**, gồm:
+`tests/test_release.py` có các hợp đồng versioned và được mở rộng khi thay đổi allowlist; số phép kiểm và tình trạng pass của phiên bản đang phát triển phải lấy từ lần chạy gần nhất, không dùng số cố định từ bản cũ:
 
 1. Danh sách precache của `sw.js` phải khớp chính xác các tệp release trong `scripts/build_site.py`, cộng route `./`, không có URL tuyệt đối hoặc mục trùng.
 2. Build cùng input phải tạo cùng cache ID; thay đổi một release asset phải đổi cache ID; `dist/` chỉ chứa allowlist release và marker của builder.
@@ -19,7 +19,7 @@ python scripts/build_site.py
 4. Workflow Pages phải chạy unit tests trước build, chuyển đúng artifact `dist` sang deploy job và dùng Pages deployment action.
 5. Máy chủ local phải trả MIME phù hợp cho JavaScript module, Web App Manifest và SVG.
 
-Các thử nghiệm bổ sung chặn đường dẫn ra ngoài workspace/symlink, nguồn avr8js hoặc giấy phép sai provenance/checksum, sai manifest/Sketch/HEX/flash và nguồn bài học không khớp, cùng việc thiếu những module AVR/solver và license trong release. Đóng gói không dựa vào giá trị hash tự công bố mà còn kiểm tra source, Sketch và Intel HEX thực. Allowlist v1.4 có **61 file cố định + marker**; source v1.5 dự kiến **70 file cố định + marker** gồm CSS/editor layout 3D, learning coach, Timer1 standalone và docs tương ứng. Builder bắt buộc parity chính xác với precache SW; không đóng gói thư mục development, tests, `sources/` hoặc Git histories.
+Các thử nghiệm bổ sung chặn đường dẫn ra ngoài workspace/symlink, nguồn avr8js hoặc giấy phép sai provenance/checksum, sai manifest/Sketch/HEX/flash và nguồn bài học không khớp, cùng việc thiếu những module AVR/solver và license trong release. Đóng gói không dựa vào giá trị hash tự công bố mà còn kiểm tra source, Sketch và Intel HEX thực. Allowlist v1.4 có **61 file cố định + marker**; v1.5 đã phát hành **70 file cố định + marker**. Ứng viên v1.6 bổ sung inspector, schematic/minimap, mô hình breadboard, Timer2, DC network standalone và tài liệu theo allowlist phiên bản mới. Builder bắt buộc parity chính xác với precache SW; không đóng gói thư mục development, tests, `sources/` hoặc Git histories.
 
 Kết quả cũ v1.2: `test_release.py` **5/5** và toàn suite ban đầu **22/22** là bằng chứng lịch sử. Kết quả ứng viên v1.3 ngày 28/10/2026: `test_release.py` **11/11**; toàn bộ `python -m unittest discover -s tests -q` **68/68 PASS**, `python scripts/build_site.py` PASS; 16 HEX trong `dist/assets/firmware/` cũng được xác minh trực tiếp với `export_firmware.py`. Bản CI ứng viên đầu đã phát hiện checkout Git đổi byte `CRLF` sang `LF`; `.gitattributes` mới đánh dấu `assets/firmware/*.hex binary`, có regression và đối chiếu byte trong Git index. **GitHub push check trên commit `b313b530` đã PASS** sau sửa lỗi này (run `40652449937`). Test content-addressed build dùng fixture trong thư mục tạm; bản build thật chỉ thay `dist/` có marker được cho phép.
 
@@ -30,6 +30,21 @@ Bộ Chrome E2E trong `tests/e2e_browser.py` đã kiểm tra bản `dist/` đư�
 Đợt P1 29/10/2026: tách mạch mẫu tham khảo khỏi bản tự đấu, đồng bộ chọn/bỏ chọn linh kiện với HTML, đặt ngưỡng tap/drag phù hợp cảm ứng, giới hạn A0 0..5000 mV theo VREF mặc định và neo SHA vendor avr8js độc lập với manifest. Lượt local đầu của đợt này đạt Python **80/80**, Chromium **219/219**; sau đó đổi badge bản ứng viên thành 1.5 và nâng kiểm thử lên **220/220**. Kiểm toán tiếp phát hiện các tình huống thao tác 2D bị hủy hoặc pointerId chéo, cũng như kích hoạt mạch tự đấu sau khi topology đổi. Bản cập nhật source cùng E2E mới nhất đạt **230/230 Chromium PASS** (0 console error, 0 unexpected warning) và 16 HEX **PASS**; giữ nguyên gate cũ chặn restart mạch sai. Bộ hợp đồng scene 3D có 41 phép thử; negative case sửa đồng thời vendor JS + PROVENANCE.json vẫn bị chặn. Quy trình Pages artifact nay giữ marker bằng `include-hidden-files: true`; backup phải kiểm chứng trên SHA cuối cùng và không đưa upstream snapshots vào source ZIP.
 
 **Các số trên là bằng chứng local trước commit ứng viên**; chưa thay thế Python gate cuối, compiler/Chromium GitHub Actions và release gate trên cùng SHA. Tất cả thay đổi sau checkpoint, kể cả file tài liệu nằm trong allowlist, cần build/test lại trước khi chốt SHA và phát hành.
+
+## Đợt v1.6 · tiêu chí kiểm chứng trước công bố
+
+**Baseline phát hành không đổi:** tag v1.5.0 và SHA `7828efaa267007f189b0d2f891fff1d323637940`. Compiler 16/16, Chromium 230/230 trên GitHub, Pages run `40771559128`, HTTPS 70/70 byte parity và backup v1.5 đã có bằng chứng, không cần chạy lại nếu byte nguồn không đổi. Source v1.6 đang được tích hợp **khác SHA** và chưa được nhận là bản đã phát hành.
+
+Các gate mới cần chạy thật khi code ổn định:
+
+- Scene quality/LOD/focus: giữ nguyên scene 25 + lab 41 và hợp đồng v1.6 riêng; WebGL context lost/restored, disposal, camera-only focus, desktop/mobile reduced-detail, nhãn không map lỗ/chân vật lý.
+- Lab Explorer: inspector/schematic/minimap phải đọc **cùng** learner netlist từ `circuit-router`; reference overlay mặc định tắt, chỉ hiện rõ nguồn tham khảo, không gỡ/đánh dấu đúng nhầm mạch mẫu. Selection/terminal/focus giữa canvas, SVG và HTML đồng bộ; chỉ focus camera không chuyển thành edit/move.
+- Breadboard topology: default five-hole strips và E/F gap; generic rails unknown, BB830 rails theo profile; không map cảm tính chân 3D vào hole. Browser UI kiểm tra known/unknown/invalid holes, không thay circuit state.
+- AVR Timer2: chỉ Normal WGM0 standalone, CPU clock/prescaler, flags/interrupt và negative WGM1 của **HEX thật**; không attach mặc định hoặc claim PWM/Servo/tone parity.
+- DC resistor network: network nguồn/nút/điện trở lý tưởng khai báo tường minh, negative floating/short/nonlinear/giới hạn; giao diện divider không đọc dây 3D và không hiển thị số đo thật.
+- 16 lesson navigation, HTML keyboard/ARIA focus, mobile375 no overflow, touch gestures, PWA offline imports đầy đủ CSS/ESM mới và firmware SHA checks. Giữ nguyên toàn bộ **230** Chromium gates v1.5, chỉ thêm regression, không gỡ hoặc giảm assertions.
+
+Chỉ khi unit, package/precache, browser/WebGL/offline và negative cases **PASS trên cùng commit SHA cuối**, workflow compiler + Chromium của GitHub và release preflight cũng PASS trên SHA đó, mới được tag/backup/mở Pages workflow thủ công. Nếu có P0/P1 hoặc chứng cứ chưa đầy đủ, giữ production v1.5.
 
 ## Hợp đồng triển khai GitHub Pages
 

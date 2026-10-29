@@ -2,7 +2,7 @@
 
 **Phòng thực hành Arduino Uno R3 bằng tiếng Việt**, với 16 bài học, mô hình 3D, sơ đồ chân, điều khiển tương tác, mã Arduino tham khảo và câu hỏi kiểm tra.
 
-> **Mốc phát hành đã xác minh:** v1.4.0 từng được triển khai lên GitHub Pages tại https://xuan2261.github.io/Arduino3DVietnam/ từ commit `8992c32d270bc9858d9d601dc48b1ae98ec5173b` (Arduino C++ 16/16, Chromium 167/167, release gate và Pages cùng SHA PASS). **Ứng viên v1.5.0** mở rộng bàn bố trí/nối dây 3D, hướng dẫn từng bước và mô hình Timer1 tách biệt; **chỉ coi v1.5 là website công khai sau khi CI cùng SHA và Pages đạt, đối chiếu đúng badge 1.5 trên HTTPS**. Các mốc v1.3.0/v1.4.0 và sao lưu vẫn được giữ. **Chưa mô phỏng đầy đủ Uno, biên dịch Sketch sửa trong browser hay xác minh an toàn mạch thực.**
+> **Phiên bản công khai đã xác minh: v1.5.0** tại https://xuan2261.github.io/Arduino3DVietnam/, commit `7828efaa267007f189b0d2f891fff1d323637940`, compiler 16/16, Chromium 230/230, release gate và Pages trên cùng SHA PASS ([run Pages 40771559128](https://github.com/xuan2261/Arduino3DVietnam/actions/runs/40771559128)), HTTPS 70/70 tệp khớp artifact CI, live smoke 18/18. **Source v1.6.0 đang phát triển** inspector/schematic/minimap, breadboard topology theo profile, nâng cấp Three.js và Timer2 Normal standalone; những thay đổi này **chưa mặc nhiên có trên website** trước khi CI/Pages cùng SHA mới đạt. Các mốc v1.3/v1.4/v1.5 và backup giữ nguyên. **Đây chưa phải mô phỏng đầy đủ Uno, compiler cho Sketch tự chỉnh hoặc kiểm chứng phần cứng thực.**
 
 **Mở website:** [Arduino 3D Việt Nam](https://xuan2261.github.io/Arduino3DVietnam/) · **Mã nguồn:** [GitHub Public](https://github.com/xuan2261/Arduino3DVietnam/). Chế độ ngoại vi AVR là tùy chọn, mặc định tắt; không thay kết quả 3D và Serial Monitor của phần mô phỏng bài học.
 
@@ -30,20 +30,23 @@ Không nhấp mở trực tiếp `index.html` với `file://` vì ES Modules th�
 | 16 bài tiếng Việt | Có, gồm mục tiêu, lý thuyết, linh kiện, sơ đồ chân, bài tập, câu hỏi |
 | Mô hình Arduino Uno | Có, dựng bằng Three.js; lớp dây 3D phản ánh netlist đang hiển thị với nhãn **kết nối khái niệm**, không giả vị trí lỗ breadboard vật lý |
 | Mô-đun LED, button, RGB, LDR, sonar, buzzer, motor, servo, cây... | Có, biểu diễn 3D mang tính minh họa |
-| Bàn bố trí 3D tương tác (source v1.5) | Chọn/đặt/di chuyển/xoay các nhóm linh kiện theo lưới và nhấp chân để nối trên **cùng netlist của bàn 2D**; có điều khiển HTML/bàn phím/touch. Tọa độ, terminal và dây là **khái niệm**, không đại diện kích thước mm hoặc lỗ breadboard thực |
+| Bàn bố trí 3D tương tác (đã công bố v1.5; đang nâng cấp v1.6) | Chọn/đặt/di chuyển/xoay các nhóm linh kiện theo lưới và nhấp chân để nối trên **cùng netlist của bàn 2D**; HTML/bàn phím/touch tương đương. Tọa độ, terminal và dây là **khái niệm**, không đại diện kích thước mm hay vị trí lỗ breadboard thực |
+| Lab Explorer inspector/schematic/minimap (source v1.6) | Inspector dùng terminal/thuộc tính canonical; schematic SVG và danh sách HTML là projection **bản tự đấu** từ `circuit-router`; overlay mạch mẫu chỉ bật rõ ràng và read-only. Minimap chỉ dùng tọa độ layout logic, đồng bộ chọn/focus camera. Không có solver hay điện áp/dòng mới được suy từ hình vẽ |
+| Bảng học nhóm lỗ breadboard (source v1.6) | Có profile dải 5 lỗ A–E/F–J chia bởi khe giữa, profile BB830 với bốn rail độc lập và chế độ generic không khẳng định rail chưa chứng minh; **không** tự ánh xạ chân linh kiện trên 3D thành lỗ breadboard đã cắm |
+| Mạng điện trở DC tuyến tính (source v1.6) | Bộ giải nút Gaussian có giới hạn cho điện trở, nguồn nút lý tưởng/ground được nhập tường minh, từ chối floating/short/phi tuyến/sai miền số. Giao diện riêng minh họa mạch chia áp R1–R2 0–5 V; **không** tự đọc netlist 16 bài hoặc coi kết quả là số đo |
 | Điều khiển bằng trượt, công tắc, phím đàn, nhấn giữ | Có |
 | Tự nối dây và kiểm tra topology | **15/16 bài**, từ 02 đến 16; bài 01 dùng LED L sẵn trên bo. Trong đó **bài 10 (motor) và 14 (bơm) chỉ có sơ đồ tín hiệu tham khảo**, không cho kích hoạt mạch tự đấu vì chưa mô hình nguồn/tải; 13 bài còn lại có thể thử mạch trong mô phỏng JS khi topology hợp lệ. Không phải xác nhận hoàn chỉnh hoặc an toàn mạch vật lý |
 | Tính dòng LED | **Bài 02, 03, 05**: tính dòng dựa trên topology đã xác minh, nguồn HIGH 5 V lý tưởng, Vf và điện trở giả định; không phải số đo, SPICE hay chứng nhận an toàn |
 | Serial Monitor của mô phỏng bài học | Giá trị I/O minh họa từ mô phỏng JavaScript, **không phải byte USART từ firmware** |
 | Arduino Sketch | Có trình xem/sửa mã, tải tệp .ino, khôi phục mẫu; **mã sửa không được chạy trong mô phỏng** |
 | Kiểm tra kiến thức | Mỗi bài có câu hỏi và giải thích đáp án |
-| Học từng bước (source v1.5) | Bước nhỏ/checkpoint/gợi ý dựa trên dữ liệu 16 bài và cảnh báo netlist, không tự ghi tiến độ hoàn thành hoặc suy diễn kết quả cảm biến |
+| Học từng bước (v1.5, tăng phản hồi v1.6) | Bước nhỏ/checkpoint/gợi ý dựa trên dữ liệu 16 bài và vấn đề topology thực của **mạch học viên**, nhãn nguồn gốc rõ ràng, không tự đánh dấu hoàn thành hoặc suy diễn kết quả cảm biến |
 | Tiến độ | LocalStorage có kiểm tra dữ liệu, xuất/nhập JSON |
 | Dự phòng không có WebGL | Có bảng thông tin và chế độ sơ đồ |
 | Offline | Chạy cục bộ không cần Internet; Service Worker trong bản phát hành đã được kiểm thử reload khi mạng tắt trên localhost |
 | Arduino C++ compiler | GitHub Actions kiểm chứng **16/16** Sketch với toolchain thật. Máy Windows vẫn không có CLI, có thể chạy workflow GitHub thủ công hoặc cài môi trường hợp lệ riêng |
 | Firmware AVR mẫu | **16/16 tệp Intel HEX thực** từ workflow GitHub `40648560140` (source SHA `8a3b672…`), có manifest SHA-256, flash hash và verifier ngoại tuyến |
-| Thực thi firmware trong browser | Mặc định **CPU AVR8 opcode-only** từ avr8js 0.21.1. Chế độ thử nghiệm **bật riêng** hỗ trợ GPIO D0–D13/A0–A5 ở mức thanh ghi, Timer0 counter/overflow ở mode 0/3, ADC đầu vào cố định tự khai báo và USART0 TX 8-bit. Mô hình Timer1 v1.5 hiện chỉ **standalone Normal WGM0**; không được gắn vào Arduino-core HEX mặc định vì firmware dùng mode ngoài phạm vi. Chưa có đầy đủ PWM/Timer2/USART RX, `delay/millis/micros` parity, đầu ra phần cứng hoặc 3D do CPU điều khiển |
+| Thực thi firmware trong browser | Mặc định **CPU AVR8 opcode-only** từ avr8js 0.21.1. Ngoại vi tùy chọn có GPIO D0–D13/A0–A5 theo thanh ghi, Timer0 counter/overflow mode 0/3, ADC giá trị cố định nhập tay và USART0 TX 8-bit. Timer1 v1.5 và **Timer2 v1.6 (source)** chỉ là mô hình **standalone Normal WGM0**, không gắn vào Arduino-core HEX mặc định vì firmware dùng mode khác. Chưa có PWM đầy đủ, USART RX, `delay/millis/micros` parity hoặc điều khiển LED 3D bằng CPU |
 | Bằng chứng phần cứng | Có validator JSON ngoại tuyến để phát hiện dữ liệu đo thiếu/sai định dạng; **chưa có phép đo trên bo thật** |
 | Kết nối, nạp chương trình vào Arduino vật lý | Chưa có |
 | Thiết kế mạch điện tổng quát / SPICE | Chưa có. 15 bài kiểm tra *topology* giới hạn; chỉ 3 bài LED có phép tính lý tưởng, chưa xác minh nguồn, công suất, driver, motor và phần cứng vật lý |
@@ -64,12 +67,16 @@ Kiến trúc tách riêng:
 - `src/electrical-solver.js`: phép tính dòng LED có giới hạn cho bài 02/03/05 khi mạch đúng topology.
 - `src/scene3d.js`: hình học, lớp dây khái niệm từ netlist, camera và vòng đời Three.js.
 - `src/lab-layout.js`, `src/lab-editor-ui.js`: source v1.5, bố trí logic tách khỏi dữ liệu điện, chọn/kéo/xoay đối tượng 3D và cập nhật cùng `circuit-router` bằng lệnh xác thực.
+- `src/lab-explorer.js`, `src/lab-explorer-ui.js`: source v1.6, inspector/schematic/minimap đọc cùng dữ liệu mạch, phản hồi issue, HTML/keyboard tương đương; **không** là bộ tạo graph hoặc khẳng định connectivity vật lý.
+- `src/breadboard-topology.js`, `src/breadboard-topology-ui.js`: source v1.6, mô hình nhóm lỗ/rail theo profile có giới hạn, độc lập khỏi mạch đang lắp trong 3D.
+- `src/dc-resistor-network.js`, `src/resistive-study-ui.js`: source v1.6, mô hình nút DC điện trở tuyến tính với nguồn và giá trị khai báo rõ, giao diện bộ chia áp độc lập và nhãn không phải đo thực.
 - `src/learning-coach.js`: luồng học từng bước/gợi ý sinh từ dữ liệu lesson và phân tích topology, không có backend/dữ liệu đo.
 - `src/firmware-integrity.js`: đọc HEX cùng nguồn/manifest từ đúng origin, so SHA-256 và từ chối bản lệch.
 - `src/avr-runtime.js`: CPU AVR thật từ avr8js được pin/provenance, nhận HEX đã biên dịch, **chưa có mô phỏng ngoại vi**.
 - `src/avr-gpio.js`, `src/avr-timer0.js`, `src/avr-analog-serial.js`: các bộ hook thanh ghi AVR có giới hạn, giá trị input giả định do người học đặt, đồng hồ theo chu kỳ CPU, loại trừ chế độ chưa hỗ trợ.
 - `src/avr-board-runner.js`: nối lõi opcode với GPIO/Timer0/ADC/USART TX cho **firmware HEX đã kiểm chứng**; đây không phải máy mô phỏng Uno toàn phần.
 - `src/avr-timer1.js`: mô hình timer 16-bit WGM0/overflow riêng cho nghiên cứu; **không tích hợp** vào `avr-board-runner.js` khi Arduino core còn khởi tạo chế độ khác.
+- `src/avr-timer2.js`: source v1.6 Timer2 8-bit WGM0/overflow và prescaler riêng, **không** chạy cùng firmware Arduino stock.
 - `src/avr-panel.js`: giao diện riêng để nạp firmware mẫu, chạy **một opcode** hoặc đợt 25.000 chu kỳ, xem thanh ghi thô và khởi tạo CPU mới; thử nghiệm ngoại vi chỉ bật sau khi tự chọn, không dùng kết quả mô phỏng JS.
 - `src/storage.js`: định dạng, kiểm tra và xuất/nhập tiến độ.
 - `src/app.js`: giao diện, thao tác và kết nối các module.

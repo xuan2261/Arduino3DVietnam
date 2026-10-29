@@ -1,4 +1,4 @@
-# Lộ trình nâng cấp — v1.4.0 công khai, mã v1.5.0 và các giai đoạn tiếp theo
+# Lộ trình nâng cấp — v1.5.0 công khai, ứng viên v1.6.0 và các giai đoạn tiếp theo
 
 Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm thử. Phần chưa có bằng chứng không được đánh dấu hoàn tất chỉ vì giao diện có nút cùng tên.
 
@@ -17,9 +17,14 @@ Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm th�
 | Đã triển khai ứng viên v1.3 | Kiểm tra evidence phần cứng offline | JSON schema/provenance/EXPECTED/OBSERVED reviewer; không tự thu thập hay xác thực nguồn gốc phép đo |
 | Đã triển khai trong mã v1.4; bằng chứng CI/Pages theo SHA riêng | Ngoại vi AVR tùy chọn có giới hạn | GPIO theo thanh ghi D13, Timer0 counter/overflow WGM0/3, ADC điện áp cố định nhập tay và USART0 TX; không suy đầu ra 3D, mạch điện hay phần cứng thật từ trạng thái CPU |
 | Đã triển khai trong mã v1.4; bằng chứng CI/Pages theo SHA riêng | Trợ năng desktop/mobile | ARIA tab/tabpanel, roving keyboard, tên dialog, sửa độ tương phản và hợp đồng Chrome; không thay thế screen-reader/AT và kiểm chứng thiết bị thật |
-| Source v1.5 đang nghiệm thu | Bố trí 3D và cùng netlist 2D | Linh kiện theo layout logic, chọn/kéo/đặt/xoay, nối terminal 3D với circuit-router, phản hồi topology và negative E2E; **không** mô phỏng lỗ breadboard vật lý |
-| Source v1.5 đang nghiệm thu | Hướng dẫn 16 bài theo từng bước | Checkpoint/hint từ lesson data + wiring issues, không giả số đo hoặc tự đánh dấu hoàn thành |
-| Source v1.5 standalone | Timer1 WGM0 Normal giới hạn | Test TCNT1/overflow/internal prescaler/interrupt, **không** gắn vào Arduino-core firmware stock vì khởi tạo WGM1 không được hỗ trợ |
+| Đã công bố v1.5, QA cùng SHA | Bố trí 3D và cùng netlist 2D | Linh kiện theo layout logic, chọn/kéo/đặt/xoay, nối terminal 3D với circuit-router, phản hồi topology và negative E2E; **không** mô phỏng lỗ breadboard vật lý |
+| Đã công bố v1.5 | Hướng dẫn 16 bài theo từng bước | Checkpoint/hint từ lesson data + wiring issues, không giả số đo hoặc tự đánh dấu hoàn thành |
+| Đã có standalone v1.5 | Timer1 WGM0 Normal giới hạn | Test TCNT1/overflow/internal prescaler/interrupt, **không** gắn vào Arduino-core firmware stock vì khởi tạo WGM1 không được hỗ trợ |
+| Source v1.6 đang kiểm thử | Lab Explorer và thao tác chung 3D/2D | Inspector terminal/issue metadata, schematic đọc từ learner netlist + reference overlay có nhãn read-only, minimap/focus camera logic, đồng bộ lựa chọn và điều khiển HTML/keyboard; không tạo authority mạch thứ hai |
+| Source v1.6 đang kiểm thử | Hình học Uno/breadboard và mobile LOD | Nâng hình học, nhãn nhóm pin, nhận biết linh kiện, tài nguyên Three.js dùng lại, LOD nhỏ/phục hồi WebGL; mọi hole-like mesh vẫn conceptual |
+| Source v1.6 đang kiểm thử | Breadboard profiled topology | Dải 5 lỗ, khe cách điện, rail BB830 riêng; mặc định unknown rail; **không** khẳng định chân linh kiện đã được map vào lỗ từ scene |
+| Source v1.6 standalone | Timer2 WGM0 Normal | TCNT2/prescaler/overflow/interrupt, browser contract + real HEX fails closed khi Arduino core chuyển WGM1; không gắn runner mặc định/PWM/Servo parity |
+| Source v1.6 độc lập | Solver DC điện trở tuyến tính với nguồn/nút khai báo rõ | Kiểm tra floating/singular/node caps/giới hạn dòng-công suất cấu hình, đơn vị V/Ω/mA/mW; giao diện chia áp 2 điện trở; không nối mô phỏng 16 bài/không nhận là số đo |
 | P1 | Nâng solver điện tới đúng phạm vi phần cứng cụ thể | Thử nghiệm R/Vf thực, dòng/áp/công suất/nguồn/driver và xác minh với thiết bị tham chiếu; không dùng rating tối đa như mức vận hành an toàn |
 | P1 | Kiểm chứng toàn bộ Sketch và mạch với phần cứng tham chiếu | Test trên bo vật lý có môi trường an toàn, đối chiếu mã mẫu và mạch chuẩn |
 | P1 | Mở rộng ngoại vi theo parity có bằng chứng | Hoàn thiện Timer1/2, output compare/PWM, USART RX, interrupt và parity `delay/millis/micros`; chỉ nối scene/đầu ra khi kết quả từ firmware thật và từng phần có negative/regression tests |
@@ -33,4 +38,6 @@ Chỉ ghi nhận hoàn thành những phần đã có mã nguồn và kiểm th�
 
 **Cổng v1.3 đã nghiệm thu:** Python/Chrome/offline và provenance artifact HEX, compile/E2E trên commit cuối `cc95d818…`; đã tạo tag và Draft release, Pages triển khai công khai qua workflow thủ công. **Không đăng công khai bản ZIP snapshot upstream từ Draft release** khi chưa tuyển chọn metadata/Git history và xác minh quyền phân phối.
 
-**Bước ưu tiên sau v1.5:** kiểm chứng tọa độ chân/breadboard vật lý bằng connectivity map và datasheet trước khi công bố; thực hiện các bài thực hành 3D có nguồn/tải motor-bơm riêng; mở rộng Timer1 WGM1/PWM và USART RX chỉ khi có real-HEX parity tests; kiểm thử screen reader/zoom 200% và phần cứng qua dữ liệu đo độc lập. Không gọi 15 topology hiện có là SPICE/solver mạch tùy ý.
+**Mốc v1.5 công khai đã xác minh:** SHA `7828efaa267007f189b0d2f891fff1d323637940`, compiler 16/16, GitHub Chromium 230/230, Pages run `40771559128` (check/gate/package/deploy PASS), HTTPS 70/70 SHA byte parity, backup `releases/v1.5.0-20261029`. Mốc này giữ nguyên trong khi source v1.6 đang kiểm thử, không tự động coi v1.6 đã deploy.
+
+**Bước ưu tiên sau v1.6:** xác minh vị trí chân và lỗ breadboard vật lý bằng datasheet/configured board-specific placement và bằng chứng phần cứng trước khi gọi là true breadboard mapping; thực hiện bài thực hành có nguồn/tải motor-bơm riêng; mở rộng Timer1/2 WGM/PWM và USART RX chỉ khi có real-HEX parity tests; kiểm thử screen reader/zoom 200% và hardware evidence bằng phép đo độc lập. Không gọi 15 topology hiện có là SPICE hay bộ giải mạch bất kỳ.

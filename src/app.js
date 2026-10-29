@@ -1,12 +1,15 @@
 import { lessons, lessonById, defaultControls, validateLessons, NOTES } from "./lessons.js";
 import { simulate, advanceToggleState } from "./simulator.js";
 import { readProgress, saveProgress, normalizeProgress, exportProgress } from "./storage.js";
-import { createCircuit, createSampleCircuit, analyzeCircuit, listTerminals } from "./circuit-router.js";
+import { createCircuit, createSampleCircuit, disconnectCircuit, analyzeCircuit, listTerminals } from "./circuit-router.js";
 import { mountWiringWorkbench, supportedWiringLessons } from "./wiring-workbench.js";
 import { analyzeElectrical, SUPPORTED_ELECTRICAL_LESSONS } from "./electrical-solver.js";
 import { mountAvrPanel } from "./avr-panel.js";
 import { mountLabEditor } from "./lab-editor-ui.js";
+import { mountLabExplorer } from "./lab-explorer-ui.js";
 import { getLessonGuidance } from "./learning-coach.js";
+import { mountBreadboardStudy } from "./breadboard-topology-ui.js";
+import { mountResistiveStudy } from "./resistive-study-ui.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -28,7 +31,10 @@ const state = {
   codeDrafts: new Map(), editingCode: false,
   circuitModels: new Map(), activeCircuits: new Set(),
   invalidatedCircuitLessons: new Set(), wiringUI: null,
-  avrPanel: null, labEditorUI: null, avrEvidence: null,
+  avrPanel: null, labEditorUI: null, labExplorerUI: null,
+  // Read-only terminal inspection is UI state, NOT a pending wiring gesture.
+  inspectedTerminalId: null,
+  breadboardUI: null, resistiveUI: null, avrEvidence: null,
   learningSteps: new Map(), learningHints: new Set()
 };
 
@@ -44,6 +50,115 @@ function displayedCircuit(lessonId = state.lessonId) {
   // Legacy lesson/reference displays retain the sample before a draft exists.
   // NEVER feed this fallback to learner progress or editable wire operations.
   return state.circuitModels.get(lessonId) ?? createSampleCircuit(lessonId);
+}
+function explorerSnapshot() {
+  const lessonId=state.lessonId;
+  const supported=supportedWiringLessons().includes(lessonId);
+  const lab=state.labEditorUI?.snapshot();
+  const circuit=supported?learnerCircuit(lessonId):null;
+  // Reference topology is immutable teaching data even AFTER learner edits.
+  // Do not reuse displayedCircuit(), which legitimately prefers the draft.
+  const referenceCircuit=supported?createSampleCircuit(lessonId):null;
+  const hasLearnerDraft=state.circuitModels.has(lessonId);
+  return Object.freeze({
+    lessonId,lesson:currentLesson(),stage:state.stageTab,
+    editing:lab?.editing===true,selectedComponentId:lab?.selectedId??null,
+    selectedTerminalId:lab?.editing===true
+      ? (lab?.firstTerminal??null) : state.inspectedTerminalId,
+    layout:lab?.layout??null,
+    circuit,referenceCircuit,
+    hasLearnerDraft,
+    analysis:supported?analyzeCircuit(lessonId,circuit):null,
+    referenceAnalysis:supported?analyzeCircuit(lessonId,referenceCircuit):null,
+    source:hasLearnerDraft?"learner-draft":"learner-empty",
+    evidence:Object.freeze({
+      origin:hasLearnerDraft?"learner-draft":"learner-empty",
+      reference:"reference-sample",verifiedFirmware:false,
+      physicalVerified:false,measuredCurrent:false,measuredVoltage:false,
+    }),
+    sceneView:state.scene?.getLabViewState?.()??null,
+    claims:Object.freeze({
+      electricalAuthority:"circuit-router",physicalVerified:false,
+      breadboardHoleMapping:false,measuredVoltage:false,measuredCurrent:false
+    }),
+  });
+}
+function refreshLabExplorer(){
+  state.labExplorerUI?.update?.();
+  state.breadboardUI?.update?.();
+}
+function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,model)) {
+  if(lessonId!==state.lessonId || !supportedWiringLessons().includes(lessonId)){
+    throw new RangeError("Chỉ thay đổi netlist của bài học đang mở có hỗ trợ đấu dây.");
+  }
+  if(!model || model.lessonId!==lessonId || !Array.isArray(model.wires)){
+    throw new TypeError("Netlist cần được tạo từ circuit-router của bài hiện tại.");
+  }
+  state.circuitModels.set(lessonId,model);
+  // Canonical mutations from 2D/schematic must not leave a half-completed
+  // two-terminal gesture armed in the separate Three.js editor.
+  state.labEditorUI?.clearTerminalSelection?.();
+  if(state.activeCircuits.has(lessonId)&&(!analysis.ok||!analysis.functional)){
+    state.activeCircuits.delete(lessonId);
+    state.invalidatedCircuitLessons.add(lessonId);
+    if(state.running)stopClock();
+    log("Đã thu hồi kích hoạt mạch tự đấu: topology không còn đạt yêu cầu; cần kích hoạt lại sau khi sửa.");
+  }
+  if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lessonId);
+  refreshCircuitViews();
+  updateSnapshot(true);
+  return analysis;
+}
+function explorerSelectComponent(id) {
+  if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
+  // Inspector selection never switches stage or enables editing.
+  state.inspectedTerminalId=null;
+  state.labEditorUI.selectComponent(id);
+  refreshLabExplorer();
+  return true;
+}
+function explorerSelectTerminal(id) {
+  if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
+  const terminal=listTerminals(state.lessonId).find(item=>item.id===id);
+  if(!terminal)return false;
+  if(state.labEditorUI.snapshot().editing){
+    // Two-terminal wiring is possible ONLY after explicit edit opt-in.
+    state.inspectedTerminalId=null;
+    state.labEditorUI.selectTerminal(id);
+  }else{
+    // Pure inspection: don't arm firstTerminal, create a wire or open editor.
+    state.inspectedTerminalId=id;
+    state.labEditorUI.selectComponent(terminal.component);
+  }
+  refreshLabExplorer();
+  return true;
+}
+function explorerConnect(from,to) {
+  if(!supportedWiringLessons().includes(state.lessonId))
+    throw new RangeError("Bài này không có netlist đấu dây ngoài.");
+  if(!state.labEditorUI?.snapshot?.().editing)
+    throw new RangeError("Cần bật chỉnh sửa mạch trước khi nối.");
+  // The same 3D controller owns pending terminal gestures; using its command
+  // prevents stale 'firstTerminal' after a schematic dropdown connection.
+  state.labEditorUI.connectTerminals(from,to);
+  refreshLabExplorer();
+  return true;
+}
+function explorerDisconnect(wireId) {
+  const circuit=learnerCircuit();
+  if(!circuit)throw new RangeError("Bài này không có netlist đấu dây ngoài.");
+  const next=disconnectCircuit(circuit,wireId);
+  applyCanonicalCircuit(state.lessonId,next);
+  return true;
+}
+function explorerFocus(id) {
+  // Focus is deliberately camera-only; no implicit edit-mode switch, no
+  // component selection and no electrical/layout mutation.
+  if(!state.scene?.focusLabComponent || !state.labEditorUI?.isEditingIn3D?.())
+    return false;
+  const view=state.scene?.focusLabComponent?.(id);
+  refreshLabExplorer();
+  return view??false;
 }
 function refresh3DWiring() {
   if (!state.scene?.setWiring) return;
@@ -92,7 +207,12 @@ function refreshCircuitViews() {
   renderElectricalPanel();
   refresh3DWiring();
   state.labEditorUI?.update();
+  const canonical=state.circuitModels.get(state.lessonId);
+  if(canonical && state.wiringUI?.getCircuit?.()!==canonical){
+    state.wiringUI?.setCircuit?.(canonical,{active:state.activeCircuits.has(state.lessonId)});
+  }
   if (state.infoTab === "practice") renderInfo();
+  refreshLabExplorer();
 }
 function updateCounter() {
   const count=state.progress.completed.length;
@@ -174,11 +294,26 @@ function renderInfo() {
       hint.hidden=!state.learningHints.has(`${lesson.id}:${current}`);
       wrapper.append(hint);
       if(guidance.wiring){
+        wrapper.dataset.coachTopology=guidance.wiring.status;
+        const feedbackKind=guidance.wiring.status==="topology-complete"?"Đã đạt yêu cầu kết nối trong mô hình":
+          guidance.wiring.status==="signal-only-complete"?"Chỉ đủ dây tín hiệu, chưa có mô hình tải/nguồn":
+          guidance.wiring.status==="unsafe"?"Cần sửa dây có vấn đề":
+          "Đang thực hành · còn bước nối cần hoàn thiện";
         wrapper.append(el("p","coach-circuit-source",hasLearnerDraft
           ? "Nguồn kiểm tra: bản đấu dây đang chỉnh sửa (có thể đã nạp mạch mẫu)."
           : "Nguồn kiểm tra: bản tự đấu chưa có dây. Mạch mẫu chỉ để tham khảo."),
+          el("p","coach-topology-feedback",feedbackKind),
           el("p","coach-wiring","Bản tự đấu hiện tại: "+guidance.wiring.summary),
           el("p","",guidance.wiring.nextAction));
+        if(guidance.wiring.issues?.length){
+          const issueList=el("ul","coach-issues");
+          for(const issue of guidance.wiring.issues.slice(0,3)){
+            const item=el("li","",issue.message);
+            if(issue.feedback)item.append(el("span","coach-issue-advice"," Cách đối chiếu: "+issue.feedback));
+            issueList.append(item);
+          }
+          wrapper.append(issueList);
+        }
       }else wrapper.append(el("p","","Bài 01 dùng đèn L tích hợp, không yêu cầu dây ngoài."));
       const actions=el("div","coach-actions");
       const previous=el("button","","← Bước trước");
@@ -225,18 +360,7 @@ function renderStage() {
         initial:state.circuitModels.get(lesson.id)??createCircuit(lesson.id),
         active:state.activeCircuits.has(lesson.id),
         onChange(model,analysis){
-          state.circuitModels.set(lesson.id,model);
-          if(state.activeCircuits.has(lesson.id)&&(!analysis.ok||!analysis.functional)){
-            state.activeCircuits.delete(lesson.id);
-            state.invalidatedCircuitLessons.add(lesson.id);
-            if(state.running) {
-              stopClock();
-            }
-            log("Đã thu hồi kích hoạt mạch tự đấu vì netlist không hợp lệ; cần kích hoạt lại sau khi sửa.");
-          }
-          if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lesson.id);
-          refreshCircuitViews();
-          updateSnapshot(true);
+          applyCanonicalCircuit(lesson.id,model,analysis);
         },
         onActivate(model,analysis){
           state.circuitModels.set(lesson.id,model);
@@ -274,6 +398,7 @@ function renderStage() {
     viewport.append(panel);
   }else state.scene?.resize();
   refresh3DWiring();
+  refreshLabExplorer();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -473,6 +598,7 @@ function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
   stopClock();
+  state.inspectedTerminalId=null;
   state.lessonId=lesson.id;state.elapsedMs=0;state.lastLogTime=0;state.controls=defaultControls(lesson);
   state.memory={};state.serial=[];state.previousSignature="";state.infoTab="overview";state.stageTab="3d";
   // Clear previous-lesson 3D wiring before workbench callbacks can update it.
@@ -665,7 +791,14 @@ function wireEvents(){
   $("runButton").addEventListener("click",startPause);
   $("resetButton").addEventListener("click",resetSimulation);
   $("cameraToolbar").addEventListener("click",event=>{
-    const b=event.target.closest("[data-camera]");if(b)state.scene?.control(b.dataset.camera);
+    const b=event.target.closest("[data-camera]");
+    if(b){state.scene?.control(b.dataset.camera);refreshLabExplorer();}
+  });
+  $("sceneMount").addEventListener("keyup",event=>{
+    // Scene handles Home/Escape on keydown; refresh the focus/selection
+    // projection after that event rather than showing stale minimap state.
+    if(event.target.matches?.("canvas")&&["Home","Escape"].includes(event.key))
+      refreshLabExplorer();
   });
   $("clearSerial").addEventListener("click",()=>{state.serial=[];$("serialConsole").replaceChildren(el("p","","Đã xóa nhật ký."));});
   $("editCode").addEventListener("click",toggleCodeEditor);
@@ -734,6 +867,9 @@ function wireEvents(){
   window.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("sidebar").classList.contains("is-open"))closeSidebar();});
   document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.running)startPause();});
   window.addEventListener("beforeunload",()=>{
+    state.labExplorerUI?.dispose();
+    state.breadboardUI?.dispose();
+    state.resistiveUI?.dispose();
     state.labEditorUI?.dispose();state.scene?.dispose();state.avrPanel?.dispose();
   });
 }
@@ -743,19 +879,24 @@ async function init(){
   syncSidebar(false,false);
   state.labEditorUI=mountLabEditor({
     getCircuit: lessonId => learnerCircuit(lessonId),
-    onEditModeChange: refresh3DWiring,
+    onEditModeChange(){state.inspectedTerminalId=null;refresh3DWiring();refreshLabExplorer();},
+    onSelectionChange:refreshLabExplorer,
+    onLayoutChange:refreshLabExplorer,
     onCircuitChange(lessonId,model,analysis){
-      state.circuitModels.set(lessonId,model);
-      if(state.activeCircuits.has(lessonId)&&(!analysis.ok||!analysis.functional)){
-        state.activeCircuits.delete(lessonId);
-        state.invalidatedCircuitLessons.add(lessonId);
-        if(state.running)stopClock();
-        log("Đã thu hồi kích hoạt mạch tự đấu: netlist 3D/2D không còn hợp lệ; cần kích hoạt lại sau khi sửa.");
-      }
-      if(analysis.ok&&analysis.functional)state.invalidatedCircuitLessons.delete(lessonId);
-      refreshCircuitViews();
-      updateSnapshot(true);
+      applyCanonicalCircuit(lessonId,model,analysis);
     },
+  });
+  state.breadboardUI=mountBreadboardStudy({
+    getLayout:()=>state.labEditorUI?.snapshot()?.layout??null,
+  });
+  state.resistiveUI=mountResistiveStudy();
+  state.labExplorerUI=mountLabExplorer($("labExplorer"),{
+    getSnapshot:explorerSnapshot,
+    onSelectComponent:explorerSelectComponent,
+    onSelectTerminal:explorerSelectTerminal,
+    onConnect:explorerConnect,
+    onDisconnect:explorerDisconnect,
+    onFocus:explorerFocus,
   });
   state.avrPanel=mountAvrPanel($("avrPanelMount"), {
     onEvidence(evidence){
@@ -797,10 +938,12 @@ async function init(){
     state.scene.setLesson(currentLesson());
     state.labEditorUI?.setScene(state.scene);
     refresh3DWiring();
+    refreshLabExplorer();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){
     state.labEditorUI?.setScene(null);
+    refreshLabExplorer();
     $("sceneMount").replaceChildren();
     const div=el("div","scene-fallback");
     div.innerHTML=`<div><strong>Không thể tải mô hình 3D</strong><p>${safe(error?.message||"Trình duyệt không hỗ trợ WebGL.")}</p><p>Bạn vẫn có thể sử dụng sơ đồ kết nối, bài học, điều khiển và bài kiểm tra.</p></div>`;

@@ -233,6 +233,9 @@ export async function runAccessibilityContracts() {
     ["#avrPeripheralState", "status", "polite"],
     ["#labStatus", "status", "polite"],
     ["#labAvrStatus", "status", null],
+    [".lab-explorer-status", "status", "polite"],
+    ["#bbResult", "status", "polite"],
+    ["#resistiveResult", "status", "polite"],
     ["#serialConsole", "log", "off"],
   ];
   const liveProblems = liveExpectations.flatMap(([selector, role, live]) => {
@@ -405,6 +408,171 @@ export async function runAccessibilityContracts() {
     }),
     "Learning coach cần accessible name/buttons và disclosure rằng tiến độ/hướng dẫn không đo hay xác nhận phần cứng.", "P1");
 
+  // v1.6 Lab Explorer exposes the same canonical lesson state through three
+  // equivalent surfaces. SVG surfaces need explicit names/roles AND HTML
+  // equivalents so a screen reader is not forced to interpret geometry.
+  const explorerHost = document.querySelector("#labExplorer");
+  const explorerRoot = explorerHost?.querySelector(".lab-explorer");
+  const explorerPanels = [...(explorerRoot?.querySelectorAll("[data-explorer-panel]") || [])];
+  const explorerStatus = explorerRoot?.querySelector(".lab-explorer-status");
+  record("v16-explorer-region-three-surface-semantics",
+    Boolean(explorerHost && explorerRoot) &&
+    explorerRoot.tagName === "SECTION" &&
+    accessibleName(explorerRoot) &&
+    explorerPanels.length === 3 &&
+    ["inspector", "schematic", "minimap"].every(
+      name => explorerPanels.some(panel => panel.dataset.explorerPanel === name && panel.querySelector("h3")),
+    ) &&
+    explorerStatus?.getAttribute("role") === "status" &&
+    explorerStatus?.getAttribute("aria-live") === "polite",
+    JSON.stringify({
+      hostName: accessibleName(explorerHost),
+      rootName: accessibleName(explorerRoot),
+      rootTag: explorerRoot?.tagName || "",
+      panels: explorerPanels.map(panel => panel.dataset.explorerPanel),
+      statusRole: explorerStatus?.getAttribute("role") || "",
+      statusLive: explorerStatus?.getAttribute("aria-live") || "",
+    }),
+    "Explorer section có tên phải chứa ba surface có heading và status polite để cập nhật selection/provenance được đọc.", "P1");
+
+  const schematicSvg = explorerRoot?.querySelector(".lab-explorer-schematic-svg");
+  const minimapSvg = explorerRoot?.querySelector(".lab-explorer-minimap-svg");
+  const explorerEquivalents = [...(explorerRoot?.querySelectorAll(".lab-explorer-equivalent") || [])];
+  record("v16-explorer-svg-screen-reader-equivalents",
+    schematicSvg?.getAttribute("role") === "group" && Boolean(accessibleName(schematicSvg)) &&
+    minimapSvg?.getAttribute("role") === "group" && Boolean(accessibleName(minimapSvg)) &&
+    /khái niệm|không.*vật lý|không.*dòng/i.test(accessibleName(schematicSvg)) &&
+    /logic|không.*breadboard|không.*vật lý/i.test(accessibleName(minimapSvg)) &&
+    explorerEquivalents.length >= 2 &&
+    explorerEquivalents.every(node => Boolean(node.getAttribute("aria-label")?.trim())),
+    JSON.stringify({
+      schematicName: accessibleName(schematicSvg),
+      minimapName: accessibleName(minimapSvg),
+      equivalents: explorerEquivalents.map(node => node.getAttribute("aria-label")),
+    }),
+    "Schematic/minimap SVG tương tác phải là named group (không phải role=img chứa button) và có HTML equivalent đọc được.", "P1");
+
+  const explorerCompositeActions = [...(explorerRoot?.querySelectorAll(
+    '[role="button"][tabindex],[data-explorer-reference-toggle],[data-explorer-connect]',
+  ) || [])];
+  const explorerUnnamed = explorerCompositeActions.filter(node => !accessibleName(node));
+  const explorerPositiveTab = explorerCompositeActions.filter(node => node.tabIndex > 0);
+  record("v16-explorer-keyboard-actions-named-no-positive-tabindex",
+    explorerCompositeActions.length > 0 && explorerUnnamed.length === 0 && explorerPositiveTab.length === 0,
+    JSON.stringify({
+      actions: explorerCompositeActions.length,
+      unnamed: explorerUnnamed.map(node => node.outerHTML.slice(0, 90)),
+      positiveTab: explorerPositiveTab.map(node => node.outerHTML.slice(0, 90)),
+    }),
+    "Mọi SVG/button action của Explorer cần accessible name và tabindex tự nhiên/0, không dùng tabindex dương.", "P1");
+
+  const terminalProbe = explorerRoot?.querySelector(
+    ".lab-explorer-schematic-svg [data-explorer-terminal][role='button']",
+  );
+  let terminalSelectionAria = false;
+  let terminalSelectionDetails = {};
+  if (terminalProbe) {
+    const terminalId = terminalProbe.getAttribute("data-explorer-terminal");
+    terminalProbe.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await nextTask();
+    const selector = '#labExplorer [data-explorer-terminal="' + CSS.escape(terminalId) + '"]';
+    const representations = [...document.querySelectorAll(selector)];
+    terminalSelectionDetails = {
+      terminalId,
+      rootSelected: explorerRoot?.dataset.explorerSelectedTerminal || "",
+      representations: representations.length,
+      pressed: representations.map(node => node.getAttribute("aria-pressed")),
+      status: document.querySelector("[data-explorer-selected-terminal-status]")?.textContent?.trim() || "",
+    };
+    terminalSelectionAria =
+      terminalSelectionDetails.rootSelected === terminalId &&
+      representations.length >= 2 &&
+      representations.every(node => node.getAttribute("aria-pressed") === "true") &&
+      document.querySelector("[data-explorer-selected-terminal-status]")?.dataset
+        .explorerSelectedTerminalStatus === terminalId;
+    document.querySelector(
+      '#labExplorer .lab-explorer-schematic-svg [data-explorer-terminal="' + CSS.escape(terminalId) + '"]',
+    )?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await nextTask();
+  }
+  record("v16-explorer-selected-terminal-aria-state",
+    Boolean(terminalProbe && terminalSelectionAria),
+    JSON.stringify(terminalSelectionDetails),
+    "Terminal canonical được chọn phải có aria-pressed=true trên mọi representation và status text; bỏ chọn phải trở lại false.", "P1");
+
+  const referenceToggle = explorerRoot?.querySelector("[data-explorer-reference-toggle]");
+  let referenceFocusPreserved = false;
+  if (referenceToggle) {
+    referenceToggle.focus();
+    referenceToggle.click();
+    await nextTask();
+    referenceFocusPreserved =
+      document.activeElement?.hasAttribute?.("data-explorer-reference-toggle") === true &&
+      document.activeElement?.getAttribute?.("aria-pressed") === "true" &&
+      explorerRoot?.querySelector("[data-explorer-reference-view='on']");
+  }
+  record("v16-explorer-reference-toggle-focus-provenance",
+    Boolean(referenceToggle && referenceFocusPreserved) &&
+    /mẫu|reference|tham khảo/i.test(accessibleName(referenceToggle)) &&
+    explorerRoot?.dataset.explorerSource === "learner-empty",
+    JSON.stringify({
+      toggleName: accessibleName(referenceToggle),
+      focusPreserved: referenceFocusPreserved,
+      source: explorerRoot?.dataset.explorerSource || "",
+      activeTag: document.activeElement?.tagName || "",
+    }),
+    "Reference overlay phải có tên/trạng thái aria-pressed, giữ focus sau rerender và không đổi learner source.", "P1");
+
+  const breadboardStudy = document.querySelector("#breadboardStudy");
+  const breadboardControls = ["#bbProfile", "#bbHoleA", "#bbHoleB", "#bbCompare"]
+    .map(selector => document.querySelector(selector));
+  const breadboardResult = document.querySelector("#bbResult");
+  const breadboardDiagram = document.querySelector("#bbTopologyDiagram");
+  const breadboardWarning = document.querySelector("#bbMappingWarning");
+  record("v16-breadboard-study-accessible-nonphysical-boundary",
+    Boolean(breadboardStudy && accessibleName(breadboardStudy)) &&
+    breadboardControls.every(control => control && accessibleName(control)) &&
+    breadboardResult?.getAttribute("role") === "status" &&
+    breadboardResult?.getAttribute("aria-live") === "polite" &&
+    breadboardDiagram?.getAttribute("role") === "img" &&
+    /khái niệm|không phải.*vật lý|không.*vật lý/i.test(accessibleName(breadboardDiagram)) &&
+    /chưa.*ánh xạ|không.*dây|không.*3D/i.test(breadboardWarning?.textContent || "") &&
+    breadboardWarning?.dataset.mapped === "false",
+    JSON.stringify({
+      sectionName: accessibleName(breadboardStudy),
+      controlNames: breadboardControls.map(accessibleName),
+      resultRole: breadboardResult?.getAttribute("role") || "",
+      diagramName: accessibleName(breadboardDiagram),
+      mapped: breadboardWarning?.dataset.mapped || "",
+      warning: breadboardWarning?.textContent?.trim() || "",
+    }),
+    "Breadboard Study phải có tên/label/status, diagram có text alternative và disclosure chưa map lỗ vật lý/netlist.", "P1");
+
+  const resistiveStudy = document.querySelector("#resistiveStudy");
+  const resistiveControls = ["#resistiveV", "#resistiveR1", "#resistiveR2", "#resistiveSolve"]
+    .map(selector => document.querySelector(selector));
+  const resistiveResult = document.querySelector("#resistiveResult");
+  const resistiveDetails = document.querySelector("#resistiveDetails");
+  const resistiveBoundary = document.querySelector(".resistive-study-boundary")?.textContent || "";
+  record("v16-resistive-study-accessible-standalone-boundary",
+    Boolean(resistiveStudy && accessibleName(resistiveStudy)) &&
+    resistiveControls.every(control => control && accessibleName(control)) &&
+    resistiveResult?.getAttribute("role") === "status" &&
+    resistiveResult?.getAttribute("aria-live") === "polite" &&
+    Boolean(resistiveDetails?.getAttribute("aria-label")?.trim()) &&
+    /không.*3D|không.*cảm biến|không.*firmware/i.test(
+      document.querySelector(".resistive-study-body > p")?.textContent || "") &&
+    /không hỗ trợ LED|không phải.*an toàn|không phải phần cứng|không phải.*Arduino/i.test(resistiveBoundary),
+    JSON.stringify({
+      sectionName: accessibleName(resistiveStudy),
+      controlNames: resistiveControls.map(accessibleName),
+      resultRole: resistiveResult?.getAttribute("role") || "",
+      resultLive: resistiveResult?.getAttribute("aria-live") || "",
+      detailsName: resistiveDetails?.getAttribute("aria-label") || "",
+      boundary: resistiveBoundary,
+    }),
+    "Resistive Study cần label/status đọc được và disclosure rõ đây là mô hình toán học độc lập, không phải lesson/3D/firmware/phần cứng.", "P1");
+
   const cssText = allCssText();
   record("visible-focus-indicator-css",
     /:focus-visible/i.test(cssText) && /outline\s*:\s*[^;]*[2-9]px/i.test(cssText),
@@ -457,6 +625,17 @@ export async function runAccessibilityContracts() {
     ".lab-status",
     ".lab-avr-status",
     ".learning-coach p",
+    ".lab-explorer-heading p",
+    ".lab-explorer-panel-title",
+    ".lab-explorer-reference-label",
+    ".lab-explorer-boundary-copy",
+    ".lab-explorer-status",
+    ".breadboard-study-hint",
+    ".breadboard-study-result",
+    ".breadboard-study-warning",
+    ".resistive-study-body > p",
+    ".resistive-study-status",
+    ".resistive-study-boundary",
   ];
   const contrastSamples = contrastSelectors.map(selector => {
     if (selector === ".avr-peripheral-state small") {

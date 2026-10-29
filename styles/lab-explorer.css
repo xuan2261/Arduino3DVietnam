@@ -1,0 +1,76 @@
+/* v1.6 coordinated inspector + schematic + minimap. All geometry is conceptual. */
+.lab-explorer { margin-top:18px; border:1px solid var(--line-strong); border-radius:var(--radius-large); background:var(--paper); overflow:hidden; box-shadow:var(--shadow); }
+.lab-explorer-heading { padding:18px 20px 15px; border-bottom:1px solid var(--line); background:#f8fbf8; }
+.lab-explorer-heading h2 { margin:3px 0 5px; font-size:18px; letter-spacing:-.02em; color:var(--ink); }
+.lab-explorer-heading p { margin:0; color:var(--muted); font-size:12px; line-height:1.6; }
+.lab-explorer-kicker { font-size:9px; font-weight:850; letter-spacing:.14em; color:var(--teal-dark); }
+.lab-explorer-grid { display:grid; grid-template-columns:minmax(220px,.82fr) minmax(360px,1.45fr) minmax(260px,1fr); gap:0; align-items:stretch; }
+.lab-explorer-panel { min-width:0; padding:16px; border-right:1px solid var(--line); }
+.lab-explorer-panel:last-child { border-right:none; }
+.lab-explorer-panel-title { margin:0 0 12px; color:var(--teal-dark); font-size:12px; letter-spacing:.02em; }
+.lab-explorer-subheading { margin:16px 0 8px; font-size:11px; color:#31594f; }
+.lab-explorer-source, [data-explorer-source] { display:inline-flex; align-items:center; min-height:26px; padding:4px 8px; border-radius:999px; background:var(--teal-soft); color:var(--teal-dark); font-size:10px; font-weight:800; }
+[data-explorer-source="learner-empty"] { background:#f2f4ef; color:#566665; }
+[data-explorer-source="none"] { background:#f2f4ef; color:#647170; }
+.lab-explorer-component-title { margin:13px 0 8px; font-size:14px; color:var(--ink); }
+.lab-explorer-attributes { display:grid; grid-template-columns:minmax(88px,.8fr) minmax(0,1.2fr); gap:5px 9px; margin:0; font-size:11px; line-height:1.45; }
+.lab-explorer-attributes dt { color:var(--muted); font-weight:750; }
+.lab-explorer-attributes dd { margin:0; color:var(--ink); overflow-wrap:anywhere; }
+.lab-explorer-terminal-list, .lab-explorer-issue-list, .lab-explorer-minimap-equivalent ul { list-style:none; padding:0; margin:0; display:grid; gap:6px; }
+.lab-explorer-terminal-list li { display:grid; gap:3px; }
+.lab-explorer-terminal-list small { color:var(--muted); font-size:9px; }
+.lab-explorer-terminal-button, .lab-explorer-focus-button, .lab-explorer-connect-button, .lab-explorer-equivalent button { min-height:44px; border:1px solid #b8d1c6; background:#f4faf6; color:#184e43; border-radius:7px; padding:8px 10px; text-align:left; font-size:10px; font-weight:730; }
+.lab-explorer-focus-button { width:100%; margin-top:12px; text-align:center; }
+.lab-explorer-terminal-button[data-severity="error"], .lab-explorer-issue-list [data-severity="error"] { border-color:#deb0a5; background:#fff1ed; color:#7b382f; }
+.lab-explorer-terminal-button[data-severity="warning"], .lab-explorer-issue-list [data-severity="warning"] { border-color:#e0c48d; background:#fff7e5; color:#71531d; }
+.lab-explorer-issue-list li { display:grid; gap:3px; border-left:3px solid #9dbbb0; padding:7px 9px; background:#f7faf8; font-size:10px; line-height:1.55; }
+.lab-explorer-issue-list strong { font-size:9px; }
+.lab-explorer-issue-list small { color:inherit; opacity:.82; }
+.lab-explorer-schematic-meta { display:flex; flex-wrap:wrap; gap:6px; justify-content:space-between; align-items:center; margin-bottom:9px; }
+.lab-explorer-reference-label { font-size:9px; line-height:1.45; color:var(--muted); }
+.lab-explorer-reference-toggle { min-height:44px; margin:0 0 7px; border:1px dashed #c5a36a; border-radius:7px; padding:7px 10px; background:#fffaf0; color:#6c531f; font-size:10px; font-weight:780; }
+.lab-explorer-reference-view { display:block; margin:0 0 8px; color:#78643c; font-size:9px; line-height:1.45; }
+.lab-explorer-signal-boundary, .lab-explorer-boundary-copy { margin:8px 0 10px; padding:8px 10px; border-radius:7px; border:1px solid #e2c68e; background:#fff7e5; color:#6b501d; font-size:10px; line-height:1.55; }
+.lab-explorer-schematic-svg { display:block; width:100%; min-height:260px; max-height:460px; border:1px solid var(--line); border-radius:9px; background:#fbfcfa; }
+.lab-explorer-schematic-component rect { fill:#f0f6f2; stroke:#8bb0a3; stroke-width:1.4; }
+.lab-explorer-schematic-component text { fill:#294d45; font-size:10px; font-weight:700; pointer-events:none; }
+.lab-explorer-schematic-component:focus-visible rect { stroke:#087f78; stroke-width:3; }
+.lab-explorer-schematic-terminal circle { fill:#fff; stroke:#527a6f; stroke-width:1.7; }
+.lab-explorer-schematic-terminal text { fill:#415e56; font-size:8px; pointer-events:none; }
+.lab-explorer-schematic-terminal[data-severity="error"] circle { stroke:#b95347; fill:#fff1ed; }
+.lab-explorer-schematic-terminal[data-severity="warning"] circle { stroke:#a67825; fill:#fff7e5; }
+.lab-explorer-schematic-terminal:focus-visible circle { stroke:#087f78; stroke-width:3.5; }
+.lab-explorer-wire-line { stroke:#426e66; stroke-width:2.1; opacity:.82; }
+.lab-explorer-wire-line[data-severity="warning"] { stroke:#a67825; }
+.lab-explorer-wire-line[data-severity="error"] { stroke:#b95347; }
+.lab-explorer-reference-wire-line { stroke:#a88950; stroke-width:1.5; stroke-dasharray:6 4; opacity:.58; pointer-events:none; }
+.lab-explorer-connect { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; margin-top:10px; }
+.lab-explorer-connect label { display:grid; gap:4px; font-size:9px; font-weight:750; color:var(--muted); }
+.lab-explorer-connect select { width:100%; min-width:0; min-height:44px; border:1px solid #b8d1c6; border-radius:7px; padding:7px 8px; background:#fff; color:var(--ink); font-size:10px; }
+.lab-explorer-connect-button { grid-column:1 / -1; text-align:center; }
+.lab-explorer-equivalent { margin-top:12px; padding-top:10px; border-top:1px dashed var(--line-strong); }
+.lab-explorer-equivalent h4 { margin:0 0 7px; font-size:10px; color:#31594f; }
+.lab-explorer-equivalent p, .lab-explorer-wire-list { margin:0; color:var(--muted); font-size:10px; line-height:1.55; }
+.lab-explorer-wire-list { padding-left:18px; display:grid; gap:6px; }
+.lab-explorer-wire-list li { padding-left:2px; }
+.lab-explorer-wire-list button { margin-left:8px; min-height:44px; padding:8px 10px; }
+.lab-explorer-reference-list { color:#75623e; }
+.lab-explorer-minimap-svg { display:block; width:100%; min-height:235px; border:1px solid var(--line); border-radius:9px; background:#f7faf7; }
+.lab-explorer-minimap-ground { fill:#f2f6f1; stroke:#b4c7c0; stroke-width:.8; }
+.lab-explorer-minimap-component rect { fill:#dfece5; stroke:#52776c; stroke-width:.8; }
+.lab-explorer-minimap-component text { fill:#244a40; font-size:3.1px; font-weight:800; pointer-events:none; }
+.lab-explorer-minimap-component[data-selected="true"] rect { fill:#c9eadb; stroke:#087f78; stroke-width:1.6; }
+.lab-explorer-minimap-component[data-focused="true"] rect { stroke:#d08c25; stroke-width:1.8; stroke-dasharray:2 1; }
+.lab-explorer-minimap-component:focus-visible rect { stroke:#087f78; stroke-width:2.2; }
+.lab-explorer-minimap-terminal { fill:#fff; stroke:#325f53; stroke-width:.55; }
+.lab-explorer-minimap-terminal:focus-visible { stroke:#087f78; stroke-width:1.6; }
+.lab-explorer-minimap-equivalent ul { max-height:190px; overflow:auto; }
+.lab-explorer-minimap-equivalent li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; }
+.lab-explorer-minimap-equivalent button:first-child { min-width:0; overflow-wrap:anywhere; }
+.lab-explorer-status { padding:10px 16px; border-top:1px solid var(--line); background:#f7faf8; color:var(--muted); font-size:10px; line-height:1.55; }
+.lab-explorer-empty-copy, .lab-explorer-error { padding:10px; border-radius:7px; background:#f5f7f3; color:var(--muted); font-size:11px; line-height:1.6; }
+.lab-explorer-error { color:#793a31; background:#fff1ed; border:1px solid #dfb2a8; }
+@media(max-width:1180px) { .lab-explorer-grid { grid-template-columns:minmax(220px,.85fr) minmax(0,1.4fr); } .lab-explorer-minimap { grid-column:1 / -1; border-top:1px solid var(--line); border-right:none; } }
+@media(max-width:760px) { .lab-explorer-grid { grid-template-columns:minmax(0,1fr); } .lab-explorer-panel { border-right:none; border-bottom:1px solid var(--line); } .lab-explorer-panel:last-child { border-bottom:none; } .lab-explorer-connect { grid-template-columns:minmax(0,1fr); } .lab-explorer-connect-button { grid-column:auto; } .lab-explorer-schematic-svg { min-height:220px; } }
+@media(max-width:480px) { .lab-explorer-heading,.lab-explorer-panel { padding:13px 12px; } .lab-explorer-minimap-equivalent li { grid-template-columns:minmax(0,1fr); } }
+@media(prefers-reduced-motion:reduce) { .lab-explorer * { scroll-behavior:auto !important; transition:none !important; } }

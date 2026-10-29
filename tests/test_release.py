@@ -34,6 +34,103 @@ def copy_release_sources(target: Path) -> None:
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def test_three_vendor_assets_match_independent_pinned_hashes(self):
+        expected = {
+            "assets/vendor/three.module.min.js":
+                "852c06b9fe936cf8ebc2870c86370d1015c310b04de98cdfc07f4efaf6afd2af",
+            "assets/vendor/three.core.min.js":
+                "4183cee05f0aa093682fdf551363a16bb20bd92b68e14f7576905f45c461ba82",
+            "assets/vendor/THREE-LICENSE.txt":
+                "df2a91696186fe58c92518a25d48bc59c8ee2edc7cac9ca6d19a5a0d599a2a05",
+        }
+        self.assertEqual(build_site._THREE_PINNED_SHA256, expected)
+        for filename, pinned_hash in expected.items():
+            self.assertEqual(sha256((ROOT / filename).read_bytes()).hexdigest(), pinned_hash, filename)
+        build_site._verify_three_vendor_assets()
+
+    def test_build_rejects_three_vendor_runtime_or_license_tampering(self):
+        for filename in (
+            "assets/vendor/three.module.min.js",
+            "assets/vendor/three.core.min.js",
+            "assets/vendor/THREE-LICENSE.txt",
+        ):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory(
+                prefix="arduino3d-three-release-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                path = fixture_root / filename
+                path.write_bytes(path.read_bytes() + b"\n# tampered\n")
+                fixture_dist = (fixture_root / "dist").resolve()
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", fixture_dist
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "Three.js"):
+                        build_site.build()
+
+    def test_v16_release_manifest_is_exact_complete_and_pwa_aligned(self):
+        expected_v16 = [
+            "src/lab-explorer.js",
+            "src/lab-explorer-ui.js",
+            "src/breadboard-topology.js",
+            "src/breadboard-topology-ui.js",
+            "src/avr-timer2.js",
+            "styles/lab-explorer.css",
+            "docs/LAB_EXPLORER_V16.md",
+            "docs/BREADBOARD_TOPOLOGY_V16.md",
+            "docs/TIMER2_V16.md",
+            "docs/SCENE3D_V16.md",
+            "src/dc-resistor-network.js",
+            "src/resistive-study-ui.js",
+            "docs/DC_RESISTOR_NETWORK_V16.md",
+        ]
+        self.assertEqual(build_site.V16_RELEASE_FILES, expected_v16)
+        self.assertEqual(len(build_site.FILES), 83, "v1.6 release must be exactly 70 v1.5 + 13 v1.6 files")
+        self.assertEqual(build_site.FILES[-13:], expected_v16,
+                         "v1.6 assets must append without reordering the 70-file v1.5 baseline")
+        self.assertFalse(any(path.startswith("sources/") for path in build_site.FILES),
+                         "Reference source histories must never enter the public release")
+
+        for filename in expected_v16:
+            source = build_site._release_source(filename)
+            self.assertTrue(source.is_file(), filename)
+            self.assertFalse(source.is_symlink(), filename)
+            self.assertGreater(len(source.read_bytes()), 0, f"v1.6 release asset is empty: {filename}")
+
+        study_ui = (ROOT / "src/resistive-study-ui.js").read_text(encoding="utf-8")
+        self.assertIn('from "./dc-resistor-network.js"', study_ui,
+                      "User-facing resistive study UI must import the packaged DC solver")
+
+        worker = (ROOT / "sw.js").read_text(encoding="utf-8")
+        block = ASSETS_RE.search(worker)
+        self.assertIsNotNone(block, "Service worker ASSETS list is missing")
+        assets = re.findall(r'"([^"]+)"', block.group(1))
+        expected_assets = ["./", *[f"./{name}" for name in build_site.FILES if name != "sw.js"]]
+        self.assertEqual(assets, expected_assets, "v1.6 SW precache must exactly mirror the 83-file release order")
+
+        with tempfile.TemporaryDirectory(prefix="arduino3d-v16-release-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                output = build_site.build()
+            for filename in expected_v16:
+                self.assertEqual(
+                    (output / filename).read_bytes(),
+                    (fixture_root / filename).read_bytes(),
+                    f"v1.6 release asset bytes changed during packaging: {filename}",
+                )
+            output_files = {
+                path.relative_to(output).as_posix()
+                for path in output.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
     def test_compiled_intel_hex_preserves_original_crlf_bytes_across_git_checkouts(self):
         attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
         self.assertRegex(attributes, r"(?m)^assets/firmware/\*\.hex\s+binary\s*$",

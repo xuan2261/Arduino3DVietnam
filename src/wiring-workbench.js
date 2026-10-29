@@ -131,15 +131,24 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     });
   }
   function notify() {
-    analysis=analyzeCircuit(id,circuit);
-    if (active && (!analysis.ok || !analysis.functional)) {
+    // Capture the edited graph before notifying the application. A callback
+    // may synchronously redraw/reconcile this workbench, so reading the
+    // mutable closure again after a callback can accidentally submit an old
+    // valid graph instead of the learner's newly-invalid edit.
+    const changedCircuit=circuit;
+    const changedAnalysis=analyzeCircuit(id,changedCircuit);
+    analysis=changedAnalysis;
+    const revokeActive=active && (!changedAnalysis.ok || !changedAnalysis.functional);
+    if (revokeActive) {
       // A previous activation is permission for that *validated* topology,
       // not a persistent permission to run whatever graph is edited later.
       // Invalidate it immediately, including while the JS simulation is idle.
       active=false;
-      options.onDeactivate?.("invalid");
     }
-    options.onChange?.(circuit,analysis);
+    // Canonical authority MUST receive the exact edit before any deactivation
+    // observer can refresh views from the previously accepted graph.
+    options.onChange?.(changedCircuit,changedAnalysis);
+    if (revokeActive) options.onDeactivate?.("invalid");
   }
   function render(message="") {
     analysis=analyzeCircuit(id,circuit);
@@ -285,6 +294,20 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     getCircuit:()=>circuit,
     getAnalysis:()=>analysis,
     isActive:()=>active,
+    // Reconcile canonical changes made by the separate 3D/schematic editor.
+    // Never notify recursively or infer an electrical source from the SVG.
+    setCircuit(next, options = {}) {
+      if(disposed) return;
+      if(!next || Number(next.lessonId)!==id || !Array.isArray(next.wires)){
+        throw new TypeError("Workbench nhận netlist của bài khác hoặc thiếu wires.");
+      }
+      const nextAnalysis=analyzeCircuit(id,next);
+      circuit=next;
+      analysis=nextAnalysis;
+      selected=null;preview=null;pointerStart=null;
+      active=Boolean(options.active) && nextAnalysis.ok===true && nextAnalysis.functional===true;
+      render("Bàn 2D đã cập nhật theo netlist dùng chung; không xác nhận mạch điện thực.");
+    },
     dispose(){
       if(disposed)return;disposed=true;
       observer.disconnect();if(raf)cancelAnimationFrame(raf);

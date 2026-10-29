@@ -41,6 +41,21 @@ AVR_VENDOR_FILES = [
     "assets/vendor/avr/AVR8JS-LICENSE.txt",
     "assets/vendor/avr/PROVENANCE.json",
 ]
+V16_RELEASE_FILES = [
+    "src/lab-explorer.js",
+    "src/lab-explorer-ui.js",
+    "src/breadboard-topology.js",
+    "src/breadboard-topology-ui.js",
+    "src/avr-timer2.js",
+    "styles/lab-explorer.css",
+    "docs/LAB_EXPLORER_V16.md",
+    "docs/BREADBOARD_TOPOLOGY_V16.md",
+    "docs/TIMER2_V16.md",
+    "docs/SCENE3D_V16.md",
+    "src/dc-resistor-network.js",
+    "src/resistive-study-ui.js",
+    "docs/DC_RESISTOR_NETWORK_V16.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -89,9 +104,18 @@ FILES = [
     "docs/SCENE3D_LAB.md",
     "docs/LEARNING_COACH.md",
     "docs/TIMER1_RUNTIME.md",
+    *V16_RELEASE_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)
+_THREE_PINNED_SHA256 = {
+    "assets/vendor/three.module.min.js":
+        "852c06b9fe936cf8ebc2870c86370d1015c310b04de98cdfc07f4efaf6afd2af",
+    "assets/vendor/three.core.min.js":
+        "4183cee05f0aa093682fdf551363a16bb20bd92b68e14f7576905f45c461ba82",
+    "assets/vendor/THREE-LICENSE.txt":
+        "df2a91696186fe58c92518a25d48bc59c8ee2edc7cac9ca6d19a5a0d599a2a05",
+}
 _AVR_UPSTREAM = {
     "repository": "https://github.com/wokwi/avr8js",
     "tag": "v0.21.1",
@@ -161,6 +185,20 @@ def _verify_service_worker_assets(worker_text: str) -> None:
         raise RuntimeError("Service worker precache must exactly match release allowlist")
     if any(not asset.startswith("./") or asset.startswith("./../") for asset in assets):
         raise RuntimeError("Service worker precache contains a non-subpath-safe URL")
+
+
+def _verify_three_vendor_assets() -> None:
+    """Fail closed unless shipped Three.js r180 runtime/license bytes match pinned hashes."""
+    try:
+        for filename, expected_hash in _THREE_PINNED_SHA256.items():
+            actual_hash = sha256(_release_source(filename).read_bytes()).hexdigest()
+            if actual_hash != expected_hash:
+                raise ValueError(f"Three.js pinned asset hash mismatch: {filename}")
+        license_text = _release_source("assets/vendor/THREE-LICENSE.txt").read_text(encoding="utf-8")
+        if "The MIT License" not in license_text or "Permission is hereby granted" not in license_text:
+            raise ValueError("Three.js MIT license text is missing")
+    except (OSError, UnicodeError, ValueError, TypeError) as error:
+        raise RuntimeError("Refusing to package unverified Three.js vendor assets") from error
 
 
 def _verify_avr_vendor_assets() -> None:
@@ -254,6 +292,7 @@ def build() -> Path:
     source_worker = sources["sw.js"].read_text(encoding="utf-8")
     _verify_service_worker_assets(source_worker)
     _verify_webmanifest(sources["site.webmanifest"])
+    _verify_three_vendor_assets()
     _verify_avr_vendor_assets()
     verify_firmware_assets()
     with tempfile.TemporaryDirectory(prefix=".arduino-site-", dir=ROOT) as temp:

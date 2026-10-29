@@ -478,8 +478,8 @@ def main() -> None:
                 page.screenshot(path=str(SCREENSHOTS / "qa-v1.1-desktop.png"), full_page=False)
                 check("desktop-3d", page.locator("#sceneMount canvas").count() == 1)
                 check("sidebar-16", page.locator(".lesson-link").count() == 16)
-                check("v15-version-badge-release-candidate",
-                      "PHÒNG THỰC HÀNH 1.5" in
+                check("v16-version-badge-release-candidate",
+                      "PHÒNG THỰC HÀNH 1.6" in
                       page.locator(".version-pill").inner_text())
                 check("desktop-no-overflow",
                       page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
@@ -511,6 +511,13 @@ def main() -> None:
                       and scene_lab["passed"] == scene_lab["total"]
                       and scene_lab["total"] >= 34,
                       f"{scene_lab['passed']}/{scene_lab['total']} passed")
+                scene_v16 = run_page_contract(
+                    page, "./tests/scene3d-v16-contracts.js", "runScene3DV16Contracts")
+                check("v16-scene-focus-view-recovery-contracts",
+                      scene_v16["failed"] == 0
+                      and scene_v16["passed"] == scene_v16["total"]
+                      and scene_v16["total"] == 39,
+                      f"{scene_v16['passed']}/{scene_v16['total']} passed; v1.6 focus/view/LOD/WebGL recovery")
 
                 # New bounded browser contracts. Imports and firmware fetches
                 # resolve from document.baseURI so the same checks remain valid
@@ -611,6 +618,54 @@ def main() -> None:
                       and lab_layout_contracts["passed"] == lab_layout_contracts["total"]
                       and lab_layout_contracts["total"] >= 27,
                       f"{lab_layout_contracts['passed']}/{lab_layout_contracts['total']} passed")
+                explorer_contracts = run_page_contract(
+                    page, "./tests/lab-explorer-contracts.js", "runLabExplorerContracts")
+                check("v16-lab-explorer-model-dom-contracts",
+                      explorer_contracts["failed"] == 0
+                      and explorer_contracts["passed"] == explorer_contracts["total"]
+                      and explorer_contracts["total"] >= 25,
+                      f"{explorer_contracts['passed']}/{explorer_contracts['total']} passed")
+                breadboard_contracts = run_page_contract(
+                    page, "./tests/breadboard-topology-contracts.js",
+                    "runBreadboardTopologyContracts")
+                check("v16-breadboard-topology-direct-contracts",
+                      breadboard_contracts["passed"] == breadboard_contracts["total"]
+                      and breadboard_contracts["passed"] == len(breadboard_contracts["checks"])
+                      and breadboard_contracts["total"] == 46,
+                      f"{breadboard_contracts['passed']}/{breadboard_contracts['total']} passed")
+                breadboard_profile = page.evaluate("""async () => {
+                    const module = await import('./src/breadboard-topology.js');
+                    const generic = module.createBreadboardTopology();
+                    const bb830 = module.createBreadboardTopology('busboard-bb830-rev7');
+                    const genericRail = module.breadboardNode('P1+1', generic);
+                    const bb830Rail = module.breadboardNode('P1+1', bb830);
+                    return {
+                        genericProfile: generic.profileId,
+                        genericRailModel: generic.claims.powerRails,
+                        genericRailKnown: genericRail !== null,
+                        genericPlacementVerified: generic.claims.physicalPlacementVerified,
+                        genericInjectsRouter: generic.claims.automaticCircuitRouterInjection,
+                        stripConnected: module.areBreadboardHolesConnected('A1', 'E1', generic),
+                        centerGapIsolated: !module.areBreadboardHolesConnected('A1', 'F1', generic),
+                        bb830Profile: bb830.profileId,
+                        bb830RailKnown: bb830Rail?.kind === 'power-rail',
+                        bb830PlacementVerified: bb830.claims.physicalPlacementVerified,
+                    };
+                }""")
+                check("v16-breadboard-profile-unverified-default",
+                      breadboard_profile["genericProfile"] == "generic-63x10-terminal-strips"
+                      and breadboard_profile["genericRailModel"] == "unknown-unmodeled"
+                      and not breadboard_profile["genericRailKnown"]
+                      and not breadboard_profile["genericPlacementVerified"]
+                      and not breadboard_profile["genericInjectsRouter"]
+                      and breadboard_profile["stripConnected"]
+                      and breadboard_profile["centerGapIsolated"],
+                      json.dumps(breadboard_profile, ensure_ascii=False))
+                check("v16-breadboard-named-profile-still-no-placement-claim",
+                      breadboard_profile["bb830Profile"] == "busboard-bb830-rev7"
+                      and breadboard_profile["bb830RailKnown"]
+                      and not breadboard_profile["bb830PlacementVerified"],
+                      json.dumps(breadboard_profile, ensure_ascii=False))
                 learning_contracts = run_page_contract(
                     page, "./tests/learning-coach-contracts.js", "runLearningCoachContracts")
                 check("learning-coach-16-lesson-contracts",
@@ -627,6 +682,22 @@ def main() -> None:
                       timer1_contracts["passed"] == 11
                       and len(timer1_contracts["checks"]) == 11,
                       f"{timer1_contracts['passed']}/11 direct-model checks; no stock-firmware parity claim")
+                # Timer2 is likewise a standalone bounded model. It deliberately
+                # does not claim stock Arduino-core timing/tone/PWM parity.
+                timer2_contracts = run_page_contract(
+                    page, "./tests/avr-timer2-contracts.js", "runAvrTimer2Contracts")
+                check("v16-avr-timer2-direct-model-contracts",
+                      timer2_contracts["passed"] == 10
+                      and len(timer2_contracts["checks"]) == 10,
+                      f"{timer2_contracts['passed']}/10 direct-model checks; no stock-firmware parity claim")
+                dc_network_contracts = run_page_contract(
+                    page, "./tests/dc-resistor-network-contracts.js",
+                    "runDcResistorNetworkContracts")
+                check("v16-dc-resistor-network-standalone-contracts",
+                      dc_network_contracts["passed"] == dc_network_contracts["total"]
+                      and dc_network_contracts["passed"] == len(dc_network_contracts["checks"])
+                      and dc_network_contracts["total"] == 51,
+                      f"{dc_network_contracts['passed']}/{dc_network_contracts['total']} standalone linear-resistor checks; no lesson/3D/sensor linkage")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -1165,6 +1236,590 @@ def main() -> None:
                       json.dumps(scene_wire_rows, ensure_ascii=False))
                 page.locator('#stageTab3d').click()
 
+                # v1.6 Lab Explorer is a projection of the SAME canonical
+                # learner graph plus a separately labeled read-only reference
+                # sample. Start from a fresh in-memory state so v1.5 edits above
+                # cannot make a reference sample look like learner progress.
+                page.reload(wait_until="domcontentloaded", timeout=20000)
+                ready(page)
+                for lesson_id in range(1, 17):
+                    page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    explorer = page.locator("#labExplorer .lab-explorer")
+                    expected_source = "none" if lesson_id == 1 else "learner-empty"
+                    expected_scope = (
+                        "none" if lesson_id == 1 else
+                        "signal-only" if lesson_id in (10, 14) else "topology"
+                    )
+                    basic = (
+                        explorer.is_visible()
+                        and explorer.get_attribute("data-lesson-id") == str(lesson_id)
+                        and explorer.get_attribute("data-explorer-source") == expected_source
+                        and explorer.get_attribute("data-explorer-scope") == expected_scope
+                        and explorer.locator("[data-explorer-panel]").count() == 3
+                    )
+                    if lesson_id == 1:
+                        surface_ok = (
+                            explorer.locator('[data-explorer-empty="lesson-01"]').count() == 1
+                            and explorer.locator("[data-explorer-connect]").count() == 0
+                        )
+                    else:
+                        surface_ok = (
+                            explorer.locator(".lab-explorer-schematic-svg").get_attribute("role") == "group"
+                            and explorer.locator(".lab-explorer-minimap-svg").get_attribute("role") == "group"
+                            and explorer.locator("[data-explorer-reference-toggle]").count() == 1
+                        )
+                    check(f"v16-explorer-lesson-{lesson_id:02d}-surfaces-source-scope",
+                          basic and surface_ok,
+                          json.dumps({
+                              "lesson": lesson_id,
+                              "source": explorer.get_attribute("data-explorer-source"),
+                              "scope": explorer.get_attribute("data-explorer-scope"),
+                              "panels": explorer.locator("[data-explorer-panel]").count(),
+                          }, ensure_ascii=False))
+
+                page.locator('.lesson-link[data-lesson="2"]').click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+                lesson2_reference_count = page.evaluate(
+                    "() => import('./src/circuit-router.js').then(m => m.createSampleCircuit(2).wires.length)"
+                )
+                learner_wire_list = explorer.locator(
+                    '[data-explorer-panel="schematic"] .lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                )
+                reference_toggle = explorer.locator("[data-explorer-reference-toggle]")
+                check("v16-explorer-fresh-learner-reference-provenance",
+                      explorer.get_attribute("data-explorer-source") == "learner-empty"
+                      and learner_wire_list.count() == 0
+                      and reference_toggle.get_attribute("aria-pressed") == "false"
+                      and "mẫu tham khảo" in explorer.locator(".lab-explorer-reference-label").inner_text().lower(),
+                      json.dumps({
+                          "source": explorer.get_attribute("data-explorer-source"),
+                          "learnerWires": learner_wire_list.count(),
+                          "referenceLabel": explorer.locator(".lab-explorer-reference-label").inner_text(),
+                      }, ensure_ascii=False))
+                check("v16-explorer-learner-empty-evidence-never-reference",
+                      explorer.get_attribute("data-explorer-source") == "learner-empty"
+                      and "Bản tự đấu · chưa có dây" in
+                          explorer.locator(".lab-explorer-status").inner_text()
+                      and "Mạch mẫu tham khảo" in
+                          explorer.locator(".lab-explorer-schematic-meta").inner_text()
+                      and learner_wire_list.count() == 0,
+                      explorer.locator(".lab-explorer-status").inner_text())
+                schematic_svg = explorer.locator(".lab-explorer-schematic-svg")
+                minimap_svg = explorer.locator(".lab-explorer-minimap-svg")
+                svg_actions = explorer.locator(
+                    ".lab-explorer-schematic-svg [role='button'], "
+                    ".lab-explorer-minimap-svg [role='button']"
+                )
+                check("v16-explorer-svg-interactive-roots-are-named-groups",
+                      schematic_svg.get_attribute("role") == "group"
+                      and minimap_svg.get_attribute("role") == "group"
+                      and schematic_svg.get_attribute("aria-label")
+                      and minimap_svg.get_attribute("aria-label")
+                      and svg_actions.count() > 4
+                      and all(
+                          svg_actions.nth(index).get_attribute("tabindex") == "0"
+                          and bool(svg_actions.nth(index).get_attribute("aria-label"))
+                          for index in range(svg_actions.count())
+                      ),
+                      json.dumps({
+                          "schematicRole": schematic_svg.get_attribute("role"),
+                          "minimapRole": minimap_svg.get_attribute("role"),
+                          "interactiveActions": svg_actions.count(),
+                      }, ensure_ascii=False))
+                reference_toggle.click()
+                check("v16-explorer-reference-overlay-readonly-separated",
+                      explorer.locator('[data-explorer-reference-view="on"]').count() == 1
+                      and explorer.locator(".lab-explorer-schematic-svg [data-explorer-reference-wire]").count()
+                          == lesson2_reference_count
+                      and explorer.locator(".lab-explorer-reference-list [data-explorer-reference-wire]").count()
+                          == lesson2_reference_count
+                      and learner_wire_list.count() == 0
+                      and explorer.locator("[data-explorer-disconnect]").count() == 0,
+                      json.dumps({
+                          "sampleWires": lesson2_reference_count,
+                          "svgReference": explorer.locator(
+                              ".lab-explorer-schematic-svg [data-explorer-reference-wire]").count(),
+                          "learnerWires": learner_wire_list.count(),
+                      }, ensure_ascii=False))
+
+                first_reference_wire = page.evaluate("""() => import('./src/circuit-router.js').then(m => {
+                    const wire = m.createSampleCircuit(2).wires[0];
+                    return {from: wire.from, to: wire.to};
+                })""")
+                canvas = page.locator("#sceneMount canvas")
+                explorer.locator(
+                    '.lab-explorer-schematic-svg [data-explorer-component="arduino"]'
+                ).click()
+                readonly_component_state = {
+                    "stage": page.locator("#stageTab3d").get_attribute("aria-selected"),
+                    "editorHidden": page.locator("#labEditor").is_hidden(),
+                    "editPressed": page.locator("#labEditToggle").get_attribute("aria-pressed"),
+                    "inspector": page.locator("#labComponent").input_value(),
+                    "sceneSelected": canvas.get_attribute("data-lab-selected-component"),
+                    "sceneFocused": canvas.get_attribute("data-lab-focused-component"),
+                    "sceneWires": canvas.get_attribute("data-lab-wire-count"),
+                }
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
+                ).locator("circle").click()
+                readonly_first_terminal = explorer.get_attribute(
+                    "data-explorer-selected-terminal")
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["to"]}"]'
+                ).locator("circle").click()
+                readonly_second_terminal = explorer.get_attribute(
+                    "data-explorer-selected-terminal")
+                check("v16-explorer-readonly-inspection-does-not-enter-edit-or-wire",
+                      readonly_component_state["stage"] == "true"
+                      and readonly_component_state["editorHidden"]
+                      and readonly_component_state["editPressed"] == "false"
+                      and readonly_component_state["inspector"] == "arduino"
+                      and readonly_component_state["sceneSelected"] == ""
+                      and readonly_component_state["sceneFocused"] == ""
+                      and readonly_component_state["sceneWires"] == "0"
+                      and readonly_first_terminal == first_reference_wire["from"]
+                      and readonly_second_terminal == first_reference_wire["to"]
+                      and page.locator("#labEditor").is_hidden()
+                      and page.locator("#labEditToggle").get_attribute("aria-pressed") == "false"
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and explorer.get_attribute("data-explorer-source") == "learner-empty"
+                      and learner_wire_list.count() == 0,
+                      json.dumps({
+                          "component": readonly_component_state,
+                          "firstTerminal": readonly_first_terminal,
+                          "secondTerminal": readonly_second_terminal,
+                          "source": explorer.get_attribute("data-explorer-source"),
+                      }, ensure_ascii=False))
+
+                # A minimap action must drive the existing 3D/editor selection,
+                # not a parallel Explorer-only selection model. Editing must be
+                # explicit; only after this opt-in may 3D focus/wiring activate.
+                page.locator("#labEditToggle").click()
+                explorer.locator(
+                    '.lab-explorer-schematic-svg [data-explorer-component="arduino"]'
+                ).click()
+                explorer.locator(
+                    '[data-explorer-panel="minimap"] .lab-explorer-minimap-svg '
+                    '[data-explorer-component="arduino"][data-explorer-focus="arduino"]'
+                ).click()
+                check("v16-explorer-fixed-arduino-selection-focus-sync",
+                      page.locator("#labEditor").is_visible()
+                      and page.locator("#labEditToggle").get_attribute("aria-pressed") == "true"
+                      and explorer.get_attribute("data-explorer-selected-terminal") == ""
+                      and page.locator("#labComponent").input_value() == "arduino"
+                      and canvas.get_attribute("data-lab-selected-component") == "arduino"
+                      and canvas.get_attribute("data-lab-focused-component") == "arduino"
+                      and explorer.locator(
+                          '[data-explorer-panel="minimap"] [data-explorer-component="arduino"][data-selected="true"]'
+                      ).count() >= 1
+                      and explorer.locator(
+                          '[data-explorer-panel="minimap"] [data-explorer-component="arduino"][data-focused="true"]'
+                      ).count() >= 1
+                      and page.locator("#labPlace").is_disabled()
+                      and page.locator("#labRotateRight").is_disabled()
+                      and "Cố định" in explorer.locator(".lab-explorer-inspector").inner_text(),
+                      json.dumps({
+                          "editor": page.locator("#labComponent").input_value(),
+                          "selected": canvas.get_attribute("data-lab-selected-component"),
+                          "focused": canvas.get_attribute("data-lab-focused-component"),
+                      }, ensure_ascii=False))
+
+                # A focus-only action must move the camera without implicitly
+                # changing the selected component or any netlist state.
+                explorer.locator(
+                    '.lab-explorer-minimap-equivalent '
+                    '[data-explorer-component="breadboard"]:not([data-explorer-focus])'
+                ).click()
+                camera_only_before_wires = canvas.get_attribute("data-lab-wire-count")
+                explorer.locator(
+                    '.lab-explorer-minimap-equivalent '
+                    '[data-explorer-focus="arduino"]:not([data-explorer-component])'
+                ).click()
+                check("v16-explorer-focus-is-camera-only",
+                      page.locator("#labComponent").input_value() == "breadboard"
+                      and canvas.get_attribute("data-lab-selected-component") == "breadboard"
+                      and canvas.get_attribute("data-lab-focused-component") == "arduino"
+                      and canvas.get_attribute("data-lab-wire-count") == camera_only_before_wires,
+                      json.dumps({
+                          "selected": canvas.get_attribute("data-lab-selected-component"),
+                          "focused": canvas.get_attribute("data-lab-focused-component"),
+                          "wires": canvas.get_attribute("data-lab-wire-count"),
+                      }, ensure_ascii=False))
+                canvas.focus()
+                page.keyboard.press("Home")
+                home_focus_state = {
+                    "canvas": canvas.get_attribute("data-lab-focused-component"),
+                    "minimap": explorer.locator(
+                        '[data-explorer-panel="minimap"] [data-focused="true"]').count(),
+                    "selected": canvas.get_attribute("data-lab-selected-component"),
+                }
+                explorer.locator(
+                    '.lab-explorer-minimap-equivalent '
+                    '[data-explorer-focus="arduino"]:not([data-explorer-component])'
+                ).click()
+                page.locator('#cameraToolbar [data-camera="reset"]').click()
+                toolbar_focus_state = {
+                    "canvas": canvas.get_attribute("data-lab-focused-component"),
+                    "minimap": explorer.locator(
+                        '[data-explorer-panel="minimap"] [data-focused="true"]').count(),
+                    "selected": canvas.get_attribute("data-lab-selected-component"),
+                }
+                check("v16-explorer-home-toolbar-reset-refresh-minimap-focus",
+                      home_focus_state["canvas"] == ""
+                      and home_focus_state["minimap"] == 0
+                      and home_focus_state["selected"] == "breadboard"
+                      and toolbar_focus_state["canvas"] == ""
+                      and toolbar_focus_state["minimap"] == 0
+                      and toolbar_focus_state["selected"] == "breadboard",
+                      json.dumps({
+                          "home": home_focus_state,
+                          "toolbar": toolbar_focus_state,
+                      }, ensure_ascii=False))
+
+                page.locator("#stageTabWiring").click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+                focus_while_2d = explorer.locator(
+                    '.lab-explorer-minimap-equivalent '
+                    '[data-explorer-focus="arduino"]:not([data-explorer-component])'
+                )
+                check("v16-explorer-focus-disabled-outside-3d-stage",
+                      page.locator("#stageTabWiring").get_attribute("aria-selected") == "true"
+                      and page.locator("#labEditToggle").get_attribute("aria-pressed") == "true"
+                      and focus_while_2d.is_disabled()
+                      and focus_while_2d.get_attribute("aria-disabled") == "true"
+                      and explorer.locator(
+                          '.lab-explorer-minimap-svg '
+                          '[data-explorer-component="arduino"][data-explorer-focus]'
+                      ).count() == 0
+                      and canvas.get_attribute("data-lab-focused-component") == "",
+                      json.dumps({
+                          "stage": page.locator("#stageTabWiring").get_attribute("aria-selected"),
+                          "editing": page.locator("#labEditToggle").get_attribute("aria-pressed"),
+                          "focusDisabled": focus_while_2d.is_disabled(),
+                          "sceneFocused": canvas.get_attribute("data-lab-focused-component"),
+                      }, ensure_ascii=False))
+                page.locator("#stageTab3d").click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
+                ).locator("circle").click()
+                svg_first_terminal_note = page.locator("#labSelectedTerminal").inner_text()
+                selected_terminal_nodes = explorer.locator(
+                    f'[data-explorer-terminal="{first_reference_wire["from"]}"]'
+                )
+                check("v16-explorer-selected-terminal-aria-synced",
+                      explorer.get_attribute("data-explorer-selected-terminal")
+                          == first_reference_wire["from"]
+                      and selected_terminal_nodes.count() >= 2
+                      and all(
+                          selected_terminal_nodes.nth(index).get_attribute("aria-pressed") == "true"
+                          for index in range(selected_terminal_nodes.count())
+                      )
+                      and explorer.locator(
+                          f'[data-explorer-terminal="{first_reference_wire["from"]}"][data-selected="true"]'
+                      ).count() >= 1,
+                      json.dumps({
+                          "selectedTerminal": explorer.get_attribute(
+                              "data-explorer-selected-terminal"),
+                          "representations": selected_terminal_nodes.count(),
+                      }, ensure_ascii=False))
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["to"]}"]'
+                ).locator("circle").click()
+                learner_wire_list = explorer.locator(
+                    '[data-explorer-panel="schematic"] .lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                )
+                check("v16-explorer-svg-action-uses-canonical-router",
+                      first_reference_wire["from"] in svg_first_terminal_note
+                      and explorer.get_attribute("data-explorer-source") == "learner-draft"
+                      and learner_wire_list.count() == 1
+                      and canvas.get_attribute("data-lab-wire-count") == "1"
+                      and explorer.locator(".lab-explorer-schematic-svg [data-explorer-reference-wire]").count()
+                          == lesson2_reference_count,
+                      json.dumps({
+                          "edge": first_reference_wire,
+                          "firstTerminalNote": svg_first_terminal_note,
+                          "learnerWires": learner_wire_list.count(),
+                          "sceneWires": canvas.get_attribute("data-lab-wire-count"),
+                          "referenceWires": explorer.locator(
+                              ".lab-explorer-schematic-svg [data-explorer-reference-wire]").count(),
+                      }, ensure_ascii=False))
+                page.locator("#stageTabWiring").click()
+                check("v16-explorer-canonical-wire-syncs-existing-2d-workbench",
+                      page.locator(".wire-connected").count() == 1
+                      and first_reference_wire["from"] in page.locator(".wire-connected").first.inner_text()
+                      and first_reference_wire["to"] in page.locator(".wire-connected").first.inner_text())
+                page.locator("#stageTab3d").click()
+
+                # Keyboard activation must survive Explorer rerender and update
+                # the same editor/scene selection. Focus may move to another
+                # equivalent action with the same semantic focus token.
+                breadboard_action = explorer.locator(
+                    '[data-explorer-panel="minimap"] .lab-explorer-minimap-svg '
+                    '[data-explorer-component="breadboard"][data-explorer-focus="breadboard"]'
+                )
+                breadboard_action.focus()
+                breadboard_action.press("Enter")
+                check("v16-explorer-keyboard-focus-selection-sync",
+                      page.locator("#labComponent").input_value() == "breadboard"
+                      and canvas.get_attribute("data-lab-selected-component") == "breadboard"
+                      and canvas.get_attribute("data-lab-focused-component") == "breadboard"
+                      and page.evaluate(
+                          "document.activeElement?.getAttribute('data-explorer-focus') === 'breadboard'"
+                      )
+                      and not page.locator("#labPlace").is_disabled()
+                      and "breadboard" in explorer.locator(".lab-explorer-component-title").inner_text().lower(),
+                      json.dumps({
+                          "selected": canvas.get_attribute("data-lab-selected-component"),
+                          "focused": canvas.get_attribute("data-lab-focused-component"),
+                          "activeFocus": page.evaluate(
+                              "document.activeElement?.getAttribute('data-explorer-focus')"),
+                      }, ensure_ascii=False))
+
+                explorer.locator("[data-explorer-disconnect]").first.click()
+                learner_wire_list = explorer.locator(
+                    '[data-explorer-panel="schematic"] .lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                )
+                check("v16-explorer-disconnect-canonical-path",
+                      learner_wire_list.count() == 0
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and explorer.locator(".lab-explorer-schematic-svg [data-explorer-reference-wire]").count()
+                          == lesson2_reference_count)
+                # Canonical mutation must clear a half-completed two-terminal
+                # gesture, otherwise the next click could connect from stale UI.
+                explorer.locator("[data-explorer-connect-from]").select_option(
+                    first_reference_wire["from"])
+                explorer.locator("[data-explorer-connect-to]").select_option(
+                    first_reference_wire["to"])
+                explorer.locator("[data-explorer-connect]").click()
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
+                ).locator("circle").click()
+                stale_terminal_precondition = (
+                    explorer.get_attribute("data-explorer-selected-terminal")
+                    == first_reference_wire["from"]
+                )
+                explorer.locator("[data-explorer-disconnect]").first.click()
+                selected_after_canonical = explorer.locator(
+                    f'[data-explorer-terminal="{first_reference_wire["from"]}"]'
+                )
+                check("v16-explorer-canonical-mutation-clears-stale-terminal",
+                      stale_terminal_precondition
+                      and explorer.get_attribute("data-explorer-selected-terminal") == ""
+                      and explorer.locator(
+                          "[data-explorer-selected-terminal-status='none']").count() == 1
+                      and all(
+                          selected_after_canonical.nth(index).get_attribute("aria-pressed") == "false"
+                          for index in range(selected_after_canonical.count())
+                      )
+                      and "hủy chọn chân đầu tiên" in
+                          page.locator("#labSelectedTerminal").inner_text().lower(),
+                      json.dumps({
+                          "selected": explorer.get_attribute(
+                              "data-explorer-selected-terminal"),
+                          "note": page.locator("#labSelectedTerminal").inner_text(),
+                      }, ensure_ascii=False))
+
+                # Reference overlay is view-local state and must not leak across
+                # lesson switches even when both lessons have reference samples.
+                if reference_toggle.get_attribute("aria-pressed") != "true":
+                    explorer.locator("[data-explorer-reference-toggle]").click()
+                page.locator('.lesson-link[data-lesson="3"]').click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+                check("v16-explorer-reference-overlay-resets-on-lesson-switch",
+                      explorer.get_attribute("data-lesson-id") == "3"
+                      and explorer.locator("[data-explorer-reference-toggle]").get_attribute(
+                          "aria-pressed") == "false"
+                      and explorer.locator("[data-explorer-reference-view='off']").count() == 1
+                      and explorer.locator("[data-explorer-reference-wire]").count() == 0,
+                      json.dumps({
+                          "lesson": explorer.get_attribute("data-lesson-id"),
+                          "pressed": explorer.locator(
+                              "[data-explorer-reference-toggle]").get_attribute("aria-pressed"),
+                          "referenceWires": explorer.locator(
+                              "[data-explorer-reference-wire]").count(),
+                      }, ensure_ascii=False))
+                page.locator('.lesson-link[data-lesson="2"]').click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+
+                for lesson_id in (10, 14):
+                    page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    explorer = page.locator("#labExplorer .lab-explorer")
+                    explorer.locator("[data-explorer-reference-toggle]").click()
+                    sample_count = page.evaluate(
+                        f"() => import('./src/circuit-router.js').then(m => m.createSampleCircuit({lesson_id}).wires.length)"
+                    )
+                    page.locator("#stageTabWiring").click()
+                    check(f"v16-explorer-{lesson_id:02d}-signal-only-reference-fail-closed",
+                          explorer.get_attribute("data-explorer-scope") == "signal-only"
+                          and explorer.locator(".lab-explorer-signal-boundary").count() == 1
+                          and explorer.locator(".lab-explorer-schematic-svg [data-explorer-reference-wire]").count()
+                              == sample_count
+                          and explorer.locator(
+                              ".lab-explorer-schematic-svg [data-explorer-wire]").count() == 0
+                          and page.locator(".wire-activate").is_disabled()
+                          and page.locator(".wire-activate").get_attribute("aria-pressed") == "false",
+                          json.dumps({
+                              "lesson": lesson_id,
+                              "scope": explorer.get_attribute("data-explorer-scope"),
+                              "referenceWires": explorer.locator(
+                                  ".lab-explorer-schematic-svg [data-explorer-reference-wire]").count(),
+                              "sampleWires": sample_count,
+                          }, ensure_ascii=False))
+                    page.locator("#stageTab3d").click()
+
+                # Breadboard Study is a separate profile explorer. Exercise the
+                # user-visible semantics while a real learner wire exists, then
+                # prove none of these queries mutate 2D/3D canonical netlist.
+                page.locator('.lesson-link[data-lesson="2"]').click()
+                explorer = page.locator("#labExplorer .lab-explorer")
+                explorer.locator(
+                    '[data-explorer-panel="minimap"] .lab-explorer-minimap-svg '
+                    '[data-explorer-component="arduino"]'
+                ).click()
+                page.locator("#labEditToggle").click()
+                explorer.locator("[data-explorer-connect-from]").select_option(first_reference_wire["from"])
+                explorer.locator("[data-explorer-connect-to]").select_option(first_reference_wire["to"])
+                explorer.locator("[data-explorer-connect]").click()
+                canvas = page.locator("#sceneMount canvas")
+                before_study_scene_wires = canvas.get_attribute("data-lab-wire-count")
+                page.locator("#stageTabWiring").click()
+                before_study_2d_wires = page.locator(".wire-connected").count()
+                page.locator("#stageTab3d").click()
+
+                page.locator("#bbProfile").select_option("generic-63x10-terminal-strips")
+                page.locator("#bbHoleA").fill("A1")
+                page.locator("#bbHoleB").fill("E1")
+                page.locator("#bbCompare").click()
+                check("v16-breadboard-study-generic-same-five-hole-strip",
+                      page.locator("#bbResult").get_attribute("data-result") == "connected"
+                      and page.locator('#bbTopologyDiagram [data-bb-strip-node="strip:1:left"]').count() == 1
+                      and page.locator('#bbTopologyDiagram [data-bb-hole="A1"][data-bb-selected]').count() == 1
+                      and page.locator('#bbTopologyDiagram [data-bb-hole="E1"][data-bb-selected]').count() == 1
+                      and page.locator("#bbTopologyDiagram").get_attribute("data-profile")
+                          == "generic-63x10-terminal-strips")
+                page.locator("#bbHoleB").fill("F1")
+                page.locator("#bbCompare").click()
+                check("v16-breadboard-study-generic-center-gap-separate",
+                      page.locator("#bbResult").get_attribute("data-result") == "separate"
+                      and page.locator('#bbTopologyDiagram [data-bb-strip-node="strip:1:left"]').count() == 1
+                      and page.locator('#bbTopologyDiagram [data-bb-strip-node="strip:1:right"]').count() == 1
+                      and "hai nhóm khác nhau" in page.locator("#bbResult").inner_text())
+                page.locator("#bbHoleA").fill("P1+1")
+                page.locator("#bbHoleB").fill("P1+50")
+                page.locator("#bbCompare").click()
+                check("v16-breadboard-study-generic-rail-remains-unknown",
+                      page.locator("#bbResult").get_attribute("data-result") == "unknown"
+                      and "không kết luận" in page.locator("#bbResult").inner_text()
+                      and "rail chưa được mô hình hóa" in
+                          page.locator("#bbTopologyDiagram").inner_text().lower())
+                page.locator("#bbProfile").select_option("busboard-bb830-rev7")
+                page.locator("#bbCompare").click()
+                check("v16-breadboard-study-bb830-rail-profile-connected",
+                      page.locator("#bbResult").get_attribute("data-result") == "connected"
+                      and page.locator("#bbTopologyDiagram").get_attribute("data-profile")
+                          == "busboard-bb830-rev7"
+                      and "cùng nhóm tiếp xúc" in page.locator("#bbResult").inner_text())
+                for bad_hole in ("Z999", "A0"):
+                    page.locator("#bbHoleA").fill(bad_hole)
+                    page.locator("#bbHoleB").fill("A1")
+                    page.locator("#bbCompare").click()
+                    check(f"v16-breadboard-study-malformed-{bad_hole.lower()}-fails",
+                          page.locator("#bbResult").get_attribute("data-result") == "error"
+                          and "Không thể đối chiếu" in page.locator("#bbResult").inner_text())
+                check("v16-breadboard-study-conceptual-unmapped-disclosure",
+                      page.locator("#bbMappingWarning").get_attribute("data-mapped") == "false"
+                      and "conceptual" in page.locator("#bbMappingWarning").inner_text().lower()
+                      and page.locator("#bbTopologyDiagram").get_attribute("role") == "img"
+                      and "không phải" in
+                          (page.locator("#bbTopologyDiagram").get_attribute("aria-label") or "").lower()
+                      and page.locator("#bbTopologyDiagram [data-bb-diagram='conceptual-strips']").count() == 1)
+                check("v16-breadboard-study-never-mutates-canonical-netlist",
+                      canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires
+                      and explorer.locator(
+                          '[data-explorer-panel="schematic"] '
+                          '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                      ).count() == 1)
+                page.locator("#stageTabWiring").click()
+                check("v16-breadboard-study-never-mutates-existing-2d-netlist",
+                      page.locator(".wire-connected").count() == before_study_2d_wires
+                      and before_study_2d_wires == 1)
+                page.locator("#stageTab3d").click()
+
+                # The standalone resistor study consumes only explicit ideal
+                # values. It must neither read nor mutate the lesson graph, AVR
+                # state, Serial log, breadboard study, or 3D scene.
+                canvas = page.locator("#sceneMount canvas")
+                explorer = page.locator("#labExplorer .lab-explorer")
+                resistive_before = {
+                    "sceneWires": canvas.get_attribute("data-lab-wire-count"),
+                    "learnerWires": explorer.locator(
+                        '[data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    ).count(),
+                    "avrStatus": page.locator("#avrStatus").inner_text(),
+                    "avrProvenance": page.locator("#avrProvenance").inner_text(),
+                    "serial": page.locator("#serialConsole").inner_text(),
+                }
+                page.locator("#resistiveV").fill("5")
+                page.locator("#resistiveR1").fill("1000")
+                page.locator("#resistiveR2").fill("1000")
+                page.locator("#resistiveSolve").click()
+                resistive_rows = page.locator("#resistiveDetails tbody tr").all_inner_texts()
+                check("v16-resistive-study-default-divider-math",
+                      page.locator("#resistiveResult").get_attribute("data-result") == "calculated"
+                      and ("2,5 V" in page.locator("#resistiveResult").inner_text()
+                           or "2.5 V" in page.locator("#resistiveResult").inner_text())
+                      and len(resistive_rows) == 2
+                      and all(("2,5" in row or "2.5" in row) for row in resistive_rows)
+                      and all(("6,25" in row or "6.25" in row) for row in resistive_rows)
+                      and "ideal-dc-resistor-model" in page.locator("#resistiveDetails").inner_text(),
+                      json.dumps({
+                          "status": page.locator("#resistiveResult").inner_text(),
+                          "rows": resistive_rows,
+                      }, ensure_ascii=False))
+                page.locator("#resistiveR1").fill("0")
+                page.locator("#resistiveSolve").click()
+                check("v16-resistive-study-zero-resistance-fails-without-stale-output",
+                      page.locator("#resistiveResult").get_attribute("data-result") == "error"
+                      and page.locator("#resistiveDetails").locator("*").count() == 0
+                      and "bị từ chối" in page.locator("#resistiveResult").inner_text()
+                      and "2,5 V" not in page.locator("#resistiveResult").inner_text()
+                      and "6,25" not in page.locator("#resistiveResult").inner_text(),
+                      page.locator("#resistiveResult").inner_text())
+                page.locator("#resistiveR1").fill("1000")
+                page.locator("#resistiveV").fill("6")
+                page.locator("#resistiveSolve").click()
+                check("v16-resistive-study-over-5v-fails-without-stale-output",
+                      page.locator("#resistiveResult").get_attribute("data-result") == "error"
+                      and page.locator("#resistiveDetails").locator("*").count() == 0
+                      and "bị từ chối" in page.locator("#resistiveResult").inner_text()
+                      and "2,5 V" not in page.locator("#resistiveResult").inner_text()
+                      and "6,25" not in page.locator("#resistiveResult").inner_text(),
+                      page.locator("#resistiveResult").inner_text())
+                resistive_after = {
+                    "sceneWires": canvas.get_attribute("data-lab-wire-count"),
+                    "learnerWires": explorer.locator(
+                        '[data-explorer-panel="schematic"] '
+                        '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                    ).count(),
+                    "avrStatus": page.locator("#avrStatus").inner_text(),
+                    "avrProvenance": page.locator("#avrProvenance").inner_text(),
+                    "serial": page.locator("#serialConsole").inner_text(),
+                }
+                check("v16-resistive-study-independent-of-lesson-avr-serial",
+                      resistive_after == resistive_before,
+                      json.dumps({
+                          "before": resistive_before,
+                          "after": resistive_after,
+                      }, ensure_ascii=False))
+                page.locator("#stageTabWiring").click()
+                check("v16-resistive-study-never-mutates-existing-2d-netlist",
+                      page.locator(".wire-connected").count() == before_study_2d_wires
+                      and before_study_2d_wires == 1)
+                page.locator("#stageTab3d").click()
+
                 # The v1.5 editor tests deliberately mutate lesson-local circuit
                 # drafts for 02/10/14/16. Reload the same source page before the
                 # untouched v1.4 regression block so those legacy assertions run
@@ -1486,6 +2141,103 @@ def main() -> None:
                               and touch_targets["minimumHeight"] >= 40
                               and not touch_targets["tooSmall"],
                               json.dumps(touch_targets, ensure_ascii=False))
+                        explorer_mobile = small.evaluate("""() => {
+                            const root = document.querySelector('#labExplorer .lab-explorer');
+                            const controls = [...document.querySelectorAll(
+                              '#labExplorer .lab-explorer button, #labExplorer .lab-explorer select'
+                            )].filter(node => node.getClientRects().length && !node.disabled);
+                            const rows = controls.map(node => {
+                              const rect = node.getBoundingClientRect();
+                              return {
+                                name: node.getAttribute('aria-label') || node.textContent.trim().slice(0, 48),
+                                width: Number(rect.width.toFixed(1)),
+                                height: Number(rect.height.toFixed(1)),
+                              };
+                            });
+                            const rect = root?.getBoundingClientRect();
+                            return {
+                              exists: Boolean(root),
+                              source: root?.dataset.explorerSource || '',
+                              scope: root?.dataset.explorerScope || '',
+                              right: rect ? Number(rect.right.toFixed(1)) : null,
+                              viewport: innerWidth,
+                              scrollWidth: document.documentElement.scrollWidth,
+                              controlCount: rows.length,
+                              minimumWidth: rows.length ? Math.min(...rows.map(row => row.width)) : 0,
+                              minimumHeight: rows.length ? Math.min(...rows.map(row => row.height)) : 0,
+                              tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
+                            };
+                        }""")
+                        check("v16-mobile-explorer-no-overflow-touch-controls-375",
+                              explorer_mobile["exists"]
+                              and explorer_mobile["source"] in ("learner-empty", "learner-draft")
+                              and explorer_mobile["scope"] == "topology"
+                              and explorer_mobile["scrollWidth"] <= explorer_mobile["viewport"]
+                              and explorer_mobile["right"] <= explorer_mobile["viewport"] + 1
+                              and explorer_mobile["controlCount"] >= 3
+                              and explorer_mobile["minimumWidth"] >= 24
+                              and explorer_mobile["minimumHeight"] >= 40
+                              and not explorer_mobile["tooSmall"],
+                              json.dumps(explorer_mobile, ensure_ascii=False))
+                        breadboard_mobile = small.evaluate("""() => {
+                            const section = document.querySelector('#breadboardStudy');
+                            const controls = ['#bbProfile','#bbHoleA','#bbHoleB','#bbCompare']
+                              .map(selector => document.querySelector(selector))
+                              .filter(Boolean);
+                            const rows = controls.map(node => {
+                              const rect = node.getBoundingClientRect();
+                              return {id: node.id, width: rect.width, height: rect.height};
+                            });
+                            const rect = section?.getBoundingClientRect();
+                            return {
+                              exists: Boolean(section),
+                              right: rect?.right ?? null,
+                              minimumHeight: Math.min(...rows.map(row => row.height)),
+                              tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
+                              mapped: document.querySelector('#bbMappingWarning')?.dataset.mapped || '',
+                            };
+                        }""")
+                        check("v16-mobile-breadboard-study-touch-boundary-375",
+                              breadboard_mobile["exists"]
+                              and breadboard_mobile["right"] <= 376
+                              and breadboard_mobile["minimumHeight"] >= 40
+                              and not breadboard_mobile["tooSmall"]
+                              and breadboard_mobile["mapped"] == "false",
+                              json.dumps(breadboard_mobile, ensure_ascii=False))
+                        small.locator("#resistiveSolve").click()
+                        resistive_mobile = small.evaluate("""() => {
+                            const section = document.querySelector('#resistiveStudy');
+                            const results = document.querySelector('#resistiveDetails');
+                            const controls = ['#resistiveV','#resistiveR1','#resistiveR2','#resistiveSolve']
+                              .map(selector => document.querySelector(selector))
+                              .filter(Boolean);
+                            const rows = controls.map(node => {
+                              const rect = node.getBoundingClientRect();
+                              return {id: node.id, width: rect.width, height: rect.height};
+                            });
+                            const rect = section?.getBoundingClientRect();
+                            return {
+                              exists: Boolean(section),
+                              right: rect?.right ?? null,
+                              viewport: innerWidth,
+                              documentScrollWidth: document.documentElement.scrollWidth,
+                              minimumHeight: Math.min(...rows.map(row => row.height)),
+                              tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
+                              result: document.querySelector('#resistiveResult')?.dataset.result || '',
+                              detailsClientWidth: results?.clientWidth ?? 0,
+                              detailsScrollWidth: results?.scrollWidth ?? 0,
+                            };
+                        }""")
+                        check("v16-mobile-resistive-study-no-document-overflow-375",
+                              resistive_mobile["exists"]
+                              and resistive_mobile["right"] <= resistive_mobile["viewport"] + 1
+                              and resistive_mobile["documentScrollWidth"] <= resistive_mobile["viewport"]
+                              and resistive_mobile["minimumHeight"] >= 40
+                              and not resistive_mobile["tooSmall"]
+                              and resistive_mobile["result"] == "calculated"
+                              and resistive_mobile["detailsScrollWidth"] >=
+                                  resistive_mobile["detailsClientWidth"],
+                              json.dumps(resistive_mobile, ensure_ascii=False))
                     context.close()
 
                 # Published dist: offline after service worker installation.
@@ -1711,6 +2463,38 @@ def main() -> None:
                 check("offline-v15-lab-coach-timer1-modules-cached",
                       all(offline_v15_modules.values()),
                       json.dumps(offline_v15_modules, ensure_ascii=False))
+                offline_v16_modules = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [explorerModel, explorerUi, breadboard, breadboardUi, timer2, dcNetwork, resistiveUi, css] =
+                      await Promise.all([
+                        import(new URL('./src/lab-explorer.js', baseUrl).href),
+                        import(new URL('./src/lab-explorer-ui.js', baseUrl).href),
+                        import(new URL('./src/breadboard-topology.js', baseUrl).href),
+                        import(new URL('./src/breadboard-topology-ui.js', baseUrl).href),
+                        import(new URL('./src/avr-timer2.js', baseUrl).href),
+                        import(new URL('./src/dc-resistor-network.js', baseUrl).href),
+                        import(new URL('./src/resistive-study-ui.js', baseUrl).href),
+                        fetch(new URL('./styles/lab-explorer.css', baseUrl), { cache: 'no-store' }),
+                      ]);
+                    return {
+                        explorerModel: typeof explorerModel.createLabExplorerModel === 'function'
+                            && typeof explorerModel.explorerTerminalPosition === 'function',
+                        explorerUi: typeof explorerUi.mountLabExplorer === 'function',
+                        breadboard: typeof breadboard.createBreadboardTopology === 'function'
+                            && breadboard.createBreadboardTopology().claims?.physicalPlacementVerified === false,
+                        breadboardUi: typeof breadboardUi.mountBreadboardStudy === 'function',
+                        timer2: typeof timer2.createAvrTimer2 === 'function'
+                            && timer2.AVR_TIMER2_CAPABILITIES?.normalMode === true
+                            && timer2.AVR_TIMER2_CAPABILITIES?.pwm === false
+                            && timer2.AVR_TIMER2_CAPABILITIES?.toneParity === false,
+                        dcNetwork: typeof dcNetwork.solveResistiveDC === 'function',
+                        resistiveUi: typeof resistiveUi.mountResistiveStudy === 'function',
+                        cssOk: css.ok && (await css.text()).includes('.lab-explorer'),
+                    };
+                }""")
+                check("v16-offline-explorer-breadboard-timer2-modules-cached",
+                      all(offline_v16_modules.values()),
+                      json.dumps(offline_v16_modules, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

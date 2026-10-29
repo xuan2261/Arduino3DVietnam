@@ -40,9 +40,31 @@ Sau khi nhấn **Mạch mẫu** hoặc tự nối dây trong tab **Sơ đồ k�
 
 Mô hình hiển thị chân trên **chu vi khái niệm của nhóm linh kiện**, không có tương quan chính xác tới vị trí chân IC hay lỗ breadboard. Không dùng trạng thái 3D làm hướng dẫn lắp mạch thật nếu chưa đối chiếu pinout/datasheet. Bài 10 motor và 14 bơm vẫn chỉ có đường tín hiệu tham khảo, không thể coi nguồn/tải đã được kiểm chứng. Đây là chức năng bổ sung của v1.5; phiên bản công khai chỉ được xác nhận sau các cổng CI và kiểm tra thực tế trên GitHub Pages.
 
+### Lab Explorer v1.6: Inspector · Schematic · Minimap
+
+Trong source v1.6, mỗi bài có phần **Khám phá linh kiện và kết nối** với ba bề mặt đọc cùng dữ liệu bài học:
+
+1. **Inspector:** chọn một component từ minimap hoặc mô hình 3D để xem ID, nhãn, các chân và cảnh báo topology. Vị trí X/Z là lưới khái niệm. Arduino Uno cố định; component nào chưa có vị trí mapping vật lý vẫn được ghi rõ.
+2. **Schematic:** SVG và danh sách dây tương đương bằng HTML được xây dựng từ **netlist bản tự đấu**. Bài chưa có dây vẫn là 0 dây, dù có mạch mẫu. Bấm **Xem mạch mẫu tham khảo** để bật lớp dây đứt nét riêng biệt, chỉ để đọc và không được dùng tính điểm, kích hoạt hoặc gỡ dây của học viên. Khi bật chỉnh sửa 3D, lệnh nối/gỡ trong schematic đều đi qua `circuit-router` và cập nhật cùng bàn đấu dây 2D và cảnh 3D.
+3. **Minimap / plan view:** hiển thị vị trí tương đối của các component/terminal từ lab-layout. Chọn component và gọi focus để hướng camera vào vùng khái niệm; các phím Enter/Space và danh sách HTML cho phép thao tác khi không dùng được chuột chính xác. Focus chỉ đổi góc nhìn, không tự tạo dây hay quyết định tính đúng của mạch.
+
+Ở bài 01 không có netlist ngoài. Bài 10/14 có thể xem schematic đường tín hiệu nhưng tiếp tục **không kích hoạt** nguồn/tải motor/bơm. Bản tự đấu, mạch mẫu, mô phỏng giáo dục JavaScript và bằng chứng thanh ghi AVR là những nguồn khác nhau.
+
+### Học nhóm lỗ breadboard theo profile (source v1.6)
+
+Phần **Khám phá nhóm lỗ breadboard** cho phép chọn profile và so hai lỗ (ví dụ A1, E1 hoặc F1). Ở vùng terminal chung, năm lỗ A–E cùng cột tạo một node; năm lỗ F–J cùng cột tạo node khác, ngăn bởi khe giữa. Profile phổ thông **không suy luận rail** khi chưa biết cấu hình thật. Profile riêng BB830 Rev 7 có mô hình bốn rail 50 lỗ tách biệt; dấu +/− chỉ là ký hiệu, không tự mang điện.
+
+Ví dụ mô hình A1/E1 cùng node, A1/F1 khác node; nếu profile chưa xác minh rail thì màn hình trả **chưa đủ bằng chứng**, không khẳng định chắc chắn hở hoặc nối trên thiết bị thực. Kết quả không thay đổi mạch học viên, không tự cắm chân linh kiện vào bất kỳ lỗ nào trên scene 3D và không chứng minh nguồn, điện áp, dòng hoặc độ an toàn thực.
+
 ### Ước tính dòng LED với mô hình có giới hạn
 
 Ở **bài 02, 03 và 05**, mục **Ước tính dòng LED** hiển thị kết quả sau khi netlist đạt điều kiện topology; bản đấu chưa đạt sẽ bị từ chối tính. Công thức `I = (5 V − Vf) / R` dùng HIGH 5 V lý tưởng, điện trở và điện áp thuận LED giả định (bài RGB 05 không tính dòng PWM trung bình). Đây **không phải phép đo mạch thật** hay bằng chứng mọi linh kiện đang hoạt động an toàn.
+
+### Mạng điện trở DC lý tưởng độc lập (source v1.6)
+
+Trong mục **Mạng điện trở DC tuyến tính**, bạn tự nhập điện áp nguồn lý tưởng (0–5 V), R1 từ VCC đến MID và R2 từ MID đến GND (mỗi điện trở > 0 Ω). Bấm **Tính theo mô hình** để xem điện áp nút giữa, dòng và công suất tính toán của từng điện trở; nguồn và điện trở là thông số **do người học khai báo**, không lấy từ mạch hoặc cảm biến thật. Một ví dụ rõ ràng là 5 V, R1 = R2 = 1000 Ω: V(MID) = 2,5 V theo mô hình lý tưởng.
+
+Hệ thống dùng bộ giải mạng điện trở tuyến tính có giới hạn `src/dc-resistor-network.js`, loại bỏ đầu vào không hợp lệ/nhánh floating/phần tử ngoài khả năng. Không nối tự động vào netlist 16 bài, không tự suy nguồn GPIO, LED, motor, servo, chất lượng tiếp xúc hoặc giá trị đo. Không dùng những kết quả này làm chứng cứ điện áp/dòng an toàn trên mạch vật lý. Xem [phạm vi solver](DC_RESISTOR_NETWORK_V16.md).
 
 ## 5. Sửa, tải mã Arduino C++
 
@@ -63,6 +85,8 @@ Trong source **v1.4.0**, panel có lựa chọn **“Bật mô hình ngoại vi 
 Peripheral lab **không phải Arduino Uno hoàn chỉnh**: chưa có Timer1/2, waveform PWM/output compare đầy đủ, USART RX, cảm biến ngoài, mô hình điện, motor/servo physics hoặc parity `delay()/millis()/micros()`. ADC nhận đầu vào giả định cố định, không phải số đo. USART chỉ capture byte TX mà firmware thực sự hoàn tất, không phải Serial Monitor của simulator. Nút **Chạy mô phỏng** và phần mô phỏng JS vẫn là hệ thống độc lập; scene 3D không được coi là đầu ra phần cứng của peripheral lab.
 
 Source v1.5 có thêm **mô hình Timer1 độc lập WGM0 Normal** để học tập và chạy fixture đã được kiểm thử. Nó **không được gắn vào runner chung** vì Arduino core thật có thể khởi tạo WGM1 (ngoài khả năng đã kiểm chứng). Không gọi đây là Servo PWM hoặc `delay/millis` parity. Xem [Timer1](TIMER1_RUNTIME.md).
+
+Source v1.6 bổ sung **Timer2 độc lập WGM0 Normal** với TCNT2, prescaler, overflow và interrupt trong tập con được kiểm chứng, không gắn vào runner mặc định. Từ HEX Arduino thật, core chuyển sang chế độ Timer2 ngoài WGM0 nên adapter phải từ chối, không suy luận PWM/tone/Servo. Xem [Timer2](TIMER2_V16.md).
 
 Không dùng CPU baseline hoặc peripheral lab làm chứng cứ bo Arduino vật lý, tải điện hay độ chính xác thời gian thực. Nguồn máy là cycle count mô phỏng 16 MHz, không phải đồng hồ tường và không thay thế phép đo trên thiết bị.
 
