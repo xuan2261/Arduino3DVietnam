@@ -11,6 +11,7 @@ export const SKETCH_REVIEW_LIMITS = Object.freeze({
   maxSourceLines: 600,
   maxLineChars: 2000,
   maxHunks: 32,
+  maxLexicalFeatures: 24,
 });
 
 export const SKETCH_REVIEW_BOUNDARIES = Object.freeze({
@@ -28,6 +29,27 @@ export const SKETCH_REVIEW_BOUNDARIES = Object.freeze({
 const ALLOWED_INPUT_FIELDS = new Set(["lessonId", "reference", "draft"]);
 const DISALLOWED_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const BIDI_CONTROL = /[\u202A-\u202E\u2066-\u2069]/;
+const LEXICAL_FEATURES = Object.freeze([
+  Object.freeze({ id:"include-servo", label:"#include <Servo.h>", pattern:/#\s*include\s*<\s*Servo\.h\s*>/g, hint:"Nếu vẫn dùng đối tượng Servo, đối chiếu phần include của mã tham khảo." }),
+  Object.freeze({ id:"pin-mode", label:"pinMode(...)", pattern:/\bpinMode\s*\(/g, hint:"Đối chiếu cấu hình INPUT/OUTPUT trong setup() với chân mà bản nháp đang dùng." }),
+  Object.freeze({ id:"digital-write", label:"digitalWrite(...)", pattern:/\bdigitalWrite\s*\(/g, hint:"Đối chiếu các lần đặt HIGH/LOW với mục tiêu của bài và chân đích." }),
+  Object.freeze({ id:"digital-read", label:"digitalRead(...)", pattern:/\bdigitalRead\s*\(/g, hint:"Đối chiếu chân đọc digital và điều kiện HIGH/LOW với mã tham khảo." }),
+  Object.freeze({ id:"analog-read", label:"analogRead(...)", pattern:/\banalogRead\s*\(/g, hint:"Đối chiếu kênh analog và cách bản nháp dùng giá trị ADC." }),
+  Object.freeze({ id:"analog-write", label:"analogWrite(...)", pattern:/\banalogWrite\s*\(/g, hint:"Đối chiếu chân PWM và giá trị duty/PWM với mã tham khảo." }),
+  Object.freeze({ id:"tone", label:"tone(...)", pattern:/\btone\s*\(/g, hint:"Đối chiếu chân buzzer và tần số được truyền vào tone()." }),
+  Object.freeze({ id:"no-tone", label:"noTone(...)", pattern:/\bnoTone\s*\(/g, hint:"Đối chiếu nhánh dừng âm với điều kiện của bài." }),
+  Object.freeze({ id:"delay", label:"delay(...)", pattern:/\bdelay\s*\(/g, hint:"Đối chiếu thời gian chờ với nhịp hoặc chu kỳ mà bài đang minh họa." }),
+  Object.freeze({ id:"delay-microseconds", label:"delayMicroseconds(...)", pattern:/\bdelayMicroseconds\s*\(/g, hint:"Đối chiếu độ rộng xung/thời gian microsecond với mã tham khảo." }),
+  Object.freeze({ id:"pulse-in", label:"pulseIn(...)", pattern:/\bpulseIn\s*\(/g, hint:"Đối chiếu chân, mức logic và timeout của phép đo xung trong mã tham khảo." }),
+  Object.freeze({ id:"map", label:"map(...)", pattern:/\bmap\s*\(/g, hint:"Đối chiếu miền đầu vào/đầu ra của phép ánh xạ với dữ liệu bài học." }),
+  Object.freeze({ id:"serial-begin", label:"Serial.begin(...)", pattern:/\bSerial\s*\.\s*begin\s*\(/g, hint:"Đối chiếu cấu hình Serial trong mã tham khảo nếu bản nháp vẫn in dữ liệu." }),
+  Object.freeze({ id:"serial-println", label:"Serial.println(...)", pattern:/\bSerial\s*\.\s*println\s*\(/g, hint:"Đối chiếu giá trị được in với biến hoặc trạng thái mà bài muốn quan sát." }),
+  Object.freeze({ id:"object-attach", label:"*.attach(...)", pattern:/\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*attach\s*\(/g, hint:"Đối chiếu đối tượng và chân attach với mã tham khảo." }),
+  Object.freeze({ id:"object-write", label:"*.write(...)", pattern:/\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*write\s*\(/g, hint:"Đối chiếu giá trị write() với đối tượng mà bài đang điều khiển." }),
+  Object.freeze({ id:"for-loop", label:"for (...)", pattern:/\bfor\s*\(/g, hint:"Đối chiếu biến đếm, điều kiện dừng và bước tăng với vòng lặp trong mã tham khảo." }),
+  Object.freeze({ id:"if-condition", label:"if (...)", pattern:/\bif\s*\(/g, hint:"Đối chiếu điều kiện rẽ nhánh với ngưỡng hoặc trạng thái của bài." }),
+  Object.freeze({ id:"input-pullup", label:"INPUT_PULLUP", pattern:/\bINPUT_PULLUP\b/g, hint:"Nếu vẫn dùng pull-up nội, đối chiếu lại logic nhấn/thả HIGH/LOW." }),
+]);
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -282,6 +304,48 @@ function lineNumberAt(text, index) {
   return line;
 }
 
+function matchesFor(text, pattern) {
+  const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+  const regex = new RegExp(pattern.source, flags);
+  const matches = [];
+  for (let match = regex.exec(text); match; match = regex.exec(text)) {
+    matches.push(Object.freeze({
+      line: lineNumberAt(text, match.index),
+      index: match.index,
+    }));
+    if (match[0].length === 0) regex.lastIndex += 1;
+  }
+  return Object.freeze(matches);
+}
+
+function scanDelimiter(masked, open, close) {
+  const stack = [];
+  const extraClosingLines = [];
+  let extraClosingCount = 0;
+  let line = 1;
+  for (let index = 0; index < masked.length; index += 1) {
+    const char = masked[index];
+    if (char === "\n") {
+      line += 1;
+    } else if (char === open) {
+      stack.push(line);
+    } else if (char === close) {
+      if (stack.length) stack.pop();
+      else {
+        extraClosingCount += 1;
+        if (extraClosingLines.length < 8) extraClosingLines.push(line);
+      }
+    }
+  }
+  return Object.freeze({
+    balanced: stack.length === 0 && extraClosingCount === 0,
+    unclosedOpeningLines: Object.freeze(stack.slice(0, 8)),
+    extraClosingLines: Object.freeze(extraClosingLines),
+    unclosedOpeningCount: stack.length,
+    extraClosingCount,
+  });
+}
+
 function matchingBrace(masked, openIndex) {
   let depth = 0;
   for (let index = openIndex; index < masked.length; index += 1) {
@@ -316,31 +380,7 @@ function locateFunction(masked, source, name) {
 }
 
 function scanBraces(masked) {
-  const stack = [];
-  const extraClosingLines = [];
-  let extraClosingCount = 0;
-  let line = 1;
-  for (let index = 0; index < masked.length; index += 1) {
-    const char = masked[index];
-    if (char === "\n") {
-      line += 1;
-    } else if (char === "{") {
-      stack.push(line);
-    } else if (char === "}") {
-      if (stack.length) stack.pop();
-      else {
-        extraClosingCount += 1;
-        if (extraClosingLines.length < 8) extraClosingLines.push(line);
-      }
-    }
-  }
-  return Object.freeze({
-    balanced: stack.length === 0 && extraClosingLines.length === 0,
-    unclosedOpeningLines: Object.freeze(stack.slice(0, 8)),
-    extraClosingLines: Object.freeze(extraClosingLines),
-    unclosedOpeningCount: stack.length,
-    extraClosingCount,
-  });
+  return scanDelimiter(masked, "{", "}");
 }
 
 function analyzeStructure(text) {
@@ -352,8 +392,12 @@ function analyzeStructure(text) {
     setup,
     loop,
     braces: scanBraces(masked.text),
+    parentheses: scanDelimiter(masked.text, "(", ")"),
+    brackets: scanDelimiter(masked.text, "[", "]"),
     hasSetupToken: /\bsetup\s*\(/.test(masked.text),
     hasLoopToken: /\bloop\s*\(/.test(masked.text),
+    setupTokenLine: matchesFor(masked.text, /\bsetup\s*\(/g)[0]?.line ?? null,
+    loopTokenLine: matchesFor(masked.text, /\bloop\s*\(/g)[0]?.line ?? null,
     unterminatedBlockComment: masked.unterminatedBlockComment,
     unterminatedStringLiteral: masked.unterminatedStringLiteral,
   });
@@ -403,6 +447,34 @@ function buildWarnings(draftText, structure) {
       structure.braces.unclosedOpeningLines[0] ?? null,
     ));
   }
+  if (structure.parentheses.extraClosingCount) {
+    warnings.push(warning(
+      "PAREN_EXTRA_CLOSE",
+      "Có ngoặc đóng tròn không có ngoặc mở tương ứng theo phép quét lexical.",
+      structure.parentheses.extraClosingLines[0] ?? null,
+    ));
+  }
+  if (structure.parentheses.unclosedOpeningCount) {
+    warnings.push(warning(
+      "PAREN_UNCLOSED_OPEN",
+      "Có ngoặc mở tròn chưa thấy ngoặc đóng tương ứng theo phép quét lexical.",
+      structure.parentheses.unclosedOpeningLines[0] ?? null,
+    ));
+  }
+  if (structure.brackets.extraClosingCount) {
+    warnings.push(warning(
+      "BRACKET_EXTRA_CLOSE",
+      "Có ngoặc đóng vuông không có ngoặc mở tương ứng theo phép quét lexical.",
+      structure.brackets.extraClosingLines[0] ?? null,
+    ));
+  }
+  if (structure.brackets.unclosedOpeningCount) {
+    warnings.push(warning(
+      "BRACKET_UNCLOSED_OPEN",
+      "Có ngoặc mở vuông chưa thấy ngoặc đóng tương ứng theo phép quét lexical.",
+      structure.brackets.unclosedOpeningLines[0] ?? null,
+    ));
+  }
   if (structure.unterminatedBlockComment) {
     warnings.push(warning(
       "BLOCK_COMMENT_UNCLOSED",
@@ -416,6 +488,38 @@ function buildWarnings(draftText, structure) {
     ));
   }
   return Object.freeze(warnings);
+}
+
+function buildLexicalFeedback(referenceStructure, draftStructure) {
+  const findings = [];
+  for (const definition of LEXICAL_FEATURES) {
+    if (findings.length >= SKETCH_REVIEW_LIMITS.maxLexicalFeatures) break;
+    const referenceMatches = matchesFor(referenceStructure.masked, definition.pattern);
+    if (!referenceMatches.length) continue;
+    const draftMatches = matchesFor(draftStructure.masked, definition.pattern);
+    let status = "present";
+    if (!draftMatches.length) status = "absent";
+    else if (draftMatches.length < referenceMatches.length) status = "fewer-than-reference";
+    findings.push(Object.freeze({
+      id: definition.id,
+      label: definition.label,
+      status,
+      referenceCount: referenceMatches.length,
+      draftCount: draftMatches.length,
+      referenceLine: referenceMatches[0]?.line ?? null,
+      draftLine: draftMatches[0]?.line ?? null,
+      hint: definition.hint,
+    }));
+  }
+  const differenceCount = findings.filter(item => item.status !== "present").length;
+  return Object.freeze({
+    mode: "masked-reference-pattern-scan",
+    commentsAndStringsIgnored: true,
+    expectedFeatureCount: findings.length,
+    presentFeatureCount: findings.length - differenceCount,
+    differenceCount,
+    findings: Object.freeze(findings),
+  });
 }
 
 function functionChanged(referenceFunction, draftFunction) {
@@ -449,6 +553,9 @@ function buildGuidance(changes, referenceStructure, draftStructure, warnings) {
   if (warnings.some(item => item.code.startsWith("BRACE_"))) {
     guidance.push("Cân bằng ngoặc nhọn trước khi đưa mã sang một công cụ biên dịch Arduino thật để kiểm tra tiếp.");
   }
+  if (warnings.some(item => item.code.startsWith("PAREN_") || item.code.startsWith("BRACKET_"))) {
+    guidance.push("Đối chiếu cặp ngoặc tròn/vuông ở dòng được cảnh báo; đây là kiểm tra lexical, không phải parser C++.");
+  }
   if (warnings.some(item => /SETUP|LOOP/.test(item.code))) {
     guidance.push("Arduino sketch thông thường cần cả setup() và loop(); review này chỉ nhận dạng mẫu nguồn phổ biến, không phải parser C++.");
   }
@@ -470,6 +577,7 @@ export function inspectSketchDraft(input) {
   const referenceStructure = analyzeStructure(reference.text);
   const draftStructure = analyzeStructure(draft.text);
   const warnings = buildWarnings(draft.text, draftStructure);
+  const lexical = buildLexicalFeedback(referenceStructure, draftStructure);
   const setupChanged = functionChanged(referenceStructure.setup, draftStructure.setup);
   const loopChanged = functionChanged(referenceStructure.loop, draftStructure.loop);
   const status = changes.changedLines === 0 ? "reference" : "changed";
@@ -488,15 +596,23 @@ export function inspectSketchDraft(input) {
       setupChanged,
       loopChanged,
       bracesBalanced: draftStructure.braces.balanced,
+      parenthesesBalanced: draftStructure.parentheses.balanced,
+      bracketsBalanced: draftStructure.brackets.balanced,
       unclosedOpeningBraces: draftStructure.braces.unclosedOpeningCount,
       extraClosingBraces: draftStructure.braces.extraClosingCount,
+      unclosedOpeningParentheses: draftStructure.parentheses.unclosedOpeningCount,
+      extraClosingParentheses: draftStructure.parentheses.extraClosingCount,
+      unclosedOpeningBrackets: draftStructure.brackets.unclosedOpeningCount,
+      extraClosingBrackets: draftStructure.brackets.extraClosingCount,
     },
     warnings,
+    lexical,
     guidance: buildGuidance(changes, referenceStructure, draftStructure, warnings),
     provenance: {
       reference: "lesson-reference",
       draft: "editor-draft",
       comparison: "local-line-diff-and-source-heuristics",
+      lexical: "masked-reference-pattern-scan",
     },
     claims: {
       compiled: false,

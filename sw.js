@@ -57,7 +57,10 @@ const ASSETS = [
   "./src/breadboard-hole-grid.js", "./src/practice-wire-guidance.js",
   "./docs/BREADBOARD_HOLE_PICKER_NEXT.md",
   "./docs/PRACTICE_WIRE_GUIDANCE_NEXT.md",
-  "./docs/SCENE_WIRE_PREVIEW_NEXT.md"
+  "./docs/SCENE_WIRE_PREVIEW_NEXT.md",
+  "./docs/SCENE_VISUAL_FIDELITY_NEXT.md",
+  "./docs/PRACTICE_CHECKLIST_NEXT.md",
+  "./docs/SKETCH_LEXICAL_FEEDBACK_NEXT.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

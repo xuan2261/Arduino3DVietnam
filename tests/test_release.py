@@ -260,11 +260,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(build_site.POST_V16_LAB_FILES, expected_post_v16_lab)
         self.assertEqual(build_site.POST_V16_INTERACTION_FILES, expected_post_v16_interaction)
         self.assertEqual(build_site.POST_V16_GUIDED_WIRING_FILES, expected_post_v16_guided_wiring)
-        self.assertEqual(len(build_site.FILES), 107,
-                         "candidate must remain 102 protected files + exactly 5 guided-wiring files")
+        self.assertEqual(len(build_site.FILES), 110,
+                         "candidate must preserve 107 prior paths + exactly 3 fidelity docs")
         self.assertEqual(build_site.FILES[87:97], expected_post_v16_lab)
         self.assertEqual(build_site.FILES[97:102], expected_post_v16_interaction)
-        self.assertEqual(build_site.FILES[102:], expected_post_v16_guided_wiring)
+        self.assertEqual(build_site.FILES[102:107], expected_post_v16_guided_wiring)
 
         # Hash the ordered path prefixes, not source bytes. These pins make it
         # impossible to silently reorder/replace an older public asset while
@@ -302,10 +302,28 @@ class ReleaseContractTests(unittest.TestCase):
             "the protected 102-file interaction path prefix changed",
         )
 
+        expected_fidelity = [
+            "docs/SCENE_VISUAL_FIDELITY_NEXT.md",
+            "docs/PRACTICE_CHECKLIST_NEXT.md",
+            "docs/SKETCH_LEXICAL_FEEDBACK_NEXT.md",
+        ]
+        self.assertTrue(hasattr(build_site, "POST_V16_FIDELITY_FILES"))
+        self.assertEqual(build_site.POST_V16_FIDELITY_FILES, expected_fidelity)
+        self.assertEqual(build_site.FILES[107:], expected_fidelity)
+        protected_guided = sha256(
+            ("\n".join(build_site.FILES[:107]) + "\n").encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(
+            protected_guided,
+            "c99ef11e4b8e53f4a5ca58ab897da6c509053ebb5495582d63f75ec8e33fb7ec",
+            "the protected 107-file guided-wiring path prefix changed",
+        )
+
         for filename in [
             *expected_post_v16_lab,
             *expected_post_v16_interaction,
             *expected_post_v16_guided_wiring,
+            *expected_fidelity,
         ]:
             source = build_site._release_source(filename)
             self.assertTrue(source.is_file(), filename)
@@ -369,7 +387,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             build_site._service_worker_assets(worker),
             expected_assets,
-            "service-worker precache must exactly mirror the 107-file release order",
+            "service-worker precache must exactly mirror the 110-file release order",
         )
 
         with tempfile.TemporaryDirectory(prefix="arduino3d-authored-lab-release-") as temporary:

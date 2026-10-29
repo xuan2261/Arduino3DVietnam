@@ -2,7 +2,9 @@ import { listTerminals } from "../src/circuit-router.js";
 import {
   BB830_RAIL_IDS,
   BREADBOARD_HOLE_GRID_PAGE_SIZE,
+  compareBreadboardContactHoles,
   createBreadboardHoleGridPage,
+  inspectBreadboardContactGroup,
   listBreadboardRailChoices,
   pickBreadboardGridHole,
   pickBreadboardRailHole,
@@ -150,6 +152,14 @@ function columnHeaderPlaceholders(document) {
     document.getElementById("bbHoleGrid"),
     node => Object.hasOwn(node.dataset, "bbGridColumnEmpty"),
   );
+}
+
+function contactMemberButtons(document) {
+  return holeButtons(document).filter(button => button.dataset.bbContactMember === "true");
+}
+
+function selectedContactButtons(document) {
+  return holeButtons(document).filter(button => button.dataset.bbContactSelected === "true");
 }
 
 function lessonContext(lessonId) {
@@ -608,6 +618,268 @@ export function runBreadboardHoleGridContracts() {
     input.value = "A12";
     button.click();
     assert(input.value === "A12" && fixture.ui.getAuthoredPlacement() === null, "disposed picker inert");
+  });
+
+  check("contact-model-left-strip-members-and-provenance", () => {
+    const inspected = inspectBreadboardContactGroup({ profileId: GENERIC, holeId: " c3 " });
+    assert(inspected.status === "known" && inspected.holeId === "C3", "left strip inspection known/canonical");
+    assert(inspected.nodeId === "strip:3:left" && inspected.contactRegion === "left-terminal-strip", "left node identity");
+    assert(inspected.members.join(",") === "A3,B3,C3,D3,E3", "left five-hole group");
+    assert(inspected.neighbors.join(",") === "A3,B3,D3,E3", "left comparable neighbors");
+    assert(inspected.provenance.scope === "generic-terminal-field-only" && inspected.provenance.sources.length >= 2, "profile provenance exposed");
+    assert(inspected.claims.profileInternalContactKnown === true && inspected.claims.circuitRouterInspected === false,
+      "contact model remains profile-only");
+  });
+
+  check("contact-model-right-strip-respects-center-gap", () => {
+    const inspected = inspectBreadboardContactGroup({ profileId: GENERIC, holeId: "H12" });
+    assert(inspected.nodeId === "strip:12:right" && inspected.contactRegion === "right-terminal-strip", "right node identity");
+    assert(inspected.members.join(",") === "F12,G12,H12,I12,J12", "right five-hole group");
+    const compared = compareBreadboardContactHoles({ profileId: GENERIC, firstHoleId: "E12", secondHoleId: "F12" });
+    assert(compared.status === "different-node" && compared.sameContactGroup === false, "center gap stays separate");
+  });
+
+  check("contact-model-same-strip-comparison", () => {
+    const compared = compareBreadboardContactHoles({ profileId: GENERIC, firstHoleId: "A8", secondHoleId: "E8" });
+    assert(compared.status === "same-node" && compared.sameContactGroup === true, "A-E same column same node");
+    assert(compared.first.nodeId === "strip:8:left" && compared.second.nodeId === "strip:8:left", "comparison node IDs");
+    assert(compared.claims.externalWireInspected === false && compared.claims.physicalContactSimulated === false,
+      "comparison has no external/physical inference");
+  });
+
+  check("contact-model-generic-rail-is-unknown", () => {
+    const inspected = inspectBreadboardContactGroup({ profileId: GENERIC, holeId: "P1+25" });
+    assert(inspected.status === "unknown" && inspected.nodeId === null, "generic rail unknown");
+    assert(inspected.members.length === 0 && inspected.neighbors.length === 0, "generic rail exposes no invented members");
+    assert(inspected.reason === "profile-power-rail-unverified", "generic rail unknown reason");
+  });
+
+  check("contact-model-bb830-rail-is-independent-fifty-hole-node", () => {
+    const inspected = inspectBreadboardContactGroup({ profileId: BB830, holeId: "P2-17" });
+    assert(inspected.status === "known" && inspected.nodeId === "rail:P2-" && inspected.nodeKind === "power-rail", "BB830 rail known");
+    assert(inspected.members.length === 50 && inspected.neighbors.length === 49, "BB830 rail 50-hole group");
+    assert(inspected.members[0] === "P2-1" && inspected.members.at(-1) === "P2-50", "BB830 rail endpoints");
+    const separate = compareBreadboardContactHoles({ profileId: BB830, firstHoleId: "P2-1", secondHoleId: "P1+1" });
+    assert(separate.status === "different-node" && separate.sameContactGroup === false, "signed rails stay independent");
+    const same = compareBreadboardContactHoles({ profileId: BB830, firstHoleId: "P2-1", secondHoleId: "P2-50" });
+    assert(same.status === "same-node" && same.sameContactGroup === true, "same BB830 rail continuous within profile");
+  });
+
+  check("negative-contact-model-invalid-hole-rejected", () => {
+    expectThrow(() => inspectBreadboardContactGroup({ profileId: GENERIC, holeId: "K1" }), /A1\.\.J63|P1/i, "invalid contact hole");
+    expectThrow(() => compareBreadboardContactHoles({ profileId: GENERIC, firstHoleId: "A1", secondHoleId: "P3+1" }), /P1|P2/i,
+      "invalid compare hole");
+  });
+
+  check("contact-dom-left-group-highlights-five-only", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "C3").click();
+      const members = contactMemberButtons(fixture.document);
+      const selected = selectedContactButtons(fixture.document);
+      const grid = fixture.document.getElementById("bbHoleGrid");
+      const trench = descendants(grid, node => node.dataset.bbContactBoundary === "center-gap");
+      assert(members.map(button => button.dataset.bbGridHole).join(",") === "A3,B3,C3,D3,E3", "left visual contact members");
+      assert(selected.length === 1 && selected[0].dataset.bbGridHole === "C3", "selected contact hole hook");
+      assert(members.every(button => button.dataset.bbContactSide === "left"), "left member side hook");
+      assert(trench.length === 1, "center trench remains explicit boundary");
+      assert(grid.dataset.bbContactNode === "strip:3:left" && grid.dataset.bbContactProfile === GENERIC, "grid node/profile hooks");
+      assert(fixture.ui.getAuthoredPlacement() === null, "contact highlight creates no placement");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-right-group-never-crosses-trench", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "H3").click();
+      const members = contactMemberButtons(fixture.document);
+      assert(members.map(button => button.dataset.bbGridHole).join(",") === "F3,G3,H3,I3,J3", "right visual contact members");
+      assert(members.every(button => button.dataset.bbContactSide === "right"), "right member side hook");
+      assert(!members.some(button => /^[A-E]/.test(button.dataset.bbGridHole)), "highlight must not cross E/F trench");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-accessible-status-has-node-provenance-neighbors-and-safe-compare", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "A1").click();
+      const status = fixture.document.getElementById("bbGridStatus");
+      const inspection = fixture.ui.getContactInspection();
+      assert(inspection?.nodeId === "strip:1:left" && inspection.neighbors.length === 4, "UI exposes immutable contact inspection");
+      assert(/strip:1:left/.test(status.textContent) && /provenance generic-terminal-field-only/.test(status.textContent), "accessible node/provenance text");
+      assert(/A1, B1, C1, D1, E1/.test(status.textContent), "accessible contact neighbors/group text");
+      assert(status.dataset.bbContactCompareA === "same-node" && status.dataset.bbContactCompareB === "same-node",
+        "safe comparisons to current A1/E1 inputs");
+      assert(/chưa tạo placement/i.test(status.textContent), "status preserves input-only boundary");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-current-compare-input-refresh-is-read-only", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "A1").click();
+      const holeB = fixture.document.getElementById("bbHoleB");
+      holeB.value = "F1";
+      holeB.input();
+      const status = fixture.document.getElementById("bbGridStatus");
+      assert(status.dataset.bbContactCompareA === "same-node" && status.dataset.bbContactCompareB === "different-node",
+        "comparison status refreshes without compare button");
+      assert(fixture.document.getElementById("bbHoleA").value === "A1" && holeB.value === "F1", "contact comparison does not mutate compare inputs");
+      assert(fixture.ui.getAuthoredPlacement() === null, "contact comparison creates no placement");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("negative-contact-dom-invalid-compare-input-does-not-break-selection", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "A1").click();
+      const holeA = fixture.document.getElementById("bbHoleA");
+      holeA.value = "<bad>";
+      holeA.input();
+      const status = fixture.document.getElementById("bbGridStatus");
+      assert(status.dataset.bbContactCompareA === "invalid-input", "invalid compare field fails closed locally");
+      assert(contactMemberButtons(fixture.document).length === 5 && selectedContactButtons(fixture.document)[0].dataset.bbGridHole === "A1",
+        "valid selected contact remains inspectable");
+      assert(fixture.ui.getAuthoredPlacement() === null, "invalid comparison cannot assign");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-manual-place-input-clears-stale-highlight", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "A1").click();
+      const input = fixture.document.getElementById("bbPlaceHole");
+      input.value = "B2";
+      input.input();
+      assert(fixture.ui.getContactInspection() === null, "manual input clears contact inspection");
+      assert(contactMemberButtons(fixture.document).length === 0 && selectedContactButtons(fixture.document).length === 0, "manual input clears visual group");
+      assert(/sửa thủ công/.test(fixture.document.getElementById("bbGridStatus").textContent), "manual input reset status");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-page-navigation-clears-inspection-but-keeps-picked-input", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "C3").click();
+      fixture.document.getElementById("bbGridNext").click();
+      assert(fixture.ui.getContactInspection() === null, "page navigation clears contact inspection");
+      assert(contactMemberButtons(fixture.document).length === 0, "page navigation clears contact highlight");
+      assert(fixture.document.getElementById("bbPlaceHole").value === "C3", "historical picked input persists across page navigation");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-all-eight-pages-highlight-exact-five-strip-members", () => {
+    for (let page = 1; page <= 8; page += 1) {
+      const fixture = domFixture();
+      try {
+        for (let step = 1; step < page; step += 1) fixture.document.getElementById("bbGridNext").click();
+        const column = (page - 1) * 8 + 1;
+        holeButton(fixture.document, "A" + column).click();
+        const members = contactMemberButtons(fixture.document).map(button => button.dataset.bbGridHole);
+        assert(members.join(",") === ["A","B","C","D","E"].map(row => row + column).join(","), "page" + page + " exact five left contacts");
+        assert(holeButtons(fixture.document).every(button => button.style.minWidth === "44px" && button.style.minHeight === "44px"),
+          "page" + page + " keeps44px buttons");
+      } finally { fixture.ui.dispose(); }
+    }
+  });
+
+  check("contact-dom-lesson-and-profile-reset-clear-inspection", () => {
+    const ref = { current: lessonContext(2) };
+    const fixture = domFixture(ref);
+    try {
+      holeButton(fixture.document, "A1").click();
+      ref.current = lessonContext(3);
+      fixture.ui.update();
+      assert(fixture.ui.getContactInspection() === null && contactMemberButtons(fixture.document).length === 0, "lesson reset clears contact state");
+      holeButton(fixture.document, "A1").click();
+      const profile = fixture.document.getElementById("bbProfile");
+      profile.value = BB830;
+      profile.change();
+      assert(fixture.ui.getContactInspection() === null && contactMemberButtons(fixture.document).length === 0, "profile reset clears contact state");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-bb830-rail-status-is-known-independent-and-input-only", () => {
+    const fixture = domFixture();
+    try {
+      const profile = fixture.document.getElementById("bbProfile");
+      profile.value = BB830;
+      profile.change();
+      fixture.document.getElementById("bbGridRail").value = "P1+";
+      fixture.document.getElementById("bbGridRailHole").value = "25";
+      fixture.document.getElementById("bbPickRail").click();
+      const inspection = fixture.ui.getContactInspection();
+      const status = fixture.document.getElementById("bbGridStatus");
+      assert(inspection?.nodeId === "rail:P1+" && inspection.members.length === 50 && inspection.neighbors.length === 49, "BB830 UI rail inspection");
+      assert(/node rail:P1\+/.test(status.textContent) && /node 50 lỗ độc lập/.test(status.textContent), "BB830 accessible independent rail status");
+      assert(contactMemberButtons(fixture.document).length === 0, "rail inspection does not fake strip highlight");
+      assert(fixture.document.getElementById("bbPlaceHole").value === "P1+25" && fixture.ui.getAuthoredPlacement() === null,
+        "BB830 rail remains input-only before assign");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-duplicate-session-still-fails-only-at-explicit-assign", () => {
+    const fixture = domFixture();
+    try {
+      const terminal = fixture.document.getElementById("bbTerminal");
+      terminal.value = "D13";
+      holeButton(fixture.document, "A1").click();
+      fixture.document.getElementById("bbAssignHole").click();
+      assert(fixture.ui.getAuthoredPlacement()?.terminalToHole.D13 === "A1", "first explicit assignment committed");
+      terminal.value = "R1:A";
+      terminal.change();
+      holeButton(fixture.document, "A1").click();
+      assert(fixture.ui.getAuthoredPlacement()?.placements.length === 1, "contact selection alone does not attempt duplicate assignment");
+      fixture.document.getElementById("bbAssignHole").click();
+      assert(fixture.ui.getAuthoredPlacement()?.placements.length === 1, "duplicate explicit assign rejected atomically");
+      assert(fixture.document.getElementById("bbPlacementStatus").dataset.result === "error", "duplicate remains session-validator error");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("contact-dom-highlight-preserves-native-focus-and-touch-contract", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "C3").click();
+      const members = contactMemberButtons(fixture.document);
+      assert(members.length === 5, "five highlighted members");
+      assert(members.every(button => button.type === "button" && button.getAttribute("tabindex") === null),
+        "highlight keeps native keyboard focus semantics");
+      assert(members.every(button => button.style.minWidth === "44px" && button.style.minHeight === "44px"),
+        "highlight keeps44px minimum target");
+      assert(members.every(button => button.style.borderWidth === "3px" && /cùng nhóm tiếp xúc strip:3:left/.test(button.getAttribute("aria-label") || "")),
+        "highlight is visually and accessibly explicit");
+      const selected = selectedContactButtons(fixture.document)[0];
+      assert(selected.style.textDecoration === "underline" && selected.getAttribute("aria-pressed") === "true",
+        "selected member remains distinct without changing pressed semantics");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("negative-contact-dom-invalid-profile-clears-contact-state", () => {
+    const fixture = domFixture();
+    try {
+      holeButton(fixture.document, "A1").click();
+      assert(fixture.ui.getContactInspection()?.nodeId === "strip:1:left", "precondition contact selected");
+      const profile = fixture.document.getElementById("bbProfile");
+      profile.value = "invented-profile";
+      profile.change();
+      assert(fixture.ui.getContactInspection() === null, "invalid profile clears contact inspection");
+      assert(contactMemberButtons(fixture.document).length === 0, "invalid profile clears contact highlight");
+      assert(fixture.document.getElementById("bbHoleGrid").dataset.state === "error", "invalid profile leaves picker fail-closed");
+    } finally { fixture.ui.dispose(); }
+  });
+
+  check("negative-contact-dom-invalid-lesson-context-clears-contact-state", () => {
+    const ref = { current: lessonContext(2) };
+    const fixture = domFixture(ref);
+    try {
+      holeButton(fixture.document, "A1").click();
+      assert(fixture.ui.getContactInspection()?.nodeId === "strip:1:left", "precondition contact selected");
+      ref.current = { lessonId: 2, terminals: "forged" };
+      fixture.ui.update();
+      assert(fixture.ui.getContactInspection() === null, "invalid lesson context clears contact inspection");
+      assert(contactMemberButtons(fixture.document).length === 0, "invalid lesson context clears contact highlight");
+      assert(fixture.document.getElementById("bbHoleGrid").dataset.state === "error", "invalid lesson context leaves picker fail-closed");
+    } finally { fixture.ui.dispose(); }
   });
 
   return Object.freeze({

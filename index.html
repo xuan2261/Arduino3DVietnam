@@ -71,7 +71,10 @@
                 <fieldset class="lab-editor-group"><legend>02 · Nối chân theo netlist</legend>
                   <div class="lab-wire-fields"><label for="labFromPin">Chân thứ nhất</label><select id="labFromPin"></select><label for="labToPin">Chân thứ hai</label><select id="labToPin"></select></div>
                   <div class="lab-editor-actions"><button type="button" id="labConnect" class="button button-soft">+ Nối hai chân</button><button type="button" id="labRemoveLastWire">Gỡ dây cuối</button><button type="button" id="labSampleWires">Mạch mẫu</button><button type="button" id="labClearWires">Xóa dây</button></div>
-                  <p id="labSelectedTerminal">Chọn hai chân trên mô hình 3D hoặc qua danh sách để nối.</p>
+                  <div class="lab-pending-wire-actions" role="group" aria-label="Điều khiển thao tác nối dây đang chờ">
+                    <p id="labSelectedTerminal" role="status" aria-live="polite">Chọn hai chân trên mô hình 3D hoặc qua danh sách để nối.</p>
+                    <button id="labCancelPendingWire" type="button" class="button button-soft" aria-describedby="labSelectedTerminal" disabled>Hủy chọn chân đầu tiên</button>
+                  </div>
                   <p class="lab-pin-rule">Chỉ dùng chân có trong bài; mọi thay đổi cập nhật cả sơ đồ 2D và kiểm tra lỗi, không điều khiển thiết bị thật.</p>
                 </fieldset>
               </div>
@@ -125,6 +128,7 @@
                 <div class="breadboard-hole-grid-scroller" role="region" tabindex="0" aria-label="Lưới lỗ A đến J, chia từng tám cột; có thể cuộn ngang khi màn hình hẹp">
                   <div id="bbHoleGrid" class="breadboard-hole-grid" role="group" aria-label="Các nút chọn lỗ dải tiếp xúc A–E, rãnh giữa, F–J"></div>
                 </div>
+                <p class="breadboard-contact-legend">Viền đậm đánh dấu lỗ đang chọn; các lỗ được tô cùng nhóm chỉ thể hiện <strong>tiếp điểm nội bộ theo profile</strong>, không phải dây jumper hoặc liên thông với mạch Arduino. Khe E–F luôn tách hai dải tiếp điểm.</p>
                 <div class="breadboard-rail-picker">
                   <label for="bbGridRail">Thanh nguồn BB830 (ký hiệu, không tự cấp điện)</label>
                   <select id="bbGridRail" aria-describedby="bbAuthoredBoundary">

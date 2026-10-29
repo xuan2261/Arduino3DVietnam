@@ -131,11 +131,15 @@ export function runSketchReviewUiContracts() {
     assert(section.querySelector("[data-sketch-review-counts]"), "counts selector");
     assert(section.querySelector("[data-sketch-review-guidance]"), "guidance selector");
     assert(section.querySelector("[data-sketch-review-warnings]"), "warnings selector");
+    assert(section.querySelector("[data-sketch-review-lexical]"), "lexical selector");
     assert(section.querySelector("[data-sketch-review-boundary]"), "boundary selector");
     const status = section.querySelector("[data-sketch-review-status-label]");
     assert(status?.getAttribute("role") === "status", "status role");
     assert(status?.getAttribute("aria-live") === "polite", "aria-live");
     assert(status?.getAttribute("aria-atomic") === "true", "aria atomic");
+    const lexicalStatus = section.querySelector("[data-sketch-review-lexical-summary]");
+    assert(lexicalStatus?.getAttribute("role") === "status", "lexical status role");
+    assert(lexicalStatus?.getAttribute("aria-live") === "polite", "lexical status live");
   });
 
   check("reference-and-changed-copy-stay-source-comparison-only", () => {
@@ -160,6 +164,43 @@ export function runSketchReviewUiContracts() {
     assert(Number(section.getAttribute("data-sketch-review-warning-count")) > 0, "warning count");
     const row = section.querySelector("[data-sketch-review-warning='BRACE_UNCLOSED_OPEN']");
     assert(row && /Dòng 2/.test(row.textContent), "warning line and code");
+  });
+
+  check("commented-reference-call-renders-line-aware-lexical-difference", () => {
+    const lesson = lessons[1];
+    const draft = lesson.sketch
+      .replace("  digitalWrite(LED, HIGH);", "  // digitalWrite(LED, HIGH);")
+      .replace("  digitalWrite(LED, LOW);", "  // digitalWrite(LED, LOW);");
+    const inspection = inspectSketchDraft({
+      lessonId: 2,
+      reference: lesson.sketch,
+      draft,
+    });
+    const section = render(inspection);
+    assert(section.getAttribute("data-sketch-review-tone") === "warning",
+      "lexical difference should surface warning tone");
+    assert(section.getAttribute("data-sketch-review-lexical-difference-count") !== "0",
+      "lexical difference count");
+    const row = section.querySelector("[data-sketch-review-lexical-finding='digital-write']");
+    assert(row?.getAttribute("data-sketch-review-lexical-status") === "absent",
+      "commented calls must render absent");
+    assert(/Mẫu dòng \d+/.test(row?.textContent || ""), "reference line must be visible");
+    assert(/chưa thấy ngoài comment\/string/i.test(row?.textContent || ""),
+      "masked-source explanation missing");
+  });
+
+  check("parenthesis-syntax-warning-renders-line-with-lexical-boundary", () => {
+    const lesson = lessons[1];
+    const inspection = inspectSketchDraft({
+      lessonId: 2,
+      reference: lesson.sketch,
+      draft: "void setup() { pinMode(13, OUTPUT; }\nvoid loop() {}",
+    });
+    const section = render(inspection);
+    const row = section.querySelector("[data-sketch-review-warning='PAREN_UNCLOSED_OPEN']");
+    assert(row && /Dòng 1/.test(row.textContent), "parenthesis warning line");
+    assert(/heuristic lexical/i.test(section.querySelector("[data-sketch-review-boundary]")?.textContent || ""),
+      "lexical boundary disclosure");
   });
 
   check("no-warning-copy-does-not-upgrade-to-compile-or-semantic-validation", () => {
@@ -194,6 +235,13 @@ export function runSketchReviewUiContracts() {
       message: payload,
       line: 4,
     }];
+    forged.lexical.findings[0].label = payload;
+    forged.lexical.findings[0].hint = payload;
+    forged.lexical.findings[0].status = "absent";
+    forged.lexical.findings[0].draftCount = 0;
+    forged.lexical.findings[0].draftLine = null;
+    forged.lexical.differenceCount = 1;
+    forged.lexical.presentFeatureCount = forged.lexical.expectedFeatureCount - 1;
     const section = render(forged);
     assert(section.textContent.includes(payload), "dynamic text should remain literal");
     assert(section.querySelector("img") === null, "dynamic text must not create img nodes");
@@ -249,6 +297,33 @@ export function runSketchReviewUiContracts() {
     expectThrow(() => render(provenance), /provenance/i, "foreign provenance");
   });
 
+  check("forged-lexical-mode-counts-or-status-fail-closed", () => {
+    const badMode = clone(referenceInspection());
+    badMode.lexical.mode = "raw-source-scan";
+    expectThrow(() => render(badMode), /lexical/i, "bad lexical mode");
+
+    const badCounts = clone(referenceInspection());
+    badCounts.lexical.differenceCount = 1;
+    expectThrow(() => render(badCounts), /counts/i, "inconsistent lexical counts");
+
+    const badStatus = clone(referenceInspection());
+    badStatus.lexical.findings[0].status = "compiled";
+    expectThrow(() => render(badStatus), /findings/i, "bad lexical finding status");
+
+    const impossiblePresent = clone(referenceInspection());
+    impossiblePresent.lexical.findings[0].draftCount = 0;
+    impossiblePresent.lexical.findings[0].draftLine = null;
+    expectThrow(() => render(impossiblePresent), /status\/count\/line/i,
+      "present feature with zero draft count");
+
+    const forgedAggregate = clone(referenceInspection());
+    forgedAggregate.lexical.findings[0].status = "absent";
+    forgedAggregate.lexical.findings[0].draftCount = 0;
+    forgedAggregate.lexical.findings[0].draftLine = null;
+    expectThrow(() => render(forgedAggregate), /aggregate counts/i,
+      "finding status disagrees with aggregate counts");
+  });
+
   check("all-16-canonical-inspections-render-with-exact-lesson-and-status", () => {
     for (const lesson of lessons) {
       const inspection = inspectSketchDraft({
@@ -263,6 +338,11 @@ export function runSketchReviewUiContracts() {
         "lesson " + lesson.id + " status");
       assert(section.getAttribute("data-sketch-review-warning-count") === "0",
         "lesson " + lesson.id + " warning count");
+      assert(section.getAttribute("data-sketch-review-lexical-difference-count") === "0",
+        "lesson " + lesson.id + " lexical difference count");
+      const lexicalStatus = section.querySelector("[data-sketch-review-lexical-summary]");
+      assert(/bỏ qua comment\/string/i.test(lexicalStatus?.textContent || ""),
+        "lesson " + lesson.id + " masked lexical disclosure");
       assert(/không biên dịch Arduino C\+\+/i.test(section.textContent),
         "lesson " + lesson.id + " boundary");
     }

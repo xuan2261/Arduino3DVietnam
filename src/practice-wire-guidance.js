@@ -160,6 +160,10 @@ function manualResult(checkpoint) {
     inspectTerminalId: null,
     missingPairs: [],
     reviewExtraPairs: [],
+    pairChecklist: [],
+    extraReviewChecklist: [],
+    matchedPairCount: 0,
+    requiredPairCount: 0,
     explanation: "Checkpoint này là bước manual; wire guidance không dùng topology để chấm hoặc hướng dẫn nối dây cho bước hiện tại.",
     reviewExplanation: "Không áp dụng review cạnh dây cho checkpoint manual.",
   });
@@ -188,6 +192,12 @@ export function inspectPracticeWireGuidance(input) {
     throw new RangeError("Canonical terminal list không hợp lệ.");
   }
   const canonicalReference = createSampleCircuit(checkpoint.lessonId);
+  const canonicalReferenceNormalized = normalizeCircuit(
+    canonicalReference,
+    checkpoint.lessonId,
+    terminalIds,
+    canonicalReference.engine ?? null,
+  );
   const learner = normalizeCircuit(
     source.circuit,
     checkpoint.lessonId,
@@ -199,27 +209,60 @@ export function inspectPracticeWireGuidance(input) {
 
   const samplePairs = sampleWires(checkpoint.lessonId);
   const sampleKeys = new Set(samplePairs.map(pair => pairKey(pair[0], pair[1])));
+  if (
+    sampleKeys.size !== canonicalReferenceNormalized.pairKeys.size ||
+    [...sampleKeys].some(sampleKey => !canonicalReferenceNormalized.pairKeys.has(sampleKey))
+  ) {
+    throw new RangeError("circuit-router sampleWires không khớp canonical createSampleCircuit reference.");
+  }
   const authoredPairs = checkpoint.requiredPairs.map((pair, index) => {
     if (!Array.isArray(pair) || pair.length !== 2 || !terminalIds.has(pair[0]) || !terminalIds.has(pair[1])) {
       throw new RangeError(checkpoint.id + " requiredPairs[" + index + "] không canonical.");
     }
     const key = pairKey(pair[0], pair[1]);
-    if (!sampleKeys.has(key)) {
+    if (!sampleKeys.has(key) || !canonicalReferenceNormalized.pairKeys.has(key)) {
       throw new RangeError(checkpoint.id + " requiredPairs[" + index + "] không thuộc circuit-router sample.");
     }
     return Object.freeze({ key, pair: pairValue(pair[0], pair[1]) });
   });
 
-  const missingPairs = authoredPairs
-    .filter(item => !learner.pairKeys.has(item.key))
+  const pairChecklist = authoredPairs.map((item, index) => {
+    const matched = learner.pairKeys.has(item.key);
+    return Object.freeze({
+      order: index + 1,
+      pair: item.pair,
+      status: matched ? "matched" : "missing",
+      inspectTerminalId: item.pair[0],
+      explanation: matched
+        ? "Cặp authored reference " + item.pair[0] + " ↔ " + item.pair[1] +
+          " đã xuất hiện trong canonical learner graph. Đây chỉ là topology match trong ứng dụng."
+        : "Cặp authored reference " + item.pair[0] + " ↔ " + item.pair[1] +
+          " chưa xuất hiện trong canonical learner graph. Có thể mở " + item.pair[0] +
+          " trong Inspector để định vị terminal; thao tác Inspector không tạo dây.",
+    });
+  });
+
+  const missingPairs = pairChecklist
+    .filter(item => item.status === "missing")
     .map(item => item.pair);
   const reviewExtraPairs = learner.wires
-    .filter(wire => !sampleKeys.has(wire.key))
+    .filter(wire => !canonicalReferenceNormalized.pairKeys.has(wire.key))
     .map(wire => {
       const sorted = wire.from < wire.to ? [wire.from, wire.to] : [wire.to, wire.from];
       return Object.freeze(sorted);
     })
     .sort((left, right) => left.join("\u0000").localeCompare(right.join("\u0000")));
+  const extraReviewChecklist = reviewExtraPairs.map((pair, index) => Object.freeze({
+    order: index + 1,
+    pair,
+    status: "review-extra",
+    inspectTerminalId: pair[0],
+    explanation: "Cạnh learner graph " + pair[0] + " ↔ " + pair[1] +
+      " không thuộc canonical reference sample. Có thể mở " + pair[0] +
+      " trong Inspector để đối chiếu terminal; đây không phải chẩn đoán điện hoặc vị trí vật lý.",
+  }));
+  const matchedPairCount = pairChecklist.filter(item => item.status === "matched").length;
+  const requiredPairCount = pairChecklist.length;
 
   const nextMissingPair = missingPairs[0] ?? null;
   const inspectTerminalId = nextMissingPair?.[0] ?? null;
@@ -252,6 +295,10 @@ export function inspectPracticeWireGuidance(input) {
     inspectTerminalId,
     missingPairs,
     reviewExtraPairs,
+    pairChecklist,
+    extraReviewChecklist,
+    matchedPairCount,
+    requiredPairCount,
     explanation,
     reviewExplanation,
   });

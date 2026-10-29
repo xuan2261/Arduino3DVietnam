@@ -88,6 +88,11 @@ POST_V16_GUIDED_WIRING_FILES = [
     "docs/PRACTICE_WIRE_GUIDANCE_NEXT.md",
     "docs/SCENE_WIRE_PREVIEW_NEXT.md",
 ]
+POST_V16_FIDELITY_FILES = [
+    "docs/SCENE_VISUAL_FIDELITY_NEXT.md",
+    "docs/PRACTICE_CHECKLIST_NEXT.md",
+    "docs/SKETCH_LEXICAL_FEEDBACK_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -141,6 +146,7 @@ FILES = [
     *POST_V16_LAB_FILES,
     *POST_V16_INTERACTION_FILES,
     *POST_V16_GUIDED_WIRING_FILES,
+    *POST_V16_FIDELITY_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

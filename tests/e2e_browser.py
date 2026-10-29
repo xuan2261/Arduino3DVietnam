@@ -592,6 +592,19 @@ def main() -> None:
                       and scene_v16["passed"] == scene_v16["total"]
                       and scene_v16["total"] == 39,
                       f"{scene_v16['passed']}/{scene_v16['total']} passed; v1.6 focus/view/LOD/WebGL recovery")
+                fidelity = run_page_contract(
+                    page, "./tests/scene3d-visual-fidelity-contracts.js",
+                    "runScene3DVisualFidelityContracts")
+                fidelity_names = {item.get("name") for item in fidelity.get("results", [])}
+                check("vnext-threejs-visual-fidelity-instancing-hover-physical-boundary",
+                      fidelity["failed"] == 0
+                      and fidelity["passed"] == fidelity["total"] == 18
+                      and "source-uses-instancing-for-repeated-visual-detail" in fidelity_names
+                      and "source-contact-strips-remain-nonauthoritative" in fidelity_names
+                      and "compact-viewport-reduces-lod-without-changing-detail-inventory" in fidelity_names
+                      and "pending-selection-has-priority-label-feedback" in fidelity_names
+                      and "read-only-inspection-does-not-recreate-3d-terminal-geometry" in fidelity_names,
+                      f"{fidelity['passed']}/{fidelity['total']} conceptual visual fidelity checks")
 
                 # New bounded browser contracts. Imports and firmware fetches
                 # resolve from document.baseURI so the same checks remain valid
@@ -722,7 +735,7 @@ def main() -> None:
                 check("post-v16-breadboard-hole-grid-direct-contracts",
                       hole_grid_contracts["passed"] == hole_grid_contracts["total"]
                       and hole_grid_contracts["passed"] == len(hole_grid_contracts["checks"])
-                      and hole_grid_contracts["total"] == 47
+                      and hole_grid_contracts["total"] == 67
                       and "page-size-fixed-at-eight" in hole_grid_contract_names
                       and "generic-rails-stay-disabled" in hole_grid_contract_names
                       and "bb830-exposes-exact-four-signed-rails" in hole_grid_contract_names
@@ -999,7 +1012,7 @@ def main() -> None:
                 check("post-v16-practice-evidence-16-lesson-pure-contracts",
                       practice_contracts["passed"] == practice_contracts["total"]
                       and practice_contracts["passed"] == len(practice_contracts["checks"])
-                      and practice_contracts["total"] == 54,
+                      and practice_contracts["total"] == 55,
                       f"{practice_contracts['passed']}/{practice_contracts['total']} passed")
                 practice_ui_contracts = run_page_contract(
                     page, "./tests/practice-evidence-ui-contracts.js",
@@ -1009,7 +1022,7 @@ def main() -> None:
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] == 21
+                      and practice_ui_contracts["total"] == 26
                       and "missing-terminal-inspector-callback-fires-only-on-explicit-click" in
                           practice_ui_names
                       and "inspector-button-appears-only-for-proven-authored-missing-canonical-pair-across-48-steps" in
@@ -1024,7 +1037,7 @@ def main() -> None:
                 check("post-v16-practice-wire-guidance-direct-contracts",
                       practice_wire_contracts["passed"] == practice_wire_contracts["total"]
                       and practice_wire_contracts["passed"] == len(practice_wire_contracts["checks"])
-                      and practice_wire_contracts["total"] == 12
+                      and practice_wire_contracts["total"] == 15
                       and "all-48-authored-checkpoints-have-bounded-source-truthful-guidance" in
                           practice_wire_names
                       and "foreign-or-forged-circuit-inputs-fail-closed" in practice_wire_names
@@ -1079,7 +1092,7 @@ def main() -> None:
                 check("post-v16-sketch-review-direct-contracts",
                       sketch_contracts["passed"] == sketch_contracts["total"]
                       and sketch_contracts["passed"] == len(sketch_contracts["checks"])
-                      and sketch_contracts["total"] == 15,
+                      and sketch_contracts["total"] == 19,
                       f"{sketch_contracts['passed']}/{sketch_contracts['total']} passed")
                 sketch_ui_contracts = run_page_contract(
                     page, "./tests/sketch-review-ui-contracts.js",
@@ -1087,7 +1100,7 @@ def main() -> None:
                 check("post-v16-sketch-review-ui-direct-contracts",
                       sketch_ui_contracts["passed"] == sketch_ui_contracts["total"]
                       and sketch_ui_contracts["passed"] == len(sketch_ui_contracts["checks"])
-                      and sketch_ui_contracts["total"] == 11,
+                      and sketch_ui_contracts["total"] == 14,
                       f"{sketch_ui_contracts['passed']}/{sketch_ui_contracts['total']} passed")
                 sketch_review = page.evaluate("""async () => {
                     const {lessons} = await import('./src/lessons.js');
@@ -1186,6 +1199,45 @@ def main() -> None:
                       and sketch_review["bidiRejected"]
                       and sketch_review["forgedPositiveClaimRejected"],
                       json.dumps(sketch_review, ensure_ascii=False))
+                lexical_spoof = page.evaluate("""async () => {
+                    const model = await import('./src/sketch-review.js');
+                    const ui = await import('./src/sketch-review-ui.js');
+                    const reference = [
+                        'void setup(){pinMode(13,OUTPUT);}',
+                        'void loop(){digitalWrite(13,HIGH);}',
+                    ].join(String.fromCharCode(10));
+                    const draft = [
+                        'void setup(){pinMode(13,OUTPUT);}',
+                        'void loop(){// digitalWrite(13,HIGH)',
+                        'const char* note="digitalWrite(13,HIGH)";}',
+                    ].join(String.fromCharCode(10));
+                    const review = model.inspectSketchDraft({lessonId:2,reference,draft});
+                    const fake = review.lexical.findings.find(x=>x.id==='digital-write');
+                    const real = review.lexical.findings.find(x=>x.id==='pin-mode');
+                    const section = ui.renderSketchReview(document,review);
+                    return {
+                        mode:review.lexical.mode,
+                        fakeStatus:fake?.status,
+                        fakeDraftCount:fake?.draftCount,
+                        realStatus:real?.status,
+                        sourceOnly:review.claims?.compiled===false &&
+                            review.claims?.firmwareExecuted===false &&
+                            review.claims?.learnerMastery===false,
+                        uiDifference:section.getAttribute('data-sketch-review-lexical-difference-count'),
+                        uiStatusLive:section.querySelector('[data-sketch-review-lexical-summary]')?.getAttribute('aria-live'),
+                        escaped:section.querySelector('img,script')===null,
+                    };
+                }""")
+                check("vnext-sketch-lexical-comment-string-spoof-never-compiles-or-grades",
+                      lexical_spoof["mode"] == "masked-reference-pattern-scan"
+                      and lexical_spoof["fakeStatus"] == "absent"
+                      and lexical_spoof["fakeDraftCount"] == 0
+                      and lexical_spoof["realStatus"] == "present"
+                      and lexical_spoof["sourceOnly"]
+                      and int(lexical_spoof["uiDifference"]) >= 1
+                      and lexical_spoof["uiStatusLive"] == "polite"
+                      and lexical_spoof["escaped"],
+                      json.dumps(lexical_spoof, ensure_ascii=False))
                 # Timer1 is a strict direct peripheral model contract only.
                 # Do NOT attach it to stock bundled Arduino-core firmware: the
                 # current model intentionally fails closed outside Normal WGM0.
@@ -2104,6 +2156,45 @@ def main() -> None:
                               "data-explorer-selected-terminal"),
                           "representations": selected_terminal_nodes.count(),
                       }, ensure_ascii=False))
+                cancel_pending = page.locator("#labCancelPendingWire")
+                cancel_pending_rect = cancel_pending.bounding_box()
+                check("vnext-3d-pending-wire-native-cancel-armed-accessible",
+                      cancel_pending.is_enabled()
+                      and cancel_pending_rect is not None
+                      and cancel_pending_rect["width"] >= 44
+                      and cancel_pending_rect["height"] >= 44
+                      and cancel_pending.get_attribute("aria-describedby") == "labSelectedTerminal"
+                      and first_reference_wire["from"] in
+                          (cancel_pending.get_attribute("aria-label") or "")
+                      and page.locator("#labEditor").get_attribute(
+                          "data-lab-pending-terminal") == first_reference_wire["from"]
+                      and canvas.get_attribute("data-lab-wire-count") == "0")
+                cancel_pending.focus()
+                cancel_pending.press("Enter")
+                check("vnext-3d-pending-wire-native-cancel-no-graph-mutation",
+                      cancel_pending.is_disabled()
+                      and page.locator("#labEditor").get_attribute("data-lab-pending-terminal") == ""
+                      and canvas.get_attribute("data-lab-pending-wire-terminal") == ""
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and explorer.get_attribute("data-explorer-selected-terminal") in ("", None)
+                      and "hủy chọn chân đầu tiên" in page.locator(
+                          "#labSelectedTerminal").inner_text().lower())
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
+                ).locator("circle").click()
+                page.locator("#labFromPin").focus()
+                page.keyboard.press("Escape")
+                check("vnext-3d-pending-wire-escape-cancels-not-connection",
+                      cancel_pending.is_disabled()
+                      and canvas.get_attribute("data-lab-pending-wire-terminal") == ""
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and page.evaluate("document.activeElement?.id") == "labFromPin"
+                      and explorer.get_attribute("data-explorer-selected-terminal") in ("", None))
+                # Restore an intentional first-terminal click so the historical
+                # next SVG action still proves canonical two-terminal connection.
+                explorer.locator(
+                    f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["from"]}"]'
+                ).locator("circle").click()
                 explorer.locator(
                     f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["to"]}"]'
                 ).locator("circle").click()
@@ -2353,6 +2444,12 @@ def main() -> None:
                           (page.locator("#bbTopologyDiagram").get_attribute("aria-label") or "").lower()
                       and page.locator("#bbTopologyDiagram [data-bb-diagram='conceptual-strips']").count() == 1)
                 page.locator("#bbProfile").select_option("generic-63x10-terminal-strips")
+                # The historical malformed-hole negatives immediately above
+                # intentionally leave bbHoleA=A0. Restore two known same-node
+                # inputs before asking the new contact explorer to compare
+                # against A and B; never downgrade the comparison assertions.
+                page.locator("#bbHoleA").fill("A1")
+                page.locator("#bbHoleB").fill("E1")
                 grid_holes = page.locator("#bbHoleGrid .breadboard-hole-grid-button")
                 grid_columns = page.locator("#bbHoleGrid [data-bb-grid-column]")
                 check("post-v16-breadboard-hole-picker-eight-column-page-is-input-only",
@@ -2386,6 +2483,30 @@ def main() -> None:
                       and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
                       and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
                       page.locator("#bbGridStatus").inner_text())
+                contact_members = page.locator(
+                    '#bbHoleGrid [data-bb-contact-member="true"]')
+                contact_member_holes = sorted(contact_members.evaluate_all(
+                    "nodes => nodes.map(node => node.dataset.bbGridHole)"))
+                check("vnext-breadboard-contact-five-hole-node-center-gap-boundary",
+                      page.locator("#bbHoleGrid").get_attribute("data-bb-contact-state") == "known"
+                      and page.locator("#bbHoleGrid").get_attribute("data-bb-contact-hole") == "A1"
+                      and page.locator("#bbHoleGrid").get_attribute("data-bb-contact-node") != ""
+                      and contact_member_holes == ["A1", "B1", "C1", "D1", "E1"]
+                      and page.locator('#bbHoleGrid [data-bb-grid-hole="A1"]').get_attribute(
+                          "data-bb-contact-selected") == "true"
+                      and page.locator('#bbHoleGrid [data-bb-grid-hole="F1"]').get_attribute(
+                          "data-bb-contact-member") is None
+                      and page.locator('#bbHoleGrid [data-bb-contact-boundary="center-gap"]').count() == 1
+                      and page.locator("#bbGridStatus").get_attribute("data-bb-contact-compare-a") == "same-node"
+                      and page.locator("#bbGridStatus").get_attribute("data-bb-contact-compare-b") == "same-node"
+                      and "provenance" in page.locator("#bbGridStatus").inner_text().lower()
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
+                      json.dumps({
+                          "members": contact_member_holes,
+                          "node": page.locator("#bbHoleGrid").get_attribute("data-bb-contact-node"),
+                          "status": page.locator("#bbGridStatus").inner_text()[:280],
+                      }, ensure_ascii=False))
                 page.locator("#bbGridNext").focus()
                 page.locator("#bbGridNext").press("Enter")
                 check("post-v16-breadboard-hole-picker-page-navigation-bounded",
@@ -3116,6 +3237,8 @@ def main() -> None:
                     ready(practice_page)
                     observation_ui_failures = []
                     observation_ui_seen = 0
+                    checklist_ui_failures = []
+                    checklist_ui_seen = 0
                     for lesson_id in range(1, 17):
                         practice_page.locator(
                             f'.lesson-link[data-lesson="{lesson_id}"]'
@@ -3167,6 +3290,37 @@ def main() -> None:
                         for step_index in range(3):
                             observation = practice_page.locator(
                                 "#learningCoach [data-practice-observation]")
+                            step_evidence = practice_page.locator(
+                                "#learningCoach [data-practice-evidence]")
+                            checklist = step_evidence.locator("[data-practice-wire-checklist]")
+                            row_states = step_evidence.locator("[data-practice-checklist-row]").evaluate_all(
+                                "nodes => nodes.map(n => n.dataset.practicePairStatus)")
+                            expected_required = int(step_evidence.get_attribute(
+                                "data-practice-required") or "0")
+                            manual = step_evidence.get_attribute("data-practice-checkpoint-kind") == "manual"
+                            checklist_ok = (
+                                checklist.count() == 1
+                                and checklist.get_attribute("role") == "group"
+                                and (len(row_states) == 0 if manual else
+                                     len(row_states) == expected_required and expected_required > 0)
+                                and all(state == "missing" for state in row_states)
+                                and step_evidence.locator(
+                                    "[data-practice-extra-review-row]").count() == 0
+                                and step_evidence.locator(
+                                    "[data-practice-checklist-inspect-terminal]").count() == len(row_states)
+                                and step_evidence.get_attribute("data-practice-matched") == "0"
+                                and practice_page.locator("#completeButton").is_hidden()
+                            )
+                            checklist_ui_seen += 1
+                            if not checklist_ok:
+                                checklist_ui_failures.append({
+                                    "lesson": lesson_id,
+                                    "step": step_index,
+                                    "manual": manual,
+                                    "required": expected_required,
+                                    "rows": row_states,
+                                    "checklistCount": checklist.count(),
+                                })
                             observation_text = observation.inner_text()
                             observation_ok = (
                                 observation.count() == 1
@@ -3201,6 +3355,12 @@ def main() -> None:
                           json.dumps({
                               "seen": observation_ui_seen,
                               "failures": observation_ui_failures[:4],
+                          }, ensure_ascii=False))
+                    check("vnext-48-authored-checkpoint-per-pair-checklist-no-automatic-completion",
+                          checklist_ui_seen == 48 and not checklist_ui_failures,
+                          json.dumps({
+                              "seen": checklist_ui_seen,
+                              "failures": checklist_ui_failures[:5],
                           }, ensure_ascii=False))
                     practice_page.locator('.lesson-link[data-lesson="2"]').click()
                     practice_page.locator("#infoTabPractice").click()
@@ -3248,6 +3408,25 @@ def main() -> None:
                                   "#sceneMount canvas").get_attribute("data-lab-wire-count"),
                           }, ensure_ascii=False))
                     practice_page.locator("#stageTab3d").click()
+                    checklist_inspect = practice_page.locator(
+                        "#learningCoach [data-practice-checklist-inspect-terminal]").first
+                    checklist_target = checklist_inspect.get_attribute("data-practice-inspect-terminal")
+                    checklist_events_before = practice_page.locator(
+                        "#learningCoach [data-practice-observation]").get_attribute(
+                            "data-observation-lesson-events")
+                    checklist_inspect.focus()
+                    checklist_inspect.press("Enter")
+                    check("vnext-authored-checklist-readonly-inspector-no-wire-journal-or-mastery",
+                          checklist_target == "D13"
+                          and practice_page.locator("#stageTab3d").get_attribute("aria-selected") == "true"
+                          and practice_page.locator("#labEditToggle").get_attribute("aria-pressed") == "false"
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-inspected-terminal") == checklist_target
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-wire-count") == "0"
+                          and practice_page.locator("#learningCoach [data-practice-observation]").get_attribute(
+                              "data-observation-lesson-events") == checklist_events_before
+                          and practice_page.locator("#completeButton").is_hidden())
                     # The explicit missing-terminal action is navigation/inspection
                     # only. Prove it revokes an already armed first-terminal gesture
                     # before selecting the exact canonical missing endpoint.
@@ -4067,6 +4246,22 @@ def main() -> None:
                 check("post-v16-guided-wiring-runtime-and-docs-available-offline",
                       all(guided_wiring_offline.values()),
                       json.dumps(guided_wiring_offline, ensure_ascii=False))
+                fidelity_docs_offline = app.evaluate("""async () => {
+                    const names = [
+                        './docs/SCENE_VISUAL_FIDELITY_NEXT.md',
+                        './docs/PRACTICE_CHECKLIST_NEXT.md',
+                        './docs/SKETCH_LEXICAL_FEEDBACK_NEXT.md',
+                    ];
+                    const rows = await Promise.all(names.map(async name => {
+                        const response = await fetch(new URL(name, document.baseURI), {cache:'no-store'});
+                        return {name,ok:response.ok,contents:response.ok ? (await response.text()).length : 0};
+                    }));
+                    return rows;
+                }""")
+                check("vnext-three-new-fidelity-provenance-guides-available-offline",
+                      len(fidelity_docs_offline) == 3
+                      and all(row["ok"] and row["contents"] > 150 for row in fidelity_docs_offline),
+                      json.dumps(fidelity_docs_offline, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

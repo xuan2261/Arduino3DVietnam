@@ -65,6 +65,17 @@ export function runSketchReviewContracts() {
         "lesson " + lesson.id + " setup/loop detection");
       assert(result.structure.bracesBalanced === true, "lesson " + lesson.id + " braces");
       assert(result.warnings.length === 0, "lesson " + lesson.id + " unexpected warning");
+      assert(
+        result.lexical.mode === "masked-reference-pattern-scan" &&
+        result.lexical.commentsAndStringsIgnored === true &&
+        result.lexical.expectedFeatureCount > 0 &&
+        result.lexical.differenceCount === 0 &&
+        result.lexical.findings.every(item =>
+          item.status === "present" &&
+          Number.isInteger(item.referenceLine) &&
+          Number.isInteger(item.draftLine)),
+        "lesson " + lesson.id + " lexical baseline",
+      );
       assert(result.claims.compiled === false && result.claims.firmwareExecuted === false,
         "lesson " + lesson.id + " forbidden claim");
     }
@@ -178,9 +189,9 @@ export function runSketchReviewContracts() {
     const reference = sampleReference();
     const draft = [
       "void setup() {",
-      "  const char *label = \"{literal}\";",
-      "  // } comment must not close setup",
-      "  /* { block } */",
+      "  const char *label = \"([{}]) literal\";",
+      "  // } ) ] comment must not close syntax",
+      "  /* { block } ( [ ) ] */",
       "}",
       "void loop() {",
       "  const char marker = '}';",
@@ -188,8 +199,12 @@ export function runSketchReviewContracts() {
     ].join("\n");
     const result = inspectSketchDraft({ lessonId: 2, reference, draft });
     assert(result.structure.bracesBalanced === true, "masked braces should balance");
+    assert(result.structure.parenthesesBalanced === true, "masked parentheses should balance");
+    assert(result.structure.bracketsBalanced === true, "masked brackets should balance");
     assert(!result.warnings.some(item => item.code.startsWith("BRACE_")),
       "masked braces must not warn");
+    assert(!result.warnings.some(item => item.code.startsWith("PAREN_") || item.code.startsWith("BRACKET_")),
+      "masked parentheses/brackets must not warn");
   });
 
   check("mismatched-braces-report-direction-and-line", () => {
@@ -230,6 +245,77 @@ export function runSketchReviewContracts() {
     });
     assert(string.warnings.some(item => item.code === "STRING_LITERAL_UNCLOSED"),
       "string warning");
+  });
+
+  check("commented-and-quoted-reference-calls-do-not-count-as-lexical-presence", () => {
+    const reference = sampleReference();
+    const draft = [
+      "void setup() {",
+      "  // pinMode(LED, OUTPUT);",
+      "  const char *fake = \"digitalWrite(LED, HIGH); delay(1000);\";",
+      "}",
+      "void loop() {",
+      "  /* digitalWrite(LED, HIGH); */",
+      "  // delay(1000);",
+      "}",
+    ].join("\n");
+    const result = inspectSketchDraft({ lessonId: 2, reference, draft });
+    const byId = new Map(result.lexical.findings.map(item => [item.id, item]));
+    for (const id of ["pin-mode", "digital-write", "delay"]) {
+      assert(byId.get(id)?.status === "absent", id + " must ignore comment/string text");
+      assert(byId.get(id)?.draftCount === 0, id + " draft count must be zero");
+      assert(Number.isInteger(byId.get(id)?.referenceLine), id + " reference line missing");
+      assert(byId.get(id)?.draftLine === null, id + " absent draft line must be null");
+    }
+    assert(result.lexical.differenceCount === 3, "three tracked features should differ");
+  });
+
+  check("reduced-call-count-is-line-aware-and-does-not-claim-equivalence", () => {
+    const reference = lessons[1].sketch;
+    const draft = reference.replace(
+      "  digitalWrite(LED, HIGH);",
+      "  // digitalWrite(LED, HIGH);",
+    );
+    const result = inspectSketchDraft({ lessonId: 2, reference, draft });
+    const finding = result.lexical.findings.find(item => item.id === "digital-write");
+    assert(finding?.status === "fewer-than-reference", "reduced digitalWrite count status");
+    assert(finding?.referenceCount === 2 && finding?.draftCount === 1, "digitalWrite counts");
+    assert(Number.isInteger(finding.referenceLine) && Number.isInteger(finding.draftLine),
+      "reduced feature must retain reference/draft lines");
+    assert(typeof finding.hint === "string" && finding.hint.length > 20, "actionable hint missing");
+  });
+
+  check("near-name-tampering-does-not-satisfy-reference-pattern", () => {
+    const reference = sampleReference();
+    const draft = [
+      "const int LED = 13;",
+      "void setup() { pinMode(LED, OUTPUT); }",
+      "void loop() {",
+      "  digitalWriteX(LED, HIGH);",
+      "  delayish(1000);",
+      "}",
+    ].join("\n");
+    const result = inspectSketchDraft({ lessonId: 2, reference, draft });
+    const byId = new Map(result.lexical.findings.map(item => [item.id, item]));
+    assert(byId.get("digital-write")?.status === "absent", "digitalWriteX must not match digitalWrite");
+    assert(byId.get("delay")?.status === "absent", "delayish must not match delay");
+  });
+
+  check("unbalanced-parentheses-and-brackets-are-line-aware-lexical-warnings", () => {
+    const reference = sampleReference();
+    const draft = [
+      "void setup() { pinMode(LED, OUTPUT; }",
+      "void loop() { int samples[2; }",
+    ].join("\n");
+    const result = inspectSketchDraft({ lessonId: 2, reference, draft });
+    const paren = result.warnings.find(item => item.code === "PAREN_UNCLOSED_OPEN");
+    const bracket = result.warnings.find(item => item.code === "BRACKET_UNCLOSED_OPEN");
+    assert(paren?.line === 1, "unclosed parenthesis line");
+    assert(bracket?.line === 2, "unclosed bracket line");
+    assert(result.structure.parenthesesBalanced === false, "parentheses balance flag");
+    assert(result.structure.bracketsBalanced === false, "brackets balance flag");
+    assert(result.guidance.some(text => /lexical.*không phải parser C\+\+/i.test(text)),
+      "delimiter lexical boundary guidance");
   });
 
   check("empty-draft-is-reviewable-but-never-positive", () => {
@@ -304,6 +390,8 @@ export function runSketchReviewContracts() {
       "change tree must be frozen");
     assert(Object.isFrozen(a.structure) && Object.isFrozen(a.warnings) && Object.isFrozen(a.claims),
       "result tree must be frozen");
+    assert(Object.isFrozen(a.lexical) && Object.isFrozen(a.lexical.findings) &&
+      a.lexical.findings.every(Object.isFrozen), "lexical tree must be frozen");
     assert(!JSON.stringify(a).includes(draft), "result must not echo full draft source");
   });
 
@@ -317,6 +405,7 @@ export function runSketchReviewContracts() {
     assert(result.provenance.draft === "editor-draft", "draft provenance");
     assert(result.provenance.comparison === "local-line-diff-and-source-heuristics",
       "comparison provenance");
+    assert(result.provenance.lexical === "masked-reference-pattern-scan", "lexical provenance");
     assert(
       result.claims.compiled === false &&
       result.claims.semanticValidated === false &&

@@ -35,7 +35,8 @@ export function mountLabEditor({
   const componentSelect = $("labComponent"), posX = $("labPositionX"), posZ = $("labPositionZ");
   const fromSelect = $("labFromPin"), toSelect = $("labToPin");
   const message = $("labStatus"), terminalNote = $("labSelectedTerminal"), avrNote = $("labAvrStatus");
-  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,message,terminalNote,avrNote].some(node=>!node)) {
+  const cancelPending = $("labCancelPendingWire");
+  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,message,terminalNote,avrNote,cancelPending].some(node=>!node)) {
     throw new Error("Missing 3D lab editor DOM controls.");
   }
 
@@ -54,6 +55,13 @@ export function mountLabEditor({
   const syncPendingScenePreview = () => {
     const current = lessonSupported() && editing && stage === "3d"
       ? firstTerminal : null;
+    // This visible/native keyboard control mirrors the exact same first
+    // terminal that drives the scene preview. It never owns a second graph.
+    cancelPending.disabled = current === null;
+    panel.dataset.labPendingTerminal = current ?? "";
+    cancelPending.setAttribute("aria-label",current === null
+      ? "Chưa có chân đầu tiên đang chờ nối"
+      : "Hủy chọn chân đầu tiên " + current + "; không tạo dây mới");
     scene?.setPendingWireTerminal?.(current);
   };
   const layoutFor = () => {
@@ -300,6 +308,22 @@ export function mountLabEditor({
     // the 3D canvas must show the same learner draft as the 2D workbench.
     onEditModeChange();
   };
+  const onCancelPending=()=>{
+    if(!editing||stage!=="3d"||firstTerminal===null)return false;
+    firstTerminal=null;
+    terminalNote.textContent="Đã hủy chọn chân đầu tiên; không tạo dây mới. Chọn chân khác để bắt đầu lại.";
+    announce("Đã hủy xem trước nối dây; netlist học viên được giữ nguyên.");
+    syncPendingScenePreview();
+    onSelectionChange(selectedId,lessonId);
+    fromSelect.focus({preventScroll:true});
+    return true;
+  };
+  const onPendingKeydown=event=>{
+    if(event.key!=="Escape"||!editing||stage!=="3d"||firstTerminal===null)return;
+    event.preventDefault();
+    event.stopPropagation();
+    onCancelPending();
+  };
   const onComponent=()=>selectComponent(componentSelect.value);
   const onPlace=()=>moveComponent(selectedId,Number(posX.value),Number(posZ.value));
   const onNudge=event=>{
@@ -333,6 +357,8 @@ export function mountLabEditor({
 
   const listeners=[
     [toggle,"click",onToggle],
+    [cancelPending,"click",onCancelPending],
+    [panel,"keydown",onPendingKeydown],
     [componentSelect,"change",onComponent],
     [$("labPlace"),"click",onPlace],
     [$("labRotateLeft"),"click",()=>rotateComponent(-1)],

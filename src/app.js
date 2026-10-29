@@ -493,6 +493,14 @@ function renderInfo() {
             ? inspectTerminalReadOnly(terminalId)
             : false;
         },
+        onInspectChecklistTerminal(terminalId){
+          // An authored row is a suggestion to inspect only. Even when a
+          // reference pair matches, this action cannot grant progress/credit
+          // or append a wire to the learner's canonical circuit-router graph.
+          return lesson.id===state.lessonId
+            ? inspectTerminalReadOnly(terminalId)
+            : false;
+        },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
           renderInfo();

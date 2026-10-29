@@ -307,8 +307,13 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .breadboard-hole-grid [data-bb-pick-hole] { min-width:44px; min-height:44px; border:1px solid #89b7ac; border-radius:6px; font-size:11px; font-weight:750; background:#f7fcf9; color:#25564b; padding:5px 3px; cursor:pointer; }
 .breadboard-hole-grid [data-bb-pick-hole]:hover { background:#deefe6; }
 .breadboard-hole-grid [data-bb-pick-hole][aria-pressed="true"] { border-color:#276a9f; background:#e2f0ff; color:#1f517d; box-shadow:inset 0 0 0 1px #276a9f; }
+.breadboard-hole-grid [data-bb-contact-side="right"] { border-style:dashed; }
+.breadboard-hole-grid [data-bb-contact-member="true"] { border:2px solid #23735b; background:#dcf1e3; color:#175343; box-shadow:inset 0 0 0 1px #a1cdb6; }
+.breadboard-hole-grid [data-bb-contact-selected="true"] { border:3px solid #245f9b; background:#dfecff; color:#154d7d; box-shadow:0 0 0 2px #f1c59e; }
 .breadboard-hole-grid [data-bb-pick-hole]:focus-visible { outline:3px solid #277963; outline-offset:2px; }
 .breadboard-hole-grid [data-bb-grid-trench] { grid-column:1 / -1; padding:5px; font-size:10px; color:#735d51; background:#f7f2e9; text-align:center; border-top:1px dashed #bc9072; border-bottom:1px dashed #bc9072; }
+.breadboard-hole-grid [data-bb-contact-boundary="center-gap"] { border-top:2px dashed #b37c52; border-bottom:2px dashed #b37c52; }
+.breadboard-hole-picker .breadboard-contact-legend { padding:8px 9px; border-left:3px solid #538b79; background:#f2f7f4; color:#3c5b50; }
 .breadboard-rail-picker { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:7px 10px; align-items:center; margin-top:12px; }
 .breadboard-rail-picker label { font-size:11px; font-weight:650; color:#335a50; }
 .breadboard-rail-picker select,.breadboard-rail-picker input { width:100%; min-width:0; min-height:44px; padding:7px 10px; background:#fff; border:1px solid #acc8bb; border-radius:7px; color:#26564c; }
@@ -333,6 +338,10 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .sketch-review[data-sketch-review-tone="warning"] .sketch-review-status { color:#704a20; background:#fff0d6; }
 .sketch-review-counts,.sketch-review-structure { font-variant-numeric:tabular-nums; }
 .sketch-review-guidance,.sketch-review-warnings { margin:8px 0; padding-top:7px; border-top:1px solid #d8e7e0; }
+.sketch-review-lexical { margin:11px 0; padding:10px 11px; border:1px solid #cdded6; border-radius:8px; background:#f6faf7; }
+.sketch-review-lexical-status { padding:8px 10px; background:#edf4f0; border-left:3px solid #598a75; color:#31594c; }
+.sketch-review[data-sketch-review-tone="warning"] .sketch-review-lexical-status { background:#fff5e6; border-left-color:#b88a3c; color:#785626; }
+.sketch-review-lexical [data-sketch-review-lexical-finding] { padding:5px 7px; margin-bottom:4px; border-left:2px solid #c59c5c; background:#fffaf2; overflow-wrap:anywhere; }
 .sketch-review-subheading { margin:0 0 4px; font-size:11.5px; color:#315b4e; }
 .sketch-review-list { margin:4px 0 7px; padding-left:19px; font-size:11.5px; line-height:1.55; }
 .sketch-review-list li { padding:3px 0; }

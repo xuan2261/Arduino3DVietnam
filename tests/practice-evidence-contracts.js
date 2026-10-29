@@ -152,7 +152,9 @@ export function runPracticeEvidenceContracts() {
             "manual integration " + lesson.id + "/" + stepIndex,
           );
           assert(evidence.wireGuidance.status === "not-applicable-manual-checkpoint" &&
-            evidence.wireGuidance.inspectTerminalId === null,
+            evidence.wireGuidance.inspectTerminalId === null &&
+            evidence.wireGuidance.pairChecklist.length === 0 &&
+            evidence.wireGuidance.extraReviewChecklist.length === 0,
           "manual wire guidance boundary " + lesson.id + "/" + stepIndex);
         } else {
           assert(
@@ -165,6 +167,11 @@ export function runPracticeEvidenceContracts() {
             evidence.wireGuidance.nextMissingPair === null &&
             evidence.wireGuidance.inspectTerminalId === null,
           "full reference has no missing-terminal guidance " + lesson.id + "/" + stepIndex);
+          assert(evidence.wireGuidance.pairChecklist.length === evidence.checkpoint.requiredPairs.length &&
+            evidence.wireGuidance.pairChecklist.every(row => row.status === "matched") &&
+            evidence.wireGuidance.matchedPairCount === evidence.required &&
+            evidence.wireGuidance.requiredPairCount === evidence.required,
+          "full reference authored checklist binding " + lesson.id + "/" + stepIndex);
         }
         assert(
           evidence.claims.teacherValidated === false &&
@@ -200,6 +207,10 @@ export function runPracticeEvidenceContracts() {
         assert(evidence.missingPairs.length > 0, "missing evidence exists " + lesson.id + "/" + stepIndex);
         assert(evidence.wireGuidance.status === "missing-canonical-pair",
           "wire guidance missing status " + lesson.id + "/" + stepIndex);
+        assert(evidence.wireGuidance.pairChecklist.length === evidence.required &&
+          evidence.wireGuidance.pairChecklist.filter(row => row.status === "missing").length === evidence.missingPairs.length &&
+          evidence.wireGuidance.pairChecklist.filter(row => row.status === "matched").length === evidence.matched,
+        "checklist states bind evidence counts " + lesson.id + "/" + stepIndex);
         const evidenceMissingKey = [...evidence.missingPairs[0]].sort().join("\u0000");
         const guidanceMissingKey = [...evidence.wireGuidance.nextMissingPair].sort().join("\u0000");
         assert(guidanceMissingKey === evidenceMissingKey,
@@ -214,6 +225,32 @@ export function runPracticeEvidenceContracts() {
         "wire guidance negative semantics " + lesson.id + "/" + stepIndex);
       }
     }
+  });
+
+  check("partial-learner-checklist-does-not-credit-reference-or-complete-lesson", () => {
+    const lesson = lessonById(3);
+    const firstPair = [["5V", "BTN:1"]];
+    let circuit = createCircuit(3);
+    circuit = connectCircuit(circuit, firstPair[0][0], firstPair[0][1]);
+    const evidence = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(3),
+      analysis: analyzeCircuit(3, circuit),
+      hasLearnerDraft: true,
+    });
+    assert(evidence.status === "incomplete", "partial learner remains incomplete");
+    assert(evidence.wireGuidance.pairChecklist[0].status === "matched" &&
+      evidence.wireGuidance.pairChecklist.slice(1).every(row => row.status === "missing"),
+    "partial checklist reflects learner graph only");
+    assert(evidence.wireGuidance.claims.learnerActionProven === false &&
+      evidence.wireGuidance.claims.mastery === false &&
+      evidence.wireGuidance.claims.autoCompletion === false &&
+      evidence.wireGuidance.claims.lessonCompleted === false &&
+      evidence.wireGuidance.claims.teacherValidated === false &&
+      evidence.wireGuidance.claims.physicalVerified === false,
+    "partial checklist preserves no-action/no-master/no-completion/no-teacher/no-physical claims");
   });
 
   check("needs-correction-keeps-missing-pair-guidance-and-topology-only-extra-review", () => {
@@ -850,6 +887,10 @@ export function runPracticeEvidenceContracts() {
       Object.isFrozen(evidence.wireGuidance) &&
       Object.isFrozen(evidence.wireGuidance.missingPairs) &&
       Object.isFrozen(evidence.wireGuidance.reviewExtraPairs) &&
+      Object.isFrozen(evidence.wireGuidance.pairChecklist) &&
+      evidence.wireGuidance.pairChecklist.every(row => Object.isFrozen(row) && Object.isFrozen(row.pair)) &&
+      Object.isFrozen(evidence.wireGuidance.extraReviewChecklist) &&
+      evidence.wireGuidance.extraReviewChecklist.every(row => Object.isFrozen(row) && Object.isFrozen(row.pair)) &&
       Object.isFrozen(evidence.wireGuidance.claims),
       "deep freeze top-level",
     );

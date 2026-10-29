@@ -16,7 +16,9 @@ import {
 } from "./breadboard-placement.js";
 import { createBreadboardPlacementSession } from "./breadboard-placement-session.js";
 import {
+  compareBreadboardContactHoles,
   createBreadboardHoleGridPage,
+  inspectBreadboardContactGroup,
   listBreadboardRailChoices,
   pickBreadboardGridHole,
   pickBreadboardRailHole,
@@ -99,6 +101,7 @@ export function mountBreadboardStudy({
   let holeGridPage=1;
   let holePickerInitialized=false;
   let renderedGridButtons=[];
+  let contactInspection=null;
 
   const announce = (message,kind) => {
     result.textContent = message;
@@ -119,6 +122,107 @@ export function mountBreadboardStudy({
     }
     renderedGridButtons=[];
   };
+  const clearContactVisualState=()=>{
+    if(!hasHolePicker)return;
+    for(const key of ["bbContactState","bbContactProfile","bbContactHole","bbContactNode","bbContactKind"]){
+      delete holeGrid.dataset[key];
+    }
+    for(const key of ["bbContactCompareA","bbContactCompareB"]){
+      delete gridStatus.dataset[key];
+    }
+    for(const {button} of renderedGridButtons){
+      delete button.dataset.bbContactMember;
+      delete button.dataset.bbContactSelected;
+      button.style.borderWidth="";
+      button.style.textDecoration="";
+      button.style.textUnderlineOffset="";
+      button.setAttribute("aria-label",`Chọn lỗ ${button.dataset.bbGridHole} để điền ô gán; chưa tạo placement`);
+    }
+  };
+  const clearContactInspection=()=>{
+    contactInspection=null;
+    clearContactVisualState();
+  };
+  const safeContactComparison=(otherHoleId)=>{
+    if(!contactInspection)return {status:"none",holeId:String(otherHoleId??"")};
+    try{
+      const compared=compareBreadboardContactHoles({
+        profileId:profile.value,
+        firstHoleId:contactInspection.holeId,
+        secondHoleId:otherHoleId,
+      });
+      return {status:compared.status,holeId:compared.second.holeId};
+    }catch{
+      return {status:"invalid-input",holeId:String(otherHoleId??"")};
+    }
+  };
+  const contactComparisonLabel=status=>{
+    if(status==="same-node")return "cùng node profile";
+    if(status==="different-node")return "khác node profile";
+    if(status==="unknown")return "chưa đủ bằng chứng profile";
+    if(status==="invalid-input")return "input chưa hợp lệ";
+    return "chưa đối chiếu";
+  };
+  const renderContactInspection=()=>{
+    if(!hasHolePicker)return null;
+    clearContactVisualState();
+    if(!contactInspection)return null;
+    if(contactInspection.profileId!==profile.value){
+      clearContactInspection();
+      return null;
+    }
+    holeGrid.dataset.bbContactState=contactInspection.status;
+    holeGrid.dataset.bbContactProfile=contactInspection.profileId;
+    holeGrid.dataset.bbContactHole=contactInspection.holeId;
+    holeGrid.dataset.bbContactNode=contactInspection.nodeId??"";
+    holeGrid.dataset.bbContactKind=contactInspection.nodeKind??"unknown";
+    if(contactInspection.status==="known"){
+      for(const {button} of renderedGridButtons){
+        if(button.dataset.bbGridNode===contactInspection.nodeId){
+          button.dataset.bbContactMember="true";
+          button.style.borderWidth="3px";
+          button.setAttribute(
+            "aria-label",
+            `Lỗ ${button.dataset.bbGridHole}; cùng nhóm tiếp xúc ${contactInspection.nodeId} với lỗ đang chọn ${contactInspection.holeId}; chọn để điền ô gán, chưa tạo placement`,
+          );
+        }
+        if(button.dataset.bbGridHole===contactInspection.holeId){
+          button.dataset.bbContactSelected="true";
+          button.style.textDecoration="underline";
+          button.style.textUnderlineOffset="3px";
+        }
+      }
+    }
+    const againstA=safeContactComparison(from.value);
+    const againstB=safeContactComparison(to.value);
+    gridStatus.dataset.bbContactCompareA=againstA.status;
+    gridStatus.dataset.bbContactCompareB=againstB.status;
+    const authorities=[...new Set(contactInspection.provenance.sources.map(source=>source.authority))].join(", ");
+    const provenance=`provenance ${contactInspection.provenance.scope}; nguồn ${authorities}`;
+    if(contactInspection.status!=="known"){
+      announceGrid(
+        `Lỗ ${contactInspection.holeId}: chưa có node tiếp xúc được xác minh trong profile ${contactInspection.profileId}; ${provenance}. `+
+        `Đối chiếu A (${againstA.holeId}): ${contactComparisonLabel(againstA.status)}; B (${againstB.holeId}): ${contactComparisonLabel(againstB.status)}. `+
+        "Không suy nối vật lý, dây ngoài breadboard hoặc circuit-router.",
+        "contact-unknown",
+      );
+      return contactInspection;
+    }
+    const neighborSummary=contactInspection.nodeKind==="power-rail"
+      ? `${contactInspection.neighbors.length} lỗ còn lại cùng rail; phạm vi ${contactInspection.members[0]}…${contactInspection.members.at(-1)}`
+      : `các lỗ cùng node: ${contactInspection.members.join(", ")}; hàng xóm của lỗ chọn: ${contactInspection.neighbors.join(", ")}`;
+    const railBoundary=contactInspection.nodeKind==="power-rail"
+      ? " Rail này là một node 50 lỗ độc lập theo profile; không suy nối với ba rail ký hiệu còn lại."
+      : "";
+    announceGrid(
+      `Lỗ ${contactInspection.holeId} thuộc node ${contactInspection.nodeId} (${contactInspection.contactRegion}) của profile ${contactInspection.profileId}; ${neighborSummary}. `+
+      `${provenance}.${railBoundary} Đối chiếu A (${againstA.holeId}): ${contactComparisonLabel(againstA.status)}; `+
+      `B (${againstB.holeId}): ${contactComparisonLabel(againstB.status)}. `+
+      "Đây chỉ là nhóm tiếp xúc nội bộ theo profile; lựa chọn vẫn chỉ điền #bbPlaceHole, chưa tạo placement, dây hay tiếp xúc vật lý.",
+      "contact",
+    );
+    return contactInspection;
+  };
   const updateGridButtonSelection=()=>{
     if(!hasHolePicker)return;
     const selected=String(placeHole.value||"").trim().toUpperCase();
@@ -128,6 +232,7 @@ export function mountBreadboardStudy({
   };
   const failClosedHolePicker=error=>{
     if(!hasHolePicker)return;
+    contactInspection=null;
     clearRenderedGridButtons();
     holeGrid.replaceChildren();
     holeGrid.dataset.state="error";
@@ -150,10 +255,14 @@ export function mountBreadboardStudy({
     placeHole.value=selection.holeId;
     placeHole.setAttribute("aria-invalid","false");
     updateGridButtonSelection();
-    announceGrid(
-      `${label} ${selection.holeId} đã được điền vào ô lỗ. Chưa tạo placement hay dây; cần bấm “Gán lỗ trong bản nháp” để xác nhận.`,
-      "selected",
-    );
+    contactInspection=inspectBreadboardContactGroup({
+      profileId:selection.profileId,
+      holeId:selection.holeId,
+    });
+    renderContactInspection();
+    gridStatus.dataset.result="selected";
+    gridStatus.dataset.selectionKind=selection.selectionKind;
+    gridStatus.dataset.selectionLabel=label;
     return selection;
   };
   const renderRailPicker=(state,{reset=false}={})=>{
@@ -198,7 +307,10 @@ export function mountBreadboardStudy({
   const renderHoleGrid=(state,{reset=false}={})=>{
     if(!hasHolePicker)return null;
     const authoredEnabled=Boolean(state?.enabled&&state.terminals.length);
-    if(reset)holeGridPage=1;
+    if(reset){
+      holeGridPage=1;
+      contactInspection=null;
+    }
     const model=createBreadboardHoleGridPage({profileId:profile.value,page:holeGridPage});
     clearRenderedGridButtons();
     holeGrid.replaceChildren();
@@ -236,6 +348,7 @@ export function mountBreadboardStudy({
         button.dataset.bbPickHole=hole.id;
         button.dataset.bbGridHole=hole.id;
         button.dataset.bbGridNode=hole.nodeId;
+        button.dataset.bbContactSide=/[A-E]/.test(hole.row)?"left":"right";
         button.textContent=hole.id;
         button.disabled=!authoredEnabled;
         button.style.minWidth="44px";
@@ -266,6 +379,7 @@ export function mountBreadboardStudy({
       if(row==="E"){
         const trench=doc.createElement("div");
         trench.dataset.bbGridTrench="";
+        trench.dataset.bbContactBoundary="center-gap";
         trench.setAttribute("role","separator");
         trench.setAttribute("aria-label","Khe giữa E và F; hai phía không cùng nhóm tiếp xúc");
         trench.textContent="Khe giữa E ↕ F";
@@ -278,6 +392,7 @@ export function mountBreadboardStudy({
     gridPage.dataset.page=String(model.page);
     gridPage.dataset.pageCount=String(model.pageCount);
     renderRailPicker(state,{reset});
+    renderContactInspection();
     return model;
   };
   function syncHolePicker(state,{reset=false,reason=null}={}){
@@ -606,6 +721,7 @@ export function mountBreadboardStudy({
       const state=placementSession.snapshot();
       const model=createBreadboardHoleGridPage({profileId:profile.value,page:nextPage});
       holeGridPage=model.page;
+      contactInspection=null;
       renderHoleGrid(state);
       announceGrid(
         `Đang xem cột ${model.columnStart}–${model.columnEnd}. Chọn lỗ chỉ điền ô; chưa tạo placement.`,
@@ -693,12 +809,25 @@ export function mountBreadboardStudy({
   const onGridRailHoleInput=()=>{
     if(hasHolePicker)gridRailHole.setAttribute("aria-invalid","false");
   };
-  const onPlaceInput=()=>updateGridButtonSelection();
+  const onPlaceInput=()=>{
+    updateGridButtonSelection();
+    if(contactInspection){
+      clearContactInspection();
+      announceGrid(
+        "Ô lỗ đã được sửa thủ công; highlight nhóm tiếp xúc được xóa cho đến khi chọn lại một lỗ canonical trong picker.",
+        "ready",
+      );
+    }
+  };
+  const onCompareInput=()=>{
+    if(contactInspection)renderContactInspection();
+  };
   const onTerminal=()=>{
     const mapped=placementSession.snapshot().terminalToHole[terminalSelect.value];
     placeHole.value=mapped??"";
     placeHole.setAttribute("aria-invalid","false");
     terminalSelect.setAttribute("aria-invalid","false");
+    clearContactInspection();
   };
   const onProfile=()=>{
     comparison=null;
@@ -715,6 +844,8 @@ export function mountBreadboardStudy({
   profile.addEventListener("change",onProfile);
   from.addEventListener("keydown",onHoleKeydown);
   to.addEventListener("keydown",onHoleKeydown);
+  from.addEventListener("input",onCompareInput);
+  to.addEventListener("input",onCompareInput);
   placeHole.addEventListener("keydown",onPlaceKeydown);
   assignHole.addEventListener("click",onAssignHole);
   removeHole.addEventListener("click",onRemoveHole);
@@ -735,6 +866,7 @@ export function mountBreadboardStudy({
     compare:compareHoles,
     snapshot:()=>comparison,
     getAuthoredPlacement:()=>placementSession.getPlacement(),
+    getContactInspection:()=>contactInspection,
     dispose(){
       if(disposed)return;
       disposed=true;
@@ -742,6 +874,8 @@ export function mountBreadboardStudy({
       profile.removeEventListener("change",onProfile);
       from.removeEventListener("keydown",onHoleKeydown);
       to.removeEventListener("keydown",onHoleKeydown);
+      from.removeEventListener("input",onCompareInput);
+      to.removeEventListener("input",onCompareInput);
       placeHole.removeEventListener("keydown",onPlaceKeydown);
       assignHole.removeEventListener("click",onAssignHole);
       removeHole.removeEventListener("click",onRemoveHole);

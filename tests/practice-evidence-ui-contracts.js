@@ -34,6 +34,7 @@ class FakeNode {
     this.type = "";
     this.disabled = false;
     this.hidden = false;
+    this.focused = false;
     this._text = "";
   }
 
@@ -75,6 +76,10 @@ class FakeNode {
   click() {
     if (this.disabled) return;
     for (const callback of this.listeners.get("click") ?? []) callback({ target: this });
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   matches(selector) {
@@ -280,6 +285,17 @@ export function runPracticeEvidenceUiContracts() {
           onInspectMissingTerminal: terminalId => inspected.push(terminalId),
         });
         rendered += 1;
+        const checklist = section.querySelector("[data-practice-wire-checklist]");
+        assert(checklist, "checklist block missing " + lesson.id + "/" + stepIndex);
+        const checklistRows = section.querySelectorAll("[data-practice-checklist-row]");
+        if (value.checkpoint.kind === "manual") {
+          assert(checklistRows.length === 0, "manual checkpoint must not render pair rows " + lesson.id + "/" + stepIndex);
+        } else {
+          assert(checklistRows.length === value.checkpoint.requiredPairs.length,
+            "authored checklist row count drift " + lesson.id + "/" + stepIndex);
+          assert(checklistRows.filter(row => row.getAttribute("data-practice-pair-status") === "missing").length === value.missingPairs.length,
+            "authored checklist missing-state count drift " + lesson.id + "/" + stepIndex);
+        }
         const button = section.querySelector("[data-practice-inspect-missing-terminal]");
         const shouldExist = value.checkpoint.kind === "wiring" &&
           value.wireGuidance.status === "missing-canonical-pair" && value.missingPairs.length > 0;
@@ -351,6 +367,212 @@ export function runPracticeEvidenceUiContracts() {
     assert(!render(forgedPair, { onInspectMissingTerminal: () => {} })
       .querySelector("[data-practice-inspect-missing-terminal]"),
     "guidance pair inconsistent with first evidence missing pair must not expose button");
+  });
+
+  check("per-pair-checklist-renders-authored-order-states-and-explicit-read-only-inspect-actions", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    let circuit = createCircuit(2);
+    circuit = connectCircuit(circuit, "D13", "R1:A");
+    const value = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const inspected = [];
+    const section = render(value, {
+      onInspectChecklistTerminal: terminalId => inspected.push(terminalId),
+    });
+    const checklist = section.querySelector("[data-practice-wire-checklist]");
+    assert(checklist?.getAttribute("role") === "group", "checklist accessible group missing");
+    assert(/Checklist cạnh dây của checkpoint/.test(checklist.textContent), "checklist heading missing");
+    const rows = section.querySelectorAll("[data-practice-checklist-row]");
+    assert(rows.length === 3, "lesson02 step1 should render three authored pair rows");
+    assert(rows[0].getAttribute("data-practice-pair-status") === "matched", "first row matched state missing");
+    assert(rows[1].getAttribute("data-practice-pair-status") === "missing" &&
+      rows[2].getAttribute("data-practice-pair-status") === "missing",
+    "later rows missing state drift");
+    assert(/Cặp 1: D13 ↔ R1:A.*Đã có trong learner graph/.test(rows[0].textContent),
+      "matched row exact IDs/copy missing");
+    assert(/Cặp 2: R1:B ↔ LED:A.*Còn thiếu trong learner graph/.test(rows[1].textContent),
+      "missing row exact IDs/copy missing");
+    const buttons = section.querySelectorAll("[data-practice-checklist-inspect-terminal]");
+    assert(buttons.length === 3, "one optional inspect action per authored pair expected");
+    for (const button of buttons) {
+      assert(button.tagName === "BUTTON" && button.type === "button", "checklist action must be native button");
+      assert(button.disabled === false, "callback-backed checklist button should be enabled");
+      assert(button.getAttribute("tabindex") === null, "native checklist button must keep default keyboard focusability");
+      assert(button.getAttribute("style") === null && button.getAttribute("width") === null,
+        "checklist button must not add fixed-width/inline layout hostile to 375px");
+      assert(button.focused === false, "render must not steal focus to checklist action");
+    }
+    assert(inspected.length === 0, "render must never invoke checklist inspector callback");
+    buttons[0].click();
+    buttons[1].click();
+    assert(JSON.stringify(inspected) === JSON.stringify(["D13", "R1:B"]),
+      "matched/missing row actions pass exact authored source terminal only after click");
+    assert(value.claims.autoCompletion === false && value.claims.lessonCompleted === false,
+      "checklist clicks cannot alter completion claims");
+  });
+
+  check("extra-review-checklist-renders-separate-source-inspect-without-electrical-diagnosis", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    let circuit = createSampleCircuit(2);
+    circuit = connectCircuit(circuit, "D13", "GND");
+    const value = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const inspected = [];
+    const section = render(value, {
+      onInspectChecklistTerminal: terminalId => inspected.push(terminalId),
+    });
+    const review = section.querySelector("[data-practice-extra-review-checklist]");
+    assert(review?.getAttribute("role") === "group", "extra review accessible group missing");
+    const rows = section.querySelectorAll("[data-practice-extra-review-row]");
+    assert(rows.length === 1 && rows[0].getAttribute("data-practice-pair-status") === "review-extra",
+      "extra review row missing");
+    assert(/D13 ↔ GND.*không thuộc canonical reference sample/i.test(rows[0].textContent),
+      "extra review exact topology copy missing");
+    assert(!/chập|short|nguy hiểm|quá dòng|điện áp sai|đã cắm sai/i.test(rows[0].textContent),
+      "extra review must not fabricate physical/electrical diagnosis");
+    const button = section.querySelector("[data-practice-extra-inspect-terminal]");
+    assert(button?.getAttribute("data-practice-inspect-terminal") === "D13",
+      "extra review inspect source terminal binding missing");
+    assert(inspected.length === 0, "extra review must not auto inspect");
+    button.click();
+    assert(JSON.stringify(inspected) === JSON.stringify(["D13"]),
+      "extra review click passes exact source terminal once");
+  });
+
+  check("manual-and-signal-only-checklists-preserve-authored-boundaries", () => {
+    const manualLesson = lessons.find(item => item.id === 1);
+    const manualValue = inspectPracticeEvidence({
+      lesson: manualLesson,
+      stepIndex: 0,
+      circuit: null,
+      referenceCircuit: null,
+      analysis: null,
+      hasLearnerDraft: false,
+    });
+    const manual = render(manualValue, { onInspectChecklistTerminal: () => {} });
+    assert(manual.querySelector("[data-practice-wire-checklist]"), "manual checkpoint should expose neutral checklist block");
+    assert(/Checkpoint manual không có authored required pair/i.test(manual.textContent),
+      "manual checklist neutral copy missing");
+    assert(manual.querySelectorAll("[data-practice-checklist-row]").length === 0 &&
+      manual.querySelectorAll("[data-practice-checklist-inspect-terminal]").length === 0,
+    "manual checkpoint must not invent wire rows/actions");
+
+    const signalLesson = lessons.find(item => item.id === 14);
+    const signalCircuit = createCircuit(14);
+    const signalValue = inspectPracticeEvidence({
+      lesson: signalLesson,
+      stepIndex: 0,
+      circuit: signalCircuit,
+      referenceCircuit: createSampleCircuit(14),
+      analysis: analyzeCircuit(14, signalCircuit),
+      hasLearnerDraft: true,
+    });
+    const signal = render(signalValue, { onInspectChecklistTerminal: () => {} });
+    assert(signal.querySelectorAll("[data-practice-checklist-row]").length === 2,
+      "lesson14 authored signal pairs should render checklist rows");
+    assert(/tín hiệu\/GND/.test(signal.textContent) && /nguồn công suất.*tải.*không được xác nhận/i.test(signal.textContent),
+      "signal-only boundary must coexist with checklist");
+    assert(!/bơm đã hoạt động|phần cứng đúng|đã hoàn thành/i.test(signal.textContent),
+      "signal-only checklist must not upgrade hardware/completion claims");
+  });
+
+  check("forged-or-malformed-checklist-fails-closed-without-row-actions", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const circuit = createCircuit(2);
+    const genuine = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const forgedStatus = {
+      ...genuine,
+      wireGuidance: {
+        ...genuine.wireGuidance,
+        pairChecklist: genuine.wireGuidance.pairChecklist.map((row, index) =>
+          index === 0 ? { ...row, status: "matched" } : { ...row }),
+      },
+    };
+    const forgedTeacher = {
+      ...genuine,
+      wireGuidance: {
+        ...genuine.wireGuidance,
+        claims: { ...genuine.wireGuidance.claims, teacherValidated: true },
+      },
+    };
+    const malformed = {
+      ...genuine,
+      wireGuidance: {
+        ...genuine.wireGuidance,
+        pairChecklist: [{ order: 1, pair: ["D13"], status: "missing", inspectTerminalId: "D13", explanation: "bad" }],
+      },
+    };
+    const forgedEvidenceTeacher = {
+      ...genuine,
+      claims: { ...genuine.claims, teacherValidated: true },
+    };
+    for (const [label, value] of [
+      ["forged status", forgedStatus],
+      ["forged guidance teacher", forgedTeacher],
+      ["forged evidence teacher", forgedEvidenceTeacher],
+      ["malformed", malformed],
+    ]) {
+      const section = render(value, { onInspectChecklistTerminal: () => {} });
+      assert(!section.querySelector("[data-practice-wire-checklist]"), label + " must suppress checklist block");
+      assert(!section.querySelector("[data-practice-checklist-inspect-terminal]"),
+        label + " must suppress row inspect actions");
+    }
+  });
+
+  check("checklist-explanations-use-text-content-and-mobile-neutral-structure", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const circuit = createCircuit(2);
+    const genuine = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const payload = '<img src=x onerror="globalThis.pwned=1">';
+    const poisoned = {
+      ...genuine,
+      wireGuidance: {
+        ...genuine.wireGuidance,
+        pairChecklist: genuine.wireGuidance.pairChecklist.map((row, index) => ({
+          ...row,
+          explanation: index === 0 ? payload : row.explanation,
+        })),
+      },
+    };
+    const section = render(poisoned, { onInspectChecklistTerminal: () => {} });
+    assert(section.textContent.includes(payload), "checklist payload should remain literal text");
+    assert(!section.querySelector("img"), "checklist text must not create injected DOM nodes");
+    assert(!section.querySelector("table"), "checklist should avoid fixed table structure on 375px layouts");
+    const checklist = section.querySelector("[data-practice-wire-checklist]");
+    assert(checklist?.getAttribute("style") === null && checklist?.getAttribute("width") === null,
+      "checklist root must not set inline/fixed width");
+    for (const button of section.querySelectorAll("[data-practice-checklist-inspect-terminal]")) {
+      assert(button.tagName === "BUTTON" && button.getAttribute("tabindex") === null,
+        "checklist controls remain native keyboard-focusable controls");
+      assert(button.getAttribute("style") === null && button.getAttribute("width") === null,
+        "checklist controls remain structurally 375px-neutral");
+    }
   });
 
   // legacy expectation retired by requested authored checkpoint behavior, check absence
@@ -643,6 +865,11 @@ export function runPracticeEvidenceUiContracts() {
       () => renderPracticeEvidence(new FakeDocument(), evidence(), { onInspectMissingTerminal: "bad" }),
       /onInspectMissingTerminal.*function/i,
       "bad missing-terminal inspector callback",
+    );
+    expectThrow(
+      () => renderPracticeEvidence(new FakeDocument(), evidence(), { onInspectChecklistTerminal: "bad" }),
+      /onInspectChecklistTerminal.*function/i,
+      "bad checklist inspector callback",
     );
   });
 

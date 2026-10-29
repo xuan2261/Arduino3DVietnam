@@ -8,8 +8,10 @@
 
 const MAX_WARNING_ROWS = 12;
 const MAX_GUIDANCE_ROWS = 8;
+const MAX_LEXICAL_ROWS = 24;
 const MAX_TEXT_CHARS = 900;
 const STATUSES = new Set(["reference", "changed"]);
+const LEXICAL_STATUSES = new Set(["present", "absent", "fewer-than-reference"]);
 const FALSE_CLAIMS = [
   "compiled",
   "semanticValidated",
@@ -62,11 +64,58 @@ function requireInspection(inspection) {
   if (!Array.isArray(inspection.warnings) || !Array.isArray(inspection.guidance)) {
     throw new TypeError("inspection warnings/guidance phải là mảng.");
   }
+  if (!inspection.lexical || inspection.lexical.mode !== "masked-reference-pattern-scan" ||
+      inspection.lexical.commentsAndStringsIgnored !== true ||
+      !Array.isArray(inspection.lexical.findings)) {
+    throw new TypeError("inspection thiếu lexical feedback đã mask comment/string.");
+  }
+  for (const key of ["expectedFeatureCount", "presentFeatureCount", "differenceCount"]) {
+    if (boundedInteger(inspection.lexical[key], 24) === null) {
+      throw new TypeError("inspection.lexical." + key + " không hợp lệ.");
+    }
+  }
+  if (inspection.lexical.expectedFeatureCount !== inspection.lexical.findings.length ||
+      inspection.lexical.presentFeatureCount + inspection.lexical.differenceCount !==
+        inspection.lexical.expectedFeatureCount) {
+    throw new TypeError("inspection.lexical counts không nhất quán.");
+  }
+  let actualDifferenceCount = 0;
+  for (const finding of inspection.lexical.findings) {
+    if (!finding || typeof finding !== "object" ||
+        typeof finding.id !== "string" || !finding.id ||
+        typeof finding.label !== "string" || !finding.label ||
+        !LEXICAL_STATUSES.has(finding.status) ||
+        boundedInteger(finding.referenceCount, 600) === null || finding.referenceCount < 1 ||
+        boundedInteger(finding.draftCount, 600) === null ||
+        boundedInteger(finding.referenceLine, 600) === null || finding.referenceLine < 1 ||
+        (finding.draftLine !== null && boundedInteger(finding.draftLine, 600) === null) ||
+        typeof finding.hint !== "string") {
+      throw new TypeError("inspection.lexical.findings có item không hợp lệ.");
+    }
+    const presentShape = finding.status === "present" &&
+      finding.draftCount >= finding.referenceCount &&
+      Number.isInteger(finding.draftLine) && finding.draftLine >= 1;
+    const absentShape = finding.status === "absent" &&
+      finding.draftCount === 0 && finding.draftLine === null;
+    const fewerShape = finding.status === "fewer-than-reference" &&
+      finding.draftCount > 0 && finding.draftCount < finding.referenceCount &&
+      Number.isInteger(finding.draftLine) && finding.draftLine >= 1;
+    if (!presentShape && !absentShape && !fewerShape) {
+      throw new TypeError("inspection.lexical.findings có status/count/line không nhất quán.");
+    }
+    if (finding.status !== "present") actualDifferenceCount += 1;
+  }
+  if (actualDifferenceCount !== inspection.lexical.differenceCount ||
+      inspection.lexical.presentFeatureCount !==
+        inspection.lexical.expectedFeatureCount - actualDifferenceCount) {
+    throw new TypeError("inspection.lexical aggregate counts không khớp findings.");
+  }
   if (!inspection.claims || FALSE_CLAIMS.some(key => inspection.claims[key] !== false)) {
     throw new TypeError("inspection phải giữ mọi claim biên dịch/thực thi/hoàn thành ở false.");
   }
   if (inspection.provenance?.reference !== "lesson-reference" ||
-      inspection.provenance?.draft !== "editor-draft") {
+      inspection.provenance?.draft !== "editor-draft" ||
+      inspection.provenance?.lexical !== "masked-reference-pattern-scan") {
     throw new TypeError("inspection thiếu provenance lesson-reference/editor-draft.");
   }
 }
@@ -114,7 +163,7 @@ function appendWarnings(doc, section, inspection) {
       doc,
       "p",
       "sketch-review-no-warning",
-      "Không thấy cảnh báo setup()/loop()/ngoặc nhọn trong phép quét văn bản hiện tại.",
+      "Không thấy cảnh báo setup()/loop()/ngoặc nhọn trong phép quét văn bản hiện tại; lexical scan cũng chưa thấy ngoặc tròn/vuông lệch.",
     ));
     section.append(block);
     return;
@@ -142,6 +191,62 @@ function appendWarnings(doc, section, inspection) {
   section.append(block);
 }
 
+function appendLexical(doc, section, inspection) {
+  const lexical = inspection.lexical;
+  const block = make(doc, "div", "sketch-review-lexical");
+  block.setAttribute("data-sketch-review-lexical", "");
+  block.append(make(doc, "h6", "sketch-review-subheading", "Dấu hiệu nguồn so với mã tham khảo"));
+
+  const summary = make(
+    doc,
+    "p",
+    "sketch-review-lexical-status",
+    lexical.differenceCount === 0
+      ? "Quét lexical sau khi bỏ qua comment/string: " + lexical.expectedFeatureCount +
+        "/" + lexical.expectedFeatureCount + " loại dấu hiệu tham khảo vẫn xuất hiện trong source."
+      : "Quét lexical sau khi bỏ qua comment/string: " + lexical.differenceCount +
+        " loại dấu hiệu tham khảo đang thiếu hoặc xuất hiện ít hơn trong source.",
+  );
+  summary.setAttribute("data-sketch-review-lexical-summary", "");
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  summary.setAttribute("aria-atomic", "true");
+  block.append(summary);
+
+  const differences = lexical.findings
+    .filter(item => item.status !== "present")
+    .slice(0, MAX_LEXICAL_ROWS);
+  if (differences.length) {
+    const list = make(doc, "ul", "sketch-review-list");
+    for (const finding of differences) {
+      const draftWhere = finding.draftLine === null
+        ? "bản nháp chưa thấy ngoài comment/string"
+        : "bản nháp thấy từ dòng " + finding.draftLine + " (" +
+          finding.draftCount + "/" + finding.referenceCount + " lần so với mẫu)";
+      const row = make(
+        doc,
+        "li",
+        "",
+        "Mẫu dòng " + finding.referenceLine + " · " + safeText(finding.label, "pattern") +
+          " · " + draftWhere + ". " +
+          safeText(finding.hint, "Đối chiếu lại với mã tham khảo nếu thay đổi này không có chủ ý."),
+      );
+      row.setAttribute("data-sketch-review-lexical-finding", safeText(finding.id, "pattern"));
+      row.setAttribute("data-sketch-review-lexical-status", finding.status);
+      list.append(row);
+    }
+    block.append(list);
+  } else {
+    block.append(make(
+      doc,
+      "p",
+      "sketch-review-lexical-note",
+      "Không có khác biệt lexical ở nhóm pattern tham khảo đang theo dõi. Kết quả này không phải kiểm tra cú pháp hay ngữ nghĩa C++.",
+    ));
+  }
+  section.append(block);
+}
+
 /**
  * Render one immutable view of a sketch inspection. The host can replace the
  * returned section whenever the editor draft or lesson changes.
@@ -153,13 +258,15 @@ export function renderSketchReview(doc, inspection) {
   const changes = inspection.changes;
   const structure = inspection.structure;
   const warningCount = Math.min(inspection.warnings.length, 999);
-  const tone = warningCount > 0 ? "warning" : inspection.status;
+  const lexicalDifferenceCount = inspection.lexical.differenceCount;
+  const tone = warningCount > 0 || lexicalDifferenceCount > 0 ? "warning" : inspection.status;
   const section = make(doc, "section", "sketch-review");
   section.setAttribute("data-sketch-review", "");
   section.setAttribute("data-sketch-review-status", inspection.status);
   section.setAttribute("data-sketch-review-tone", tone);
   section.setAttribute("data-sketch-review-lesson", String(inspection.lessonId));
   section.setAttribute("data-sketch-review-warning-count", String(warningCount));
+  section.setAttribute("data-sketch-review-lexical-difference-count", String(lexicalDifferenceCount));
   section.setAttribute("data-sketch-review-changed-lines", String(changes.changedLines));
   section.setAttribute("aria-label", "Đối chiếu Sketch bài " + inspection.lessonId);
 
@@ -195,11 +302,16 @@ export function renderSketchReview(doc, inspection) {
     "setup(): " + (bool(structure.setupPresent) ? "có" : "chưa nhận ra"),
     "loop(): " + (bool(structure.loopPresent) ? "có" : "chưa nhận ra"),
     "ngoặc nhọn: " + (bool(structure.bracesBalanced) ? "cân bằng theo heuristic" : "cần xem lại"),
+    "ngoặc tròn/vuông: " +
+      (bool(structure.parenthesesBalanced) && bool(structure.bracketsBalanced)
+        ? "cân bằng theo lexical scan"
+        : "cần xem lại"),
   ].join(" · ");
   const structureNode = make(doc, "p", "sketch-review-structure", structureText + ".");
   structureNode.setAttribute("data-sketch-review-structure", "");
   section.append(structureNode);
 
+  appendLexical(doc, section, inspection);
   appendGuidance(doc, section, inspection);
   appendWarnings(doc, section, inspection);
 
@@ -208,6 +320,7 @@ export function renderSketchReview(doc, inspection) {
     "p",
     "sketch-review-boundary",
     "Review này chỉ so sánh văn bản giữa mã tham khảo của bài và bản nháp trong editor. " +
+      "Quét pattern bỏ qua comment/string nhưng vẫn chỉ là heuristic lexical. " +
       "Nó không biên dịch Arduino C++, không kiểm tra ngữ nghĩa C++, không chạy firmware, " +
       "không xác nhận thay đổi mã đã ảnh hưởng mô phỏng và không đánh giá mức độ hoàn thành hay hiểu bài.",
   );

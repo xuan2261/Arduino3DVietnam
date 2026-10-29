@@ -161,6 +161,19 @@
 .practice-evidence-button:focus-visible { outline: 3px solid #11887b; outline-offset: 2px; }
 .practice-evidence-button:disabled { cursor: not-allowed; opacity: .52; }
 
+/* Authored checkpoint checklist is reference-topology guidance, never a grade.
+   Each native inspect action changes view only; row color has visible text too. */
+.practice-evidence-wire-checklist,
+.practice-evidence-extra-review-checklist { margin-top:13px; padding-top:11px; border-top:1px solid #d4e5db; }
+.practice-evidence-checklist-list { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:8px; }
+.practice-evidence-checklist-row,
+[data-practice-extra-review-row] { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; padding:10px; border:1px solid #c9dfd0; border-radius:8px; background:#f2f9f4; min-width:0; }
+.practice-evidence-checklist-row[data-practice-pair-status="missing"] { border-color:#e0c494; background:#fff8eb; }
+[data-practice-extra-review-row] { border-color:#d3b9a2; background:#fff6f0; }
+.practice-evidence-checklist-copy { min-width:0; font-size:12px; font-weight:750; color:#2f5549; overflow-wrap:anywhere; }
+.practice-evidence-checklist-explanation { grid-column:1/-1; margin:0!important; font-size:11px!important; color:#49665a; }
+.practice-evidence-checklist-button { min-height:44px; max-width:100%; }
+
 /* A session-scoped observation is not a pass/fail grade. Keep this visually
    separate from the canonical topology evidence and from lesson completion. */
 .practice-observation {
@@ -189,6 +202,10 @@
   .practice-evidence { padding: 12px; }
   .practice-evidence-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .practice-evidence-button { width: 100%; }
+  .practice-evidence-checklist-row,
+  [data-practice-extra-review-row] { grid-template-columns:minmax(0,1fr); }
+  .practice-evidence-checklist-row .practice-evidence-checklist-button,
+  [data-practice-extra-review-row] .practice-evidence-checklist-button { width:100%; }
   .practice-observation { padding: 12px; }
 }
 

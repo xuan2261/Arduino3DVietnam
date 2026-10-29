@@ -117,6 +117,20 @@ export async function runScene3DContracts() {
     check("canvas-keyshortcuts", /ArrowLeft/.test(canvas.getAttribute("aria-keyshortcuts") || "") && /Home/.test(canvas.getAttribute("aria-keyshortcuts") || ""));
     check("touch-preserves-page-scroll", getComputedStyle(canvas).touchAction === "pan-y");
     check("context-ready-metadata", canvas.dataset.sceneContext === "ready" && !canvas.hasAttribute("aria-busy"));
+    const legacyHeaderSockets = Number(canvas.dataset.sceneUnoHeaderSocketVisualCount);
+    const legacyBreadboardHoles = Number(canvas.dataset.sceneBreadboardHoleVisualCount);
+    const legacyContactStrips = Number(canvas.dataset.sceneBreadboardContactStripVisualCount);
+    check("visual-fidelity-conceptual-profile",
+      canvas.dataset.sceneVisualProfile === "conceptual-r3-fidelity-v2" &&
+      canvas.dataset.sceneCadMapping === "none" &&
+      canvas.dataset.sceneElectricalAuthority === "none" &&
+      legacyHeaderSockets >= 20 &&
+      legacyBreadboardHoles >= 100 &&
+      legacyContactStrips >= 10);
+    check("visual-fidelity-instanced-detail-budget",
+      Number(canvas.dataset.sceneInstancedVisualCount) >= legacyHeaderSockets + legacyBreadboardHoles &&
+      Number(canvas.dataset.sceneFineDetailInstanceCount) > Number(canvas.dataset.sceneFineDetailObjectCount) &&
+      Number(canvas.dataset.sceneFineDetailCount) === Number(canvas.dataset.sceneFineDetailObjectCount));
 
     canvas.focus();
     const arrow = new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true });
@@ -222,6 +236,14 @@ export async function runScene3DContracts() {
       canvas.dataset.labInspectedTerminal === "" &&
       canvas.dataset.labInspectionFeedback === "none" &&
       readOnlyBadge.hidden === true);
+    check("lab-layout-adds-conceptual-geometry-without-cad-claim",
+      Number(canvas.dataset.sceneUnoHeaderSocketVisualCount) > legacyHeaderSockets &&
+      Number(canvas.dataset.sceneBreadboardHoleVisualCount) > legacyBreadboardHoles &&
+      Number(canvas.dataset.sceneBreadboardContactStripVisualCount) > legacyContactStrips &&
+      canvas.dataset.sceneCadMapping === "none" &&
+      canvas.dataset.sceneElectricalAuthority === "none" &&
+      canvas.dataset.labHoveredTerminal === "" &&
+      canvas.dataset.labTerminalLabelFeedback === "none");
 
     let pendingOutsideEditRejected = false;
     try { mounted.setPendingWireTerminal("D13"); }
@@ -309,6 +331,7 @@ export async function runScene3DContracts() {
       pending.physicalVerified === false &&
       canvas.dataset.labPendingWireTerminal === "D13" &&
       canvas.dataset.labPendingWirePreview === "none" &&
+      canvas.dataset.labTerminalLabelFeedback === "pending" &&
       /D13/.test(canvas.getAttribute("aria-label") || "") &&
       /chưa tạo dây/i.test(canvas.getAttribute("aria-label") || ""));
     check("pending-wire-prompt-is-visual-only",
@@ -339,7 +362,13 @@ export async function runScene3DContracts() {
       canvas.dataset.labTerminalFeedback === "selected-component" &&
       canvas.dataset.labSelectedComponent === "arduino" &&
       canvas.dataset.labPendingWireTerminal === "D13" &&
+      canvas.dataset.labTerminalLabelFeedback === "pending" &&
       editTerminalEvents.length === 0);
+    mounted.setPendingWireTerminal(null);
+    check("inspection-terminal-label-feedback-after-pending-clears",
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labTerminalLabelFeedback === "inspection");
+    mounted.setPendingWireTerminal("D13");
     mounted.focusLabComponent("arduino");
     check("lab-focus-feedback-metadata", canvas.dataset.labFocusFeedback === "outline");
 

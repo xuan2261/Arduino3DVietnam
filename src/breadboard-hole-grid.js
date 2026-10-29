@@ -55,6 +55,131 @@ function canonicalTerminalHoleId(holeId) {
   return canonical;
 }
 
+function canonicalContactHoleId(holeId) {
+  if (typeof holeId !== "string" || !holeId.trim()) {
+    throw new TypeError("Contact explorer cần holeId chuỗi không rỗng.");
+  }
+  const canonical = holeId.trim().toUpperCase();
+  if (/^([A-J])([1-9]|[1-5][0-9]|6[0-3])$/.test(canonical)) return canonical;
+  if (/^(P[12][+-])([1-9]|[1-4][0-9]|50)$/.test(canonical)) return canonical;
+  throw new RangeError("Contact explorer chỉ nhận A1..J63 hoặc P1+/P1-/P2+/P2- với index 1..50.");
+}
+
+function contactRegion(holeId, node) {
+  if (node?.kind === "power-rail") return "power-rail";
+  const row = holeId[0];
+  if (/[A-E]/.test(row)) return "left-terminal-strip";
+  if (/[F-J]/.test(row)) return "right-terminal-strip";
+  return "unknown";
+}
+
+function copyProfileEvidence(topology) {
+  return {
+    provenance: {
+      scope: topology.provenance.scope,
+      sources: topology.provenance.sources.map(source => ({ ...source })),
+    },
+    evidence: { ...topology.evidence },
+  };
+}
+
+export function inspectBreadboardContactGroup({ profileId, holeId } = {}) {
+  const topology = normalizeProfileId(profileId);
+  const canonicalHole = canonicalContactHoleId(holeId);
+  const node = breadboardNode(canonicalHole, topology);
+  const profileEvidence = copyProfileEvidence(topology);
+
+  if (!node) {
+    return freezeDeep({
+      status: "unknown",
+      profileId: topology.profileId,
+      profileLabel: topology.profileLabel,
+      holeId: canonicalHole,
+      nodeId: null,
+      nodeKind: null,
+      contactRegion: "unknown",
+      members: [],
+      neighbors: [],
+      reason: canonicalHole.startsWith("P")
+        ? "profile-power-rail-unverified"
+        : "profile-hole-unverified",
+      ...profileEvidence,
+      claims: {
+        profileInternalContactKnown: false,
+        externalWireInspected: false,
+        circuitRouterInspected: false,
+        physicalContactSimulated: false,
+        cadCoordinatesProvided: false,
+        sceneCoordinatesProvided: false,
+      },
+    });
+  }
+
+  const members = [...node.holes];
+  const neighbors = members.filter(member => member !== canonicalHole);
+  return freezeDeep({
+    status: "known",
+    profileId: topology.profileId,
+    profileLabel: topology.profileLabel,
+    holeId: canonicalHole,
+    nodeId: node.id,
+    nodeKind: node.kind,
+    contactRegion: contactRegion(canonicalHole, node),
+    members,
+    neighbors,
+    reason: "profile-internal-contact-node",
+    ...profileEvidence,
+    claims: {
+      profileInternalContactKnown: true,
+      externalWireInspected: false,
+      circuitRouterInspected: false,
+      physicalContactSimulated: false,
+      cadCoordinatesProvided: false,
+      sceneCoordinatesProvided: false,
+    },
+  });
+}
+
+export function compareBreadboardContactHoles({
+  profileId,
+  firstHoleId,
+  secondHoleId,
+} = {}) {
+  const first = inspectBreadboardContactGroup({ profileId, holeId: firstHoleId });
+  const second = inspectBreadboardContactGroup({ profileId, holeId: secondHoleId });
+  if (first.status !== "known" || second.status !== "known") {
+    return freezeDeep({
+      status: "unknown",
+      profileId: first.profileId,
+      first,
+      second,
+      sameContactGroup: null,
+      reason: "at-least-one-contact-group-unverified",
+      claims: {
+        externalWireInspected: false,
+        circuitRouterInspected: false,
+        physicalContactSimulated: false,
+      },
+    });
+  }
+  const same = first.nodeId === second.nodeId;
+  return freezeDeep({
+    status: same ? "same-node" : "different-node",
+    profileId: first.profileId,
+    first,
+    second,
+    sameContactGroup: same,
+    reason: same
+      ? "same-profile-internal-contact-node"
+      : "different-profile-internal-contact-nodes",
+    claims: {
+      externalWireInspected: false,
+      circuitRouterInspected: false,
+      physicalContactSimulated: false,
+    },
+  });
+}
+
 function canonicalRailId(railId) {
   if (typeof railId !== "string" || !railId.trim()) {
     throw new TypeError("Rail picker cần railId chuỗi không rỗng.");

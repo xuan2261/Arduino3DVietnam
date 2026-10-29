@@ -394,6 +394,19 @@ export async function runAccessibilityContracts() {
     }),
     "Bàn chỉnh 3D cần control có tên, toggle aria-controls/expanded, live status và boundary khái niệm/không vật lý đọc được.", "P1");
 
+  const cancelPendingWire = document.querySelector("#labCancelPendingWire");
+  const cancelPendingRect = cancelPendingWire?.getBoundingClientRect();
+  record("vnext-lab-pending-wire-native-keyboard-cancel-accessible",
+    cancelPendingWire?.tagName === "BUTTON" && cancelPendingWire.type === "button" &&
+    cancelPendingWire.getAttribute("aria-describedby") === "labSelectedTerminal" &&
+    Boolean(accessibleName(cancelPendingWire)) && cancelPendingWire.disabled === true &&
+    document.querySelector("#labSelectedTerminal")?.getAttribute("role") === "status" &&
+    document.querySelector("#labSelectedTerminal")?.getAttribute("aria-live") === "polite" &&
+    cancelPendingRect?.width >= 44 && cancelPendingRect?.height >= 44,
+    JSON.stringify({name:accessibleName(cancelPendingWire),disabled:cancelPendingWire?.disabled,
+      width:cancelPendingRect?.width,height:cancelPendingRect?.height}),
+    "Nút Hủy chọn chân đầu tiên phải native >=44px, có tên và liên kết live status, không tạo dây.", "P1");
+
   document.querySelector("#infoTabPractice")?.click();
   await nextTask();
   const coach = document.querySelector("#learningCoach");
@@ -475,6 +488,20 @@ export async function runAccessibilityContracts() {
       width: practiceMissingInspect?.getBoundingClientRect().width,
     }),
     "Action xem terminal còn thiếu phải là nút explicit >=44px, gắn đúng ID canonical và không mang ngữ nghĩa tự nối/hoàn thành.", "P1");
+
+  const authoredChecklist = practiceEvidence?.querySelector("[data-practice-wire-checklist]");
+  const checklistRows = [...(authoredChecklist?.querySelectorAll("[data-practice-checklist-row]")||[])];
+  const checklistButtons = [...(authoredChecklist?.querySelectorAll("[data-practice-checklist-inspect-terminal]")||[])];
+  record("vnext-practice-authored-pair-checklist-named-native-inspect",
+    authoredChecklist?.getAttribute("role") === "group" && Boolean(accessibleName(authoredChecklist)) &&
+    checklistRows.length > 0 && checklistRows.length === checklistButtons.length &&
+    checklistRows.every(row => row.getAttribute("data-practice-pair-status") === "missing") &&
+    checklistButtons.every(button => button.tagName === "BUTTON" && button.type === "button" &&
+      Boolean(accessibleName(button)) && button.getBoundingClientRect().height >= 44 &&
+      button.getBoundingClientRect().width >= 44),
+    JSON.stringify({name:accessibleName(authoredChecklist),rows:checklistRows.length,
+      buttons:checklistButtons.length,targets:checklistButtons.map(x=>x.dataset.practiceInspectTerminal)}),
+    "Checklist authored ở bài 02 phải có tên, hàng thiếu canonical và inspect native >=44px; không tự chứng nhận thực hành.", "P1");
 
   const practiceObservation = coach?.querySelector("[data-practice-observation]");
   const observationBoundary = practiceObservation?.querySelector("[data-observation-boundary]")?.textContent || "";
@@ -570,6 +597,16 @@ export async function runAccessibilityContracts() {
       boundary: sketchReviewBoundary?.textContent?.trim() || "",
     }),
     "Sketch review cần named region/status polite và disclosure rõ đây chỉ là so sánh source, không phải compile/firmware/completion.", "P1");
+
+  const lexicalSummary = sketchReview?.querySelector("[data-sketch-review-lexical-summary]");
+  record("vnext-sketch-lexical-feedback-accessible-without-compiler-claim",
+    lexicalSummary?.getAttribute("role") === "status" &&
+    lexicalSummary?.getAttribute("aria-live") === "polite" &&
+    /comment\/string/i.test(lexicalSummary?.textContent||"") &&
+    sketchReview?.getAttribute("data-sketch-review-lexical-difference-count") === "0" &&
+    /không biên dịch Arduino C\+\+/i.test(sketchReviewBoundary?.textContent||""),
+    JSON.stringify({summary:lexicalSummary?.textContent,differences:sketchReview?.dataset.sketchReviewLexicalDifferenceCount}),
+    "Review lexical phải là live status source-only, không nhầm comment/string với compiler hay mastery.", "P1");
 
   // v1.6 Lab Explorer exposes the same canonical lesson state through three
   // equivalent surfaces. SVG surfaces need explicit names/roles AND HTML
@@ -775,6 +812,22 @@ export async function runAccessibilityContracts() {
       status: holeGridStatus?.textContent?.trim() || "",
     }),
     "Hole picker phải là group có tên, 8 cột/80 nút native >=44px, live status và rail generic bị khóa fail-closed.", "P1");
+
+  const a1Picker = document.querySelector('#bbHoleGrid [data-bb-grid-hole="A1"]');
+  a1Picker?.click();
+  await nextTask();
+  const contactMembers = [...document.querySelectorAll('#bbHoleGrid [data-bb-contact-member="true"]')];
+  record("vnext-breadboard-profile-contact-group-explained-and-keyboard-accessible",
+    contactMembers.length === 5 &&
+    contactMembers.map(node=>node.dataset.bbGridHole).join(",") === "A1,B1,C1,D1,E1" &&
+    document.querySelector("#bbHoleGrid")?.dataset.bbContactState === "known" &&
+    document.querySelector('#bbHoleGrid [data-bb-contact-boundary="center-gap"]') !== null &&
+    document.querySelector("#bbGridStatus")?.getAttribute("aria-live") === "polite" &&
+    /profile|provenance/i.test(document.querySelector("#bbGridStatus")?.textContent||"") &&
+    document.querySelectorAll("#bbPlacedList [data-bb-placement-item]").length === 0,
+    JSON.stringify({members:contactMembers.map(x=>x.dataset.bbGridHole),
+      state:document.querySelector("#bbHoleGrid")?.dataset.bbContactState}),
+    "Lỗ A1 phải giải thích 5 tiếp điểm profile và rãnh giữa bằng nhãn, không tự gán placement.", "P1");
 
   const resistiveStudy = document.querySelector("#resistiveStudy");
   const resistiveControls = ["#resistiveV", "#resistiveR1", "#resistiveR2", "#resistiveSolve"]
