@@ -12,7 +12,9 @@ import { mountBreadboardStudy } from "./breadboard-topology-ui.js";
 import { mountResistiveStudy } from "./resistive-study-ui.js";
 import { inspectPracticeEvidence } from "./practice-evidence.js";
 import { renderPracticeEvidence } from "./practice-evidence-ui.js";
+import { getPracticeCheckpoint } from "./practice-checkpoints.js";
 import { listUnoPinReferences, UNO_REFERENCE_CLAIMS } from "./uno-reference.js";
+import { getUnoMechanicalOutline } from "./uno-mechanical-reference.js";
 import { inspectSketchDraft } from "./sketch-review.js";
 import { renderSketchReview } from "./sketch-review-ui.js";
 import {
@@ -143,6 +145,10 @@ function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,m
   if(!model || model.lessonId!==lessonId || !Array.isArray(model.wires)){
     throw new TypeError("Netlist cần được tạo từ circuit-router của bài hiện tại.");
   }
+  // A new canonical graph may reuse a wire ID for different endpoints (w1,
+  // w2...). Never carry an earlier 3D inspection to a different learner edge.
+  // Merely inspecting or refreshing the layout does not call this mutator.
+  state.scene?.setHighlightedLabWire?.(null);
   state.circuitModels.set(lessonId,model);
   // Canonical mutations from 2D/schematic must not leave a half-completed
   // two-terminal gesture armed in the separate Three.js editor.
@@ -203,6 +209,37 @@ function inspectTerminalReadOnly(id){
   });
   return accepted;
 }
+function previewAuthoredMissingPairIn2D(pair, lessonId, stepIndex){
+  // Stale rendered buttons may outlive a step/lesson change. Revalidate BOTH
+  // editorial provenance and current canonical learner edges before touching
+  // navigation; no reference/sample edge is silently copied to the learner.
+  if(lessonId!==state.lessonId || !supportedWiringLessons().includes(lessonId) ||
+     !Array.isArray(pair)||pair.length!==2 ||
+     pair.some(id=>typeof id!=="string" || !id || id.trim()!==id))return false;
+  const lesson=currentLesson();
+  const current=state.learningSteps.get(lessonId)??0;
+  if(current!==stepIndex)return false;
+  let checkpoint;
+  try{checkpoint=getPracticeCheckpoint(lesson,stepIndex);}catch{return false;}
+  if(checkpoint.kind!=="wiring" || checkpoint.provenance?.scheme!=="human-authored-from-lesson-text")return false;
+  const required=checkpoint.requiredPairs?.find(expected=>
+    Array.isArray(expected)&&expected[0]===pair[0]&&expected[1]===pair[1]);
+  if(!required)return false;
+  const existing=learnerCircuit(lessonId);
+  if(existing?.wires?.some(wire=>
+    (wire.from===pair[0]&&wire.to===pair[1])||
+    (wire.from===pair[1]&&wire.to===pair[0])))return false;
+
+  // A visual 2D suggestion cannot inherit an armed 3D first-terminal gesture.
+  // No connectCircuit, applyCanonicalCircuit, progress or journal callback.
+  state.labEditorUI?.closeEditor?.();
+  state.stageTab="wiring";
+  renderStage();
+  const preview=state.wiringUI?.previewSuggestedPair?.([pair[0],pair[1]]);
+  if(preview?.mode!=="authored-pair-view-only" || preview.wireCreated!==false)return false;
+  refreshLabExplorer();
+  return true;
+}
 function explorerConnect(from,to) {
   if(!supportedWiringLessons().includes(state.lessonId))
     throw new RangeError("Bài này không có netlist đấu dây ngoài.");
@@ -237,6 +274,15 @@ function explorerFocus(id) {
   const view=state.scene?.focusLabComponent?.(id);
   refreshLabExplorer();
   return view??false;
+}
+function explorerHighlightWire(wireId){
+  // Inspector-to-3D projection of ONE already-existing learner edge.
+  // The scene may mark its committed render visually; it must never create
+  // an electrical authority or reuse the immutable reference sample here.
+  if(!state.labEditorUI?.isEditingIn3D?.())return false;
+  const learner=learnerCircuit();
+  if(typeof wireId!=="string"||!learner?.wires?.some(wire=>wire.id===wireId))return false;
+  return state.scene?.setHighlightedLabWire?.(wireId)??false;
 }
 function refresh3DWiring() {
   if (!state.scene?.setWiring) return;
@@ -328,6 +374,53 @@ function renderHeading(lesson) {
   document.title=`${lesson.title} — Arduino 3D Việt Nam`;
   $("sceneLabel").textContent=lesson.category.split("·").at(-1).trim();
 }
+function renderUnoMechanicalOutline(){
+  // Only the manufacturer's outer bounding dimensions are known here.
+  // The rectangle is an original aspect-ratio diagram, not copied CAD,
+  // an exact board silhouette, socket anchor or real breadboard transform.
+  const spec=getUnoMechanicalOutline();
+  const section=el("section","uno-mechanical-reference");
+  section.dataset.unoMechanicalReference="outline-only";
+  section.dataset.unoSceneSnap="unverified";
+  section.setAttribute("role","group");
+  section.setAttribute("aria-label","Đường bao kích thước Arduino Uno R3 theo tài liệu hãng");
+  const heading=el("h5","","Kích thước bo Arduino Uno R3 · theo thông số hãng");
+  const message=el("p","uno-mechanical-summary",
+    `Kích thước bao ngoài theo Arduino: ${spec.widthMm.toLocaleString("vi-VN")} × ${spec.heightMm.toLocaleString("vi-VN")} mm; ${spec.mountingHoleCount} lỗ bắt vít đường kính Ø${spec.mountingHoleDiameterMm.toLocaleString("vi-VN")} mm (A000066, mục 5.4).`);
+  const diagram=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  diagram.setAttribute("viewBox","0 0 620 465");
+  diagram.setAttribute("role","img");
+  diagram.setAttribute("aria-label",`Khung đường bao tỉ lệ ${spec.widthMm} trên ${spec.heightMm}, không thể hiện tọa độ lỗ bắt vít hay chân header.`);
+  const svg=(name,attrs,text)=>{
+    const node=document.createElementNS("http://www.w3.org/2000/svg",name);
+    for(const [key,value] of Object.entries(attrs))node.setAttribute(key,String(value));
+    if(text!==undefined)node.textContent=String(text);
+    return node;
+  };
+  const scale=6;
+  const width=spec.widthMm*scale,height=spec.heightMm*scale;
+  const x=95,y=62;
+  diagram.append(
+    svg("rect",{x,y,width,height,rx:3,fill:"#e2f3e9",stroke:"#25695a","stroke-width":3}),
+    svg("text",{x:x+width/2,y:y+height/2,"text-anchor":"middle",fill:"#235b4c","font-size":19},"UNO R3 · đường bao"),
+    svg("line",{x1:x,y1:y+height+26,x2:x+width,y2:y+height+26,stroke:"#316a5a","stroke-width":2}),
+    svg("text",{x:x+width/2,y:y+height+49,"text-anchor":"middle",fill:"#315d52","font-size":16},`${spec.widthMm.toLocaleString("vi-VN")} mm`),
+    svg("text",{x:x+width+22,y:y+height/2,"text-anchor":"middle",fill:"#315d52","font-size":14},`${spec.heightMm.toLocaleString("vi-VN")} mm`),
+  );
+  const note=el("p","uno-mechanical-boundary",
+    "Kích thước 66,04 × 50,80 mm trên bản vẽ mục 5.4 là các khoảng tham chiếu, không phải chiều bao ngoài của bo. Sơ đồ không đặt bốn lỗ vít hay hàng chân vào tọa độ CAD; không thể dùng để snap dây/lỗ breadboard hoặc chứng minh vị trí 3D đã khớp phần cứng.");
+  note.setAttribute("role","note");
+  const overallSource=el("a","uno-mechanical-link","Nguồn kích thước bao ngoài: Arduino UNO Rev3 · Tech Specs");
+  overallSource.href=spec.overallDimensionsSourceUrl;
+  overallSource.target="_blank";
+  overallSource.rel="noopener noreferrer";
+  const source=el("a","uno-mechanical-link","Nguồn đường kính lỗ: Arduino A000066 · bản vẽ cơ khí, mục 5.4");
+  source.href=spec.sourceUrl;
+  source.target="_blank";
+  source.rel="noopener noreferrer";
+  section.append(heading,message,diagram,note,overallSource,source);
+  return section;
+}
 function renderUnoPinReference() {
   // Manufacturer pin-label reference: not an electrical source or CAD mapping.
   const region = el("section", "uno-pin-reference");
@@ -339,6 +432,7 @@ function renderUnoPinReference() {
     el("p", "uno-pin-source",
       "Theo Arduino UNO Rev3 A000066; đây không phải vị trí lỗ breadboard, phép đo hay kết quả firmware."),
   );
+  region.append(renderUnoMechanicalOutline());
   const groups = [
     ["digital", "D0–D13 · chân số"],
     ["analog", "A0–A5 · chân analog"],
@@ -500,6 +594,11 @@ function renderInfo() {
           return lesson.id===state.lessonId
             ? inspectTerminalReadOnly(terminalId)
             : false;
+        },
+        onPreviewMissingPairIn2D(pair){
+          // Authored edge guidance is a view-only dashed 2D annotation.
+          // Revalidate source checkpoint/current learner draft in the host.
+          return previewAuthoredMissingPairIn2D(pair,lesson.id,current);
         },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
@@ -1152,6 +1251,7 @@ async function init(){
     onConnect:explorerConnect,
     onDisconnect:explorerDisconnect,
     onFocus:explorerFocus,
+    onHighlightWire:explorerHighlightWire,
   });
   state.avrPanel=mountAvrPanel($("avrPanelMount"), {
     onEvidence(evidence){

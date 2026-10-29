@@ -18,6 +18,8 @@ const SCENE_QUALITY_PROFILE = "v16";
 const SCENE_LOD_BREAKPOINT = 560;
 const LAB_TERMINAL_HIT_RADIUS = .20;
 const LAB_TOUCH_TAP_THRESHOLD = 12;
+const LAB_COMMITTED_WIRE_ROUTE_POINTS = 8;
+const LAB_WIRE_ID_MAX = 80;
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
   checked: 0x188b80,
@@ -56,6 +58,10 @@ const createSharedMaterials = () => ({
   pendingWireLineMat: new T.LineBasicMaterial({
     color: palette.coral, transparent: true, opacity: .56,
     depthWrite: false,
+  }),
+  highlightedWireLineMat: new T.LineBasicMaterial({
+    color: 0xffd36a, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false,
   }),
   contactStripMat: material(0xb7c3bf, { metalness: .16, roughness: .48 }),
   hitMat: new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
@@ -862,11 +868,13 @@ export function mountScene(host, onSelect = () => {}) {
   let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
   let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
   let activeLabLayer=null,activeLabLayout=null,lastWiringModel=null,selectedLabComponentId=null;
+  let highlightedLabWireId=null;
   let inspectedLabTerminalId=null,inspectedLabTerminalMode="none",inspectionBadge=null;
   let hoveredLabTerminalId=null;
   let pendingWireTerminalId=null,pendingWireHoverTerminalId=null,pendingWirePreviewLine=null;
   let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0,fineDetailInstanceCount=0;
   let labWireLayer=null;
+  let labWireGeometryRevision=0;
   let lodInitialized=false,lastViewportWidth=0,lastViewportHeight=0;
   const labComponents=new Map(),labTerminals=new Map(),labWireObjects=[],labPickables=[];
   let labEdit={enabled:false,onSelectComponent:null,onMoveComponent:null,onTerminalSelect:null};
@@ -945,6 +953,7 @@ export function mountScene(host, onSelect = () => {}) {
         fineDetailInstanceCount+=Number.isInteger(instances)&&instances>0?instances:1;
         child.visible=nextLod==="full";
       });
+      if(activeLabLayout&&labWireObjects.length)updateLabWireGeometry();
     }
     lodInitialized=true;
     if(renderer.domElement){
@@ -1028,6 +1037,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(pendingWireTerminalId){
       parts.push(`Terminal đầu đang chờ nối: ${pendingWireTerminalId}. Đây chỉ là xem trước trực quan; chưa tạo dây hoặc kết nối điện.`);
     }
+    if(highlightedLabWireId){
+      parts.push(`Dây đang được đánh dấu: ${highlightedLabWireId}. Đây chỉ là nhấn mạnh đường dây khái niệm đã có trong graph canonical.`);
+    }
     canvas.setAttribute("aria-label",parts.join(" "));
     canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
       ? baseShortcuts+" W A S D Q E Escape"
@@ -1047,6 +1059,10 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labComponentCount="0";
     canvas.dataset.labTerminalCount="0";
     canvas.dataset.labWireCount="0";
+    canvas.dataset.labWireRouteMode="none";
+    canvas.dataset.labWireRoutePointCount="0";
+    canvas.dataset.labWireGeometryRevision="0";
+    canvas.dataset.labHighlightedWire="";
     canvas.dataset.labFocusedComponent="";
     canvas.dataset.labPhysicalVerified="false";
     canvas.dataset.labBreadboardHoleMapping="false";
@@ -1069,44 +1085,89 @@ export function mountScene(host, onSelect = () => {}) {
   resetLabMetadata();
   resetWiringMetadata();
   refreshSceneVisualDiagnostics();
-  function clearLabWireLayer(){
+  function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
       activeLabLayer?.remove(labWireLayer);
-      disposeTree(labWireLayer);
+      disposeTree(labWireLayer,sharedMaterialSet);
       labWireLayer=null;
     }
     labWireObjects.length=0;
+    if(!preserveRevision)labWireGeometryRevision=0;
     canvas.dataset.labWireCount="0";
+    canvas.dataset.labWireRouteMode="none";
+    canvas.dataset.labWireRoutePointCount="0";
+    canvas.dataset.labWireGeometryRevision=String(labWireGeometryRevision);
+    if(clearHighlight){
+      highlightedLabWireId=null;
+      canvas.dataset.labHighlightedWire="";
+    }
+  }
+  function refreshLabWireHighlight(){
+    const modelHas=highlightedLabWireId!==null&&
+      lastWiringModel?.wires?.some(wire=>wire.id===highlightedLabWireId)===true;
+    const rendered=modelHas
+      ? labWireObjects.find(item=>item.wireId===highlightedLabWireId)||null
+      : null;
+    if(!rendered)highlightedLabWireId=null;
+    for(const item of labWireObjects){
+      if(item.highlightLine)item.highlightLine.visible=item.wireId===highlightedLabWireId;
+    }
+    canvas.dataset.labHighlightedWire=highlightedLabWireId||"";
+  }
+  function sameCommittedWireIdentity(left,right){
+    if(!left||!right||left.id!==right.id)return false;
+    return (left.from===right.from&&left.to===right.to)||
+      (left.from===right.to&&left.to===right.from);
   }
   function updateLabWireGeometry(){
     if(!labWireObjects.length)return;
     scene.updateMatrixWorld(true);
-    for(const item of labWireObjects){
+    for(let index=0;index<labWireObjects.length;index+=1){
+      const item=labWireObjects[index];
       const from=labTerminals.get(item.from)?.marker;
       const to=labTerminals.get(item.to)?.marker;
       if(!from||!to)continue;
       const start=new T.Vector3(),end=new T.Vector3();
       from.getWorldPosition(start);to.getWorldPosition(end);
-      const mid=start.clone().lerp(end,.5);
-      mid.y=Math.max(start.y,end.y)+.32;
+      const direction=end.x>=start.x?1:-1;
+      const lead=Math.min(.36,Math.max(.16,Math.abs(end.x-start.x)*.12));
+      const routeOffset=((index%5)-2)*.085;
+      const laneY=Math.max(start.y,end.y)+.34+(index%4)*.065;
+      const midX=(start.x+end.x)/2+routeOffset;
+      const points=[
+        start,
+        new T.Vector3(start.x,laneY,start.z),
+        new T.Vector3(start.x+direction*lead,laneY,start.z),
+        new T.Vector3(midX,laneY,start.z),
+        new T.Vector3(midX,laneY,end.z),
+        new T.Vector3(end.x-direction*lead,laneY,end.z),
+        new T.Vector3(end.x,laneY,end.z),
+        end,
+      ];
       const position=item.line.geometry.getAttribute("position");
-      position.setXYZ(0,start.x,start.y,start.z);
-      position.setXYZ(1,mid.x,mid.y,mid.z);
-      position.setXYZ(2,end.x,end.y,end.z);
+      for(let pointIndex=0;pointIndex<LAB_COMMITTED_WIRE_ROUTE_POINTS;pointIndex+=1){
+        const point=points[pointIndex];
+        position.setXYZ(pointIndex,point.x,point.y,point.z);
+      }
       position.needsUpdate=true;
       item.line.geometry.computeBoundingSphere();
     }
+    labWireGeometryRevision+=1;
+    canvas.dataset.labWireGeometryRevision=String(labWireGeometryRevision);
   }
-  function refreshLabWireLayer(){
-    clearLabWireLayer();
-    if(!activeLabLayer||!activeLabLayout||!lastWiringModel?.wires?.length)return;
+  function refreshLabWireLayer(preserveRevision=false){
+    clearLabWireLayer(false,preserveRevision);
+    if(!activeLabLayer||!activeLabLayout||!lastWiringModel?.wires?.length){
+      refreshLabWireHighlight();
+      return;
+    }
     labWireLayer=new T.Group();
     labWireLayer.userData={kind:"lab-conceptual-wires",physicalLocation:false,physicalVerified:false};
     activeLabLayer.add(labWireLayer);
     for(const wire of lastWiringModel.wires){
       if(!labTerminals.has(wire.from)||!labTerminals.has(wire.to))continue;
       const geometry=new T.BufferGeometry();
-      geometry.setAttribute("position",new T.Float32BufferAttribute(9,3));
+      geometry.setAttribute("position",new T.Float32BufferAttribute(LAB_COMMITTED_WIRE_ROUTE_POINTS*3,3));
       const line=new T.Line(geometry,new T.LineBasicMaterial({
         color:WIRING_COLORS[wire.status]??WIRING_COLORS.unverified,
         transparent:true,opacity:.94
@@ -1114,12 +1175,24 @@ export function mountScene(host, onSelect = () => {}) {
       line.userData={
         kind:"lab-conceptual-wire",wireId:wire.id,from:wire.from,to:wire.to,
         netId:wire.netId,status:wire.status,physicalLocation:false,physicalVerified:false,
+        routeModel:"elevated-multisegment",routePointCount:LAB_COMMITTED_WIRE_ROUTE_POINTS,
+      };
+      const highlightLine=new T.Line(geometry,sharedMaterials.highlightedWireLineMat);
+      highlightLine.visible=false;
+      highlightLine.renderOrder=6;
+      highlightLine.userData={
+        kind:"lab-conceptual-wire-highlight",wireId:wire.id,
+        committed:true,visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
       };
       labWireLayer.add(line);
-      labWireObjects.push({line,from:wire.from,to:wire.to});
+      labWireLayer.add(highlightLine);
+      labWireObjects.push({line,highlightLine,wireId:wire.id,from:wire.from,to:wire.to});
     }
     updateLabWireGeometry();
     canvas.dataset.labWireCount=String(labWireObjects.length);
+    canvas.dataset.labWireRouteMode=labWireObjects.length?"elevated-multisegment":"none";
+    canvas.dataset.labWireRoutePointCount=labWireObjects.length?String(LAB_COMMITTED_WIRE_ROUTE_POINTS):"0";
+    refreshLabWireHighlight();
   }
   function canonicalLabComponent(componentId){
     return activeLabLayout?.components?.find(item=>item.id===componentId)||null;
@@ -1251,9 +1324,9 @@ export function mountScene(host, onSelect = () => {}) {
     }
     invalidate();
   }
-  function clearLabLayout(redraw=true){
+  function clearLabLayout(redraw=true,preserveWireHighlight=false,preserveWireRevision=false){
     const hadFocus=focusedLabComponentId!==null;
-    clearLabWireLayer();
+    clearLabWireLayer(!preserveWireHighlight,preserveWireRevision);
     if(activeLabLayer){
       scene.remove(activeLabLayer);
       disposeTree(activeLabLayer,sharedMaterialSet);
@@ -1270,6 +1343,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(activeModule?.module)activeModule.module.visible=true;
     if(activeWiringLayer)activeWiringLayer.visible=true;
     resetLabMetadata();
+    if(preserveWireRevision){
+      canvas.dataset.labWireGeometryRevision=String(labWireGeometryRevision);
+    }
     refreshCanvasAccessibility();
     if(redraw&&!contextLost){
       applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
@@ -1418,6 +1494,41 @@ export function mountScene(host, onSelect = () => {}) {
       physicalVerified:false,
     });
   }
+  function setHighlightedLabWire(wireId){
+    if(disposed)return Object.freeze({wireId:null,active:false,mode:"none",physicalVerified:false});
+    if(wireId===null){
+      highlightedLabWireId=null;
+      refreshLabWireHighlight();
+      refreshCanvasAccessibility();
+      invalidate();
+      return Object.freeze({wireId:null,active:false,mode:"none",physicalVerified:false});
+    }
+    if(typeof wireId!=="string"||!wireId||wireId.trim()!==wireId){
+      throw new TypeError("wireId highlight phải là ID canonical không rỗng hoặc null");
+    }
+    if(wireId.length>LAB_WIRE_ID_MAX){
+      throw new RangeError("wireId highlight vượt giới hạn "+LAB_WIRE_ID_MAX+" ký tự");
+    }
+    if(!activeLabLayout||!lastWiringModel){
+      throw new RangeError("Wire highlight chỉ khả dụng khi conceptual lab và wiring canonical đang mount");
+    }
+    if(!lastWiringModel.wires.some(wire=>wire.id===wireId)){
+      throw new RangeError("Wire highlight không thuộc canonical wiring model hiện tại: "+wireId);
+    }
+    if(!labWireObjects.some(item=>item.wireId===wireId)){
+      throw new RangeError("Wire highlight không có committed route trong lab layout hiện tại: "+wireId);
+    }
+    highlightedLabWireId=wireId;
+    refreshLabWireHighlight();
+    refreshCanvasAccessibility();
+    invalidate();
+    return Object.freeze({
+      wireId:highlightedLabWireId,
+      active:true,
+      mode:"committed-wire-highlight",
+      physicalVerified:false,
+    });
+  }
   function setLabLayout(layout){
     if(disposed)return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
     if(layout==null)return clearLabLayout(true);
@@ -1429,7 +1540,11 @@ export function mountScene(host, onSelect = () => {}) {
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
-    clearLabLayout(false);
+    // A same-lesson logical placement rebuild must not revoke inspection of an
+    // unchanged committed canonical edge. The route will be rebuilt from the
+    // new terminal marker world positions below; stage/lesson/null clears still
+    // use clearLabLayout() with the default fail-closed highlight reset.
+    clearLabLayout(false,true,true);
     activeLabLayout=layout;
     activeLabLayer=new T.Group();
     activeLabLayer.userData={
@@ -1578,7 +1693,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(breadboard)breadboard.visible=false;
     if(activeModule?.module)activeModule.module.visible=false;
     if(activeWiringLayer)activeWiringLayer.visible=false;
-    refreshLabWireLayer();
+    refreshLabWireLayer(true);
     const nextSelection=previousSelection&&labComponents.has(previousSelection)
       ? previousSelection : null;
     selectLabComponent(nextSelection,"layout",false);
@@ -1768,10 +1883,10 @@ export function mountScene(host, onSelect = () => {}) {
       selectLabComponent(previous,"pointer-cancel",false);
     }
   }
-  function clearWiringLayer(redraw=true) {
+  function clearWiringLayer(redraw=true,clearHighlight=true) {
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     lastWiringModel=null;
-    clearLabWireLayer();
+    clearLabWireLayer(clearHighlight);
     resetWiringMetadata();
     if(redraw)invalidate();
     return {mode:"none",shownWires:0,omittedWires:0,netCount:0,status:"none",analysisSupported:false,physicalMapping:"none"};
@@ -1967,6 +2082,10 @@ export function mountScene(host, onSelect = () => {}) {
     drag=null;
     clearLabTerminalHover(false);
     clearPendingWireState(false);
+    highlightedLabWireId=null;
+    labWireGeometryRevision=0;
+    canvas.dataset.labWireGeometryRevision="0";
+    refreshLabWireHighlight();
     refreshLabInteractionFeedback();
     refreshCanvasAccessibility();
     if(raf){cancelAnimationFrame(raf);raf=0;}
@@ -2021,9 +2140,16 @@ export function mountScene(host, onSelect = () => {}) {
       clearWiringLayer(false);
       throw new RangeError("Kết quả phân tích netlist thuộc bài học khác");
     }
-    clearWiringLayer(false);
+    const previousHighlightedWire=highlightedLabWireId===null
+      ? null
+      : lastWiringModel?.wires?.find(wire=>wire.id===highlightedLabWireId)??null;
+    clearWiringLayer(false,false);
     const model=normalizeWiringModel(circuit,terminals,analysis);
     lastWiringModel=model;
+    if(highlightedLabWireId!==null){
+      const replacement=model.wires.find(wire=>wire.id===highlightedLabWireId)??null;
+      if(!sameCommittedWireIdentity(previousHighlightedWire,replacement))highlightedLabWireId=null;
+    }
     activeWiringLayer=makeConceptualWiringLayer(scene,model);
     if(activeLabLayout){
       activeWiringLayer.visible=false;
@@ -2087,7 +2213,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -2129,11 +2255,17 @@ export function mountScene(host, onSelect = () => {}) {
     pendingWireTerminalId=null;
     pendingWireHoverTerminalId=null;
     pendingWirePreviewLine=null;
+    highlightedLabWireId=null;
+    labWireGeometryRevision=0;
     canvas.dataset.labInspectedTerminal="";
     canvas.dataset.labInspectionFeedback="none";
     canvas.dataset.labPendingWireTerminal="";
     canvas.dataset.labPendingWireHoverTerminal="";
     canvas.dataset.labPendingWirePreview="none";
+    canvas.dataset.labHighlightedWire="";
+    canvas.dataset.labWireRouteMode="none";
+    canvas.dataset.labWireRoutePointCount="0";
+    canvas.dataset.labWireGeometryRevision="0";
     canvas.dataset.labHoveredTerminal="";
     canvas.dataset.labTerminalLabelFeedback="none";
     if(inspectionBadge){inspectionBadge.remove();inspectionBadge=null;}

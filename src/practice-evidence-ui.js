@@ -327,7 +327,29 @@ function appendChecklistInspectButton(doc, row, attribute, callback) {
   return button;
 }
 
-function appendWireChecklist(doc, section, checklist, onInspectChecklistTerminal) {
+function appendMissingPairPreview(doc,row,onPreviewMissingPairIn2D){
+  const button=make(doc,"button",
+    "practice-evidence-button practice-evidence-pair-preview-button",
+    "Xem cặp còn thiếu trong sơ đồ 2D");
+  button.type="button";
+  button.setAttribute("data-practice-preview-pair-2d","");
+  button.setAttribute("data-practice-preview-from",row.pair[0]);
+  button.setAttribute("data-practice-preview-to",row.pair[1]);
+  button.setAttribute("data-practice-checklist-order",String(row.order));
+  button.setAttribute("aria-label",`Xem trước cặp còn thiếu ${row.pair[0]} và ${row.pair[1]} trong sơ đồ 2D; chưa tạo dây`);
+  // The validated authored checklist is the ONLY source of row-level actions;
+  // a missing pair never becomes an implicit connect or learning completion.
+  if(typeof onPreviewMissingPairIn2D!=="function"){
+    button.disabled=true;
+    button.setAttribute("aria-disabled","true");
+  }else{
+    const pair=Object.freeze([row.pair[0],row.pair[1]]);
+    button.addEventListener("click",()=>onPreviewMissingPairIn2D(pair));
+  }
+  return button;
+}
+
+function appendWireChecklist(doc, section, checklist, onInspectChecklistTerminal,onPreviewMissingPairIn2D) {
   if (!checklist) return;
   const block = make(doc, "div", "practice-evidence-wire-checklist");
   block.setAttribute("data-practice-wire-checklist", "");
@@ -373,6 +395,9 @@ function appendWireChecklist(doc, section, checklist, onInspectChecklistTerminal
       "data-practice-checklist-inspect-terminal",
       onInspectChecklistTerminal,
     ));
+    if(row.status==="missing"){
+      item.append(appendMissingPairPreview(doc,row,onPreviewMissingPairIn2D));
+    }
     list.append(item);
   }
   block.append(list);
@@ -455,6 +480,7 @@ export function renderPracticeEvidence(doc, evidence, {
   onOpen3D,
   onInspectMissingTerminal,
   onInspectChecklistTerminal,
+  onPreviewMissingPairIn2D,
   onRecheck,
 } = {}) {
   requireDocument(doc);
@@ -463,6 +489,7 @@ export function renderPracticeEvidence(doc, evidence, {
   requireCallback(onOpen3D, "onOpen3D");
   requireCallback(onInspectMissingTerminal, "onInspectMissingTerminal");
   requireCallback(onInspectChecklistTerminal, "onInspectChecklistTerminal");
+  requireCallback(onPreviewMissingPairIn2D, "onPreviewMissingPairIn2D");
   requireCallback(onRecheck, "onRecheck");
 
   const lessonId = Number.isInteger(evidence.lessonId) && evidence.lessonId >= 1 && evidence.lessonId <= 16
@@ -594,7 +621,7 @@ export function renderPracticeEvidence(doc, evidence, {
       section.append(reviewNode);
     }
   }
-  appendWireChecklist(doc, section, wireChecklist, onInspectChecklistTerminal);
+  appendWireChecklist(doc, section, wireChecklist, onInspectChecklistTerminal,onPreviewMissingPairIn2D);
 
   if (isSignalOnly) {
     const signalNote = make(

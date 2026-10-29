@@ -260,8 +260,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(build_site.POST_V16_LAB_FILES, expected_post_v16_lab)
         self.assertEqual(build_site.POST_V16_INTERACTION_FILES, expected_post_v16_interaction)
         self.assertEqual(build_site.POST_V16_GUIDED_WIRING_FILES, expected_post_v16_guided_wiring)
-        self.assertEqual(len(build_site.FILES), 110,
-                         "candidate must preserve 107 prior paths + exactly 3 fidelity docs")
+        self.assertEqual(len(build_site.FILES), 118,
+                         "candidate must preserve 110 prior paths + 8 guided-inspection assets")
         self.assertEqual(build_site.FILES[87:97], expected_post_v16_lab)
         self.assertEqual(build_site.FILES[97:102], expected_post_v16_interaction)
         self.assertEqual(build_site.FILES[102:107], expected_post_v16_guided_wiring)
@@ -309,7 +309,7 @@ class ReleaseContractTests(unittest.TestCase):
         ]
         self.assertTrue(hasattr(build_site, "POST_V16_FIDELITY_FILES"))
         self.assertEqual(build_site.POST_V16_FIDELITY_FILES, expected_fidelity)
-        self.assertEqual(build_site.FILES[107:], expected_fidelity)
+        self.assertEqual(build_site.FILES[107:110], expected_fidelity)
         protected_guided = sha256(
             ("\n".join(build_site.FILES[:107]) + "\n").encode("utf-8")
         ).hexdigest()
@@ -319,11 +319,34 @@ class ReleaseContractTests(unittest.TestCase):
             "the protected 107-file guided-wiring path prefix changed",
         )
 
+        expected_inspection = [
+            "src/breadboard-authored-groups.js",
+            "src/resistive-branch-study.js",
+            "src/uno-mechanical-reference.js",
+            "docs/BREADBOARD_AUTHORED_GROUPS_NEXT.md",
+            "docs/SCENE_WIRE_INSPECTION_NEXT.md",
+            "docs/RESISTIVE_BRANCH_STUDY_NEXT.md",
+            "docs/UNO_MECHANICAL_REFERENCE_NEXT.md",
+            "docs/PRACTICE_PAIR_PREVIEW_NEXT.md",
+        ]
+        self.assertTrue(hasattr(build_site, "POST_V16_GUIDED_INSPECTION_FILES"))
+        self.assertEqual(build_site.POST_V16_GUIDED_INSPECTION_FILES, expected_inspection)
+        self.assertEqual(build_site.FILES[110:], expected_inspection)
+        protected_fidelity = sha256(
+            ("\n".join(build_site.FILES[:110]) + "\n").encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(
+            protected_fidelity,
+            "5a8c277108f4314a4bf7896953a5032aad380f75efa4dda1184135fee51499eb",
+            "the protected 110-file previous fidelity path prefix changed",
+        )
+
         for filename in [
             *expected_post_v16_lab,
             *expected_post_v16_interaction,
             *expected_post_v16_guided_wiring,
             *expected_fidelity,
+            *expected_inspection,
         ]:
             source = build_site._release_source(filename)
             self.assertTrue(source.is_file(), filename)
@@ -342,6 +365,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('from "./breadboard-placement.js"', breadboard_ui)
         self.assertIn('from "./breadboard-placement-session.js"', breadboard_ui)
         self.assertIn('from "./breadboard-hole-grid.js"', breadboard_ui)
+        self.assertIn('from "./uno-mechanical-reference.js"', app)
         self.assertIn('from "./practice-observation.js"', app)
         self.assertIn('from "./practice-observation-ui.js"', app)
         self.assertIn(".uno-pin-reference", css)
@@ -351,6 +375,8 @@ class ReleaseContractTests(unittest.TestCase):
         observation_ui = (ROOT / "src/practice-observation-ui.js").read_text(encoding="utf-8")
         placement_session = (ROOT / "src/breadboard-placement-session.js").read_text(encoding="utf-8")
         resistive_ui = (ROOT / "src/resistive-study-ui.js").read_text(encoding="utf-8")
+        self.assertIn('from "./breadboard-authored-groups.js"', placement_session)
+        self.assertIn('from "./resistive-branch-study.js"', resistive_ui)
         hole_grid = (ROOT / "src/breadboard-hole-grid.js").read_text(encoding="utf-8")
         wire_guidance = (ROOT / "src/practice-wire-guidance.js").read_text(encoding="utf-8")
         self.assertIn('from "./practice-checkpoints.js"', observation)
@@ -387,7 +413,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             build_site._service_worker_assets(worker),
             expected_assets,
-            "service-worker precache must exactly mirror the 110-file release order",
+            "service-worker precache must exactly mirror the 118-file release order",
         )
 
         with tempfile.TemporaryDirectory(prefix="arduino3d-authored-lab-release-") as temporary:
@@ -405,6 +431,26 @@ class ReleaseContractTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
+    def test_post_v16_guided_inspection_release_fails_closed_when_runtime_source_is_missing(self):
+        for missing in (
+            "src/breadboard-authored-groups.js",
+            "src/resistive-branch-study.js",
+            "src/uno-mechanical-reference.js",
+        ):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory(
+                prefix="arduino3d-guided-inspection-missing-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                (fixture_root / missing).unlink()
+                fixture_dist = (fixture_root / "dist").resolve()
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", fixture_dist
+                ):
+                    with self.assertRaises(FileNotFoundError):
+                        build_site.build()
 
     def test_post_v16_guided_wiring_release_fails_closed_when_runtime_source_is_missing(self):
         for missing in ("src/breadboard-hole-grid.js", "src/practice-wire-guidance.js"):

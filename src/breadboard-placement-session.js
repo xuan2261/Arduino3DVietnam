@@ -10,6 +10,7 @@ import {
   createBreadboardPlacement,
   validateBreadboardPlacement,
 } from "./breadboard-placement.js";
+import { groupBreadboardAuthoredPlacement } from "./breadboard-authored-groups.js";
 
 const DEFAULT_PROFILE_ID = "generic-63x10-terminal-strips";
 
@@ -189,5 +190,8 @@ export function createBreadboardPlacementSession(initial = {}) {
     reset,
     snapshot,
     getPlacement: () => placement,
+    getAuthoredGroups: () => placement
+      ? groupBreadboardAuthoredPlacement(placement, context.terminals)
+      : null,
   });
 }

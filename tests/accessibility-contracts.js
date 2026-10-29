@@ -503,6 +503,21 @@ export async function runAccessibilityContracts() {
       buttons:checklistButtons.length,targets:checklistButtons.map(x=>x.dataset.practiceInspectTerminal)}),
     "Checklist authored ở bài 02 phải có tên, hàng thiếu canonical và inspect native >=44px; không tự chứng nhận thực hành.", "P1");
 
+  const missingPairPreviews = [...(authoredChecklist?.querySelectorAll('[data-practice-preview-pair-2d]')||[])];
+  record("vnext-practice-missing-pair-2d-native-keyboard-view-only-action",
+    missingPairPreviews.length === checklistRows.length && checklistRows.length === 3 &&
+    missingPairPreviews.every(button => button.tagName === "BUTTON" && button.type === "button" &&
+      !button.disabled && Boolean(accessibleName(button)) &&
+      /chưa tạo dây/i.test(accessibleName(button)) &&
+      button.getBoundingClientRect().width >= 44 && button.getBoundingClientRect().height >= 44 &&
+      Boolean(button.dataset.practicePreviewFrom) && Boolean(button.dataset.practicePreviewTo)) &&
+    missingPairPreviews[0]?.dataset.practicePreviewFrom === "D13" &&
+    missingPairPreviews[0]?.dataset.practicePreviewTo === "R1:A",
+    JSON.stringify({targets:missingPairPreviews.map(button=>[
+      button.dataset.practicePreviewFrom,button.dataset.practicePreviewTo]),
+      minHeight:Math.min(...missingPairPreviews.map(button=>button.getBoundingClientRect().height))}),
+    "Nút xem cặp thiếu là native keyboard target >=44px, phân biệt với nối dây có thật.","P1");
+
   const practiceObservation = coach?.querySelector("[data-practice-observation]");
   const observationBoundary = practiceObservation?.querySelector("[data-observation-boundary]")?.textContent || "";
   const observationAttribution = practiceObservation?.querySelector(
@@ -572,6 +587,27 @@ export async function runAccessibilityContracts() {
       boundary: unoBoundary?.textContent?.trim() || "",
     }),
     "Pinout chỉ được đưa nút 3D cho terminal ID tồn tại chính xác trong lesson; alias AREF/SDA/SCL không được tự suy map sang chân khác.", "P1");
+
+  const mechanical = document.querySelector("[data-uno-mechanical-reference='outline-only']");
+  const outlineSvg = mechanical?.querySelector("svg[role='img']");
+  const outlineNotes = mechanical?.querySelector(".uno-mechanical-boundary");
+  record("vnext-uno-mechanical-official-outline-sourced-not-cad-or-snap",
+    mechanical?.getAttribute("role") === "group" && Boolean(accessibleName(mechanical)) &&
+    mechanical.getAttribute("data-uno-scene-snap") === "unverified" &&
+    outlineSvg?.getAttribute("viewBox") === "0 0 620 465" &&
+    /68,6.*53,4/i.test(mechanical.textContent) &&
+    /66,04.*50,80.*không phải chiều bao ngoài/i.test(outlineNotes?.textContent||"") &&
+    /không thể hiện tọa độ lỗ/i.test(outlineSvg.getAttribute("aria-label")||"") &&
+    outlineNotes?.getAttribute("role") === "note" &&
+    /không thể dùng.*snap|không.*tọa độ CAD/i.test(outlineNotes?.textContent||"") &&
+    mechanical.querySelector("a")?.getAttribute("href") ===
+      "https://store.arduino.cc/products/arduino-uno-rev3" &&
+    mechanical.querySelectorAll("a")[1]?.getAttribute("href") ===
+      "https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf" &&
+    Array.from(mechanical.querySelectorAll("a")).every(link=>
+      link.getBoundingClientRect().height>=44),
+    JSON.stringify({name:accessibleName(mechanical),source:mechanical?.querySelector("a")?.href}),
+    "Cơ khí Uno có nguồn A000066, mô tả kích thước nhưng không giả tọa độ header hoặc breadboard.","P1");
 
   const sketchReview = document.querySelector("#sketchReviewMount [data-sketch-review]");
   const sketchReviewStatus = sketchReview?.querySelector("[data-sketch-review-status-label]");
@@ -853,6 +889,22 @@ export async function runAccessibilityContracts() {
       boundary: resistiveBoundary,
     }),
     "Resistive Study cần label/status đọc được và disclosure rõ đây là mô hình toán học độc lập, không phải lesson/3D/firmware/phần cứng.", "P1");
+
+  const topologySelect=document.querySelector("#resistiveTopology");
+  const resistor3=document.querySelector("#resistiveR3");
+  const branchModelBoundary=document.querySelector("#resistiveModelBoundary");
+  record("vnext-resistive-branch-model-controls-native-accessible-ideal-only",
+    topologySelect?.tagName==="SELECT" && Boolean(accessibleName(topologySelect)) &&
+    topologySelect.value==="divider" &&
+    [...topologySelect.options].map(option=>option.value).join(",")==="divider,branch" &&
+    resistor3?.tagName==="INPUT" && Boolean(accessibleName(resistor3)) &&
+    resistor3.getAttribute("min")==="1" && resistor3.getAttribute("max")==="1000000" &&
+    resistor3.getBoundingClientRect().height>=44 &&
+    topologySelect.getBoundingClientRect().height>=44 &&
+    branchModelBoundary?.textContent?.includes("mạch của 16 bài học"),
+    JSON.stringify({name:accessibleName(topologySelect),r3Name:accessibleName(resistor3),
+      default:topologySelect?.value}),
+    "Mode divider/branch và R3 phải có nhãn, target44px và mô hình toán học độc lập.","P1");
 
   document.querySelector("#resistiveSolve")?.click();
   await nextTask();

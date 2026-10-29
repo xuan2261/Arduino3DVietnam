@@ -34,7 +34,7 @@ export async function runScene3DContracts() {
     /lab-halo/.test(inspectionSource));
 
   const pendingStart = sceneSource.indexOf("function setPendingWireTerminal");
-  const pendingEnd = sceneSource.indexOf("function setLabLayout", pendingStart);
+  const pendingEnd = sceneSource.indexOf("function setHighlightedLabWire", pendingStart);
   const pendingSource = pendingStart >= 0 && pendingEnd > pendingStart
     ? sceneSource.slice(pendingStart, pendingEnd)
     : "";
@@ -46,6 +46,63 @@ export async function runScene3DContracts() {
   check("pending-wire-source-is-visual-only",
     /first-terminal-preview/.test(pendingSource) &&
     !/onTerminalSelect|onMoveComponent|refreshLabWireLayer|labWireObjects\.push|setWiring\(/.test(pendingSource));
+  const highlightedWireStart = sceneSource.indexOf("function setHighlightedLabWire");
+  const highlightedWireEnd = sceneSource.indexOf("function setLabLayout", highlightedWireStart);
+  const highlightedWireSource = highlightedWireStart >= 0 && highlightedWireEnd > highlightedWireStart
+    ? sceneSource.slice(highlightedWireStart, highlightedWireEnd)
+    : "";
+  check("highlighted-wire-source-is-strict-canonical-membership",
+    /setHighlightedLabWire\(wireId\)/.test(highlightedWireSource) &&
+    /wireId\.trim\(\)!==wireId/.test(highlightedWireSource) &&
+    /wireId\.length>LAB_WIRE_ID_MAX/.test(highlightedWireSource) &&
+    /lastWiringModel\.wires\.some/.test(highlightedWireSource) &&
+    /labWireObjects\.some/.test(highlightedWireSource));
+  check("highlighted-wire-source-is-visual-only",
+    /committed-wire-highlight/.test(highlightedWireSource) &&
+    /refreshLabWireHighlight\(\)/.test(highlightedWireSource) &&
+    !/setWiring\(|onTerminalSelect|onMoveComponent|selectLabComponent|focusLabComponent|theta=|phi=|zoom=/.test(highlightedWireSource));
+  check("highlighted-wire-identity-includes-unordered-endpoints",
+    /function sameCommittedWireIdentity\(left,right\)/.test(sceneSource) &&
+    /left\.id!==right\.id/.test(sceneSource) &&
+    /left\.from===right\.from&&left\.to===right\.to/.test(sceneSource) &&
+    /left\.from===right\.to&&left\.to===right\.from/.test(sceneSource));
+  const setWiringStart = sceneSource.indexOf("function setWiring");
+  const updateStart = sceneSource.indexOf("function update(snapshot)", setWiringStart);
+  const setWiringSource = sceneSource.slice(setWiringStart, updateStart);
+  check("set-wiring-clears-highlight-on-same-id-different-endpoints",
+    /previousHighlightedWire/.test(setWiringSource) &&
+    /replacement=model\.wires\.find/.test(setWiringSource) &&
+    /!sameCommittedWireIdentity\(previousHighlightedWire,replacement\)/.test(setWiringSource));
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabEditStart = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabEditStart);
+  check("same-lesson-layout-rebuild-preserves-wire-highlight-state",
+    /clearLabLayout\(false,true,true\)/.test(setLabLayoutSource) &&
+    /refreshLabWireLayer\(true\)/.test(setLabLayoutSource));
+  check("same-lesson-layout-rebuild-preserves-wire-geometry-revision",
+    /function clearLabWireLayer\(clearHighlight=true,preserveRevision=false\)/.test(sceneSource) &&
+    /if\(!preserveRevision\)labWireGeometryRevision=0/.test(sceneSource) &&
+    /function clearLabLayout\(redraw=true,preserveWireHighlight=false,preserveWireRevision=false\)/.test(sceneSource) &&
+    /canvas\.dataset\.labWireGeometryRevision=String\(labWireGeometryRevision\)/.test(sceneSource));
+  const committedRouteStart = sceneSource.indexOf("function updateLabWireGeometry");
+  const committedRouteEnd = sceneSource.indexOf("function refreshLabWireLayer", committedRouteStart);
+  const committedRouteSource = sceneSource.slice(committedRouteStart, committedRouteEnd);
+  check("committed-wire-route-is-elevated-multisegment",
+    /LAB_COMMITTED_WIRE_ROUTE_POINTS/.test(committedRouteSource) &&
+    /from\.getWorldPosition\(start\);to\.getWorldPosition\(end\)/.test(committedRouteSource) &&
+    /const points=\[\s*start,[\s\S]*end,\s*\]/.test(committedRouteSource) &&
+    /laneY/.test(committedRouteSource) &&
+    /midX/.test(committedRouteSource) &&
+    /position\.setXYZ\(pointIndex/.test(committedRouteSource));
+  const transformStart = sceneSource.indexOf("function setLabVisualTransform");
+  const transformEnd = sceneSource.indexOf("function restoreLabComponent", transformStart);
+  const transformSource = sceneSource.slice(transformStart, transformEnd);
+  const lodStart = sceneSource.indexOf("function applySceneLod");
+  const lodEnd = sceneSource.indexOf("function resize", lodStart);
+  const lodSource = sceneSource.slice(lodStart, lodEnd);
+  check("committed-wire-route-recomputes-on-transform-and-lod",
+    /updateLabWireGeometry\(\)/.test(transformSource) &&
+    /updateLabWireGeometry\(\)/.test(lodSource));
   const ghostStart = sceneSource.indexOf("function ensurePendingWirePreviewLine");
   const ghostEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", ghostStart);
   const ghostSource = ghostStart >= 0 && ghostEnd > ghostStart
@@ -66,6 +123,9 @@ export async function runScene3DContracts() {
   check("pending-wire-context-reset-is-fail-closed",
     /clearPendingWireState\(false\)/.test(contextLostSource) &&
     !/setPendingWireTerminal\(|pendingWireTerminalId\s*=/.test(contextRestoredSource));
+  check("wire-geometry-revision-resets-on-context-loss",
+    /labWireGeometryRevision=0/.test(contextLostSource) &&
+    /labWireGeometryRevision="0"/.test(contextLostSource));
 
   const detached = document.createElement("div");
   let detachedRejected = false;
@@ -180,7 +240,9 @@ export async function runScene3DContracts() {
     canvas.dispatchEvent(new PointerEvent("pointerup", { button: 0, pointerId: 44, pointerType: "touch", clientX: 24, clientY: 10, bubbles: true }));
     check("touch-14px-drag-does-not-select", selected === beforeTrueDrag);
 
-    const [{ createLabLayout }, { listTerminals }] = await Promise.all([
+    const [{ createLabLayout, moveLabComponent, rotateLabComponent }, {
+      listTerminals, createCircuit, connectCircuit, createSampleCircuit, disconnectCircuit,
+    }] = await Promise.all([
       import("../src/lab-layout.js"),
       import("../src/circuit-router.js"),
     ]);
@@ -244,6 +306,126 @@ export async function runScene3DContracts() {
       canvas.dataset.sceneElectricalAuthority === "none" &&
       canvas.dataset.labHoveredTerminal === "" &&
       canvas.dataset.labTerminalLabelFeedback === "none");
+
+    let highlightWithoutWiringRejected = false;
+    try { mounted.setHighlightedLabWire("w1"); }
+    catch (error) { highlightWithoutWiringRejected = error instanceof RangeError; }
+    check("highlighted-wire-requires-current-canonical-wiring",
+      highlightWithoutWiringRejected && canvas.dataset.labHighlightedWire === "");
+
+    const sampleCircuit = createSampleCircuit(2);
+    const committedWireId = sampleCircuit.wires[0].id;
+    mounted.setWiring(sampleCircuit, terminals);
+    check("committed-wire-route-metadata",
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      canvas.dataset.labWireRoutePointCount === "8" &&
+      Number(canvas.dataset.labWireGeometryRevision) > 0 &&
+      Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length &&
+      canvas.dataset.labPendingWirePreview === "none");
+    const beforeWireHighlight = mounted.getLabViewState();
+    const wireCountBeforeHighlight = canvas.dataset.labWireCount;
+    const highlightedWire = mounted.setHighlightedLabWire(committedWireId);
+    const afterWireHighlight = mounted.getLabViewState();
+    check("highlighted-wire-visual-only-state",
+      highlightedWire.active === true &&
+      highlightedWire.wireId === committedWireId &&
+      highlightedWire.mode === "committed-wire-highlight" &&
+      highlightedWire.physicalVerified === false &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireCount === wireCountBeforeHighlight &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      afterWireHighlight.selectedComponentId === beforeWireHighlight.selectedComponentId &&
+      afterWireHighlight.focusedComponentId === beforeWireHighlight.focusedComponentId &&
+      JSON.stringify(afterWireHighlight.camera) === JSON.stringify(beforeWireHighlight.camera));
+
+    for (const badWireId of ["w1 ", "X".repeat(81), "w999999"]) {
+      let rejected = false;
+      try { mounted.setHighlightedLabWire(badWireId); }
+      catch (error) { rejected = error instanceof TypeError || error instanceof RangeError; }
+      check("highlighted-wire-invalid-id-transactional-" + badWireId.length,
+        rejected && canvas.dataset.labHighlightedWire === committedWireId);
+    }
+
+    mounted.setWiring(sampleCircuit, terminals);
+    check("highlighted-wire-survives-canonical-refresh-when-id-remains",
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment");
+    const reversedSameIdentity = connectCircuit(createCircuit(2), "R1:A", "D13");
+    mounted.setWiring(reversedSameIdentity, terminals);
+    check("highlighted-wire-preserves-unordered-endpoint-identity",
+      reversedSameIdentity.wires[0].id === committedWireId &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      Number(canvas.dataset.labWireCount) === 1);
+    mounted.setWiring(sampleCircuit, terminals);
+
+    const resistorBeforeLayoutMove = layout.components.find(component => component.id === "R1");
+    const movedLayout = moveLabComponent(
+      layout,
+      "R1",
+      layout.bounds.maxX,
+      layout.bounds.maxZ,
+    );
+    const resistorAfterLayoutMove = movedLayout.components.find(component => component.id === "R1");
+    const revisionBeforeLayoutMove = Number(canvas.dataset.labWireGeometryRevision);
+    mounted.setLabLayout(movedLayout);
+    const revisionAfterLayoutMove = Number(canvas.dataset.labWireGeometryRevision);
+    check("highlighted-wire-survives-same-lesson-layout-move-rebuild",
+      resistorAfterLayoutMove && resistorBeforeLayoutMove &&
+      (resistorAfterLayoutMove.x !== resistorBeforeLayoutMove.x ||
+        resistorAfterLayoutMove.z !== resistorBeforeLayoutMove.z) &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      canvas.dataset.labWireRoutePointCount === "8" &&
+      revisionAfterLayoutMove > revisionBeforeLayoutMove);
+    const rotatedLayout = rotateLabComponent(movedLayout, "R1", 1);
+    mounted.setLabLayout(rotatedLayout);
+    const revisionAfterLayoutRotate = Number(canvas.dataset.labWireGeometryRevision);
+    check("highlighted-wire-survives-same-lesson-layout-rotate-rebuild",
+      rotatedLayout.components.find(component => component.id === "R1")?.quarterTurns !==
+        resistorAfterLayoutMove.quarterTurns &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      revisionAfterLayoutRotate > revisionAfterLayoutMove);
+    check("wire-geometry-revision-strictly-increases-through-layout-move-rotate",
+      revisionBeforeLayoutMove < revisionAfterLayoutMove &&
+      revisionAfterLayoutMove < revisionAfterLayoutRotate);
+    mounted.setLabLayout(layout);
+    check("highlighted-wire-survives-same-lesson-layout-restore-rebuild",
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRoutePointCount === "8");
+
+    const sameIdDifferentEndpoints = connectCircuit(createCircuit(2), "D13", "GND");
+    check("highlight-fixture-reuses-id-with-different-endpoints",
+      sameIdDifferentEndpoints.wires[0].id === committedWireId &&
+      !(
+        sameIdDifferentEndpoints.wires[0].from === sampleCircuit.wires[0].from &&
+        sameIdDifferentEndpoints.wires[0].to === sampleCircuit.wires[0].to
+      ));
+    mounted.setWiring(sameIdDifferentEndpoints, terminals);
+    check("highlighted-wire-clears-on-same-id-different-endpoints",
+      canvas.dataset.labHighlightedWire === "" &&
+      Number(canvas.dataset.labWireCount) === 1 &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment");
+
+    mounted.setWiring(sampleCircuit, terminals);
+    mounted.setHighlightedLabWire(committedWireId);
+    const withoutHighlightedWire = disconnectCircuit(sampleCircuit, committedWireId);
+    mounted.setWiring(withoutHighlightedWire, terminals);
+    check("highlighted-wire-clears-when-canonical-wire-removed",
+      canvas.dataset.labHighlightedWire === "" &&
+      Number(canvas.dataset.labWireCount) === withoutHighlightedWire.wires.length);
+    const clearedWireHighlight = mounted.setHighlightedLabWire(null);
+    check("highlighted-wire-null-clear-idempotent",
+      clearedWireHighlight.active === false &&
+      clearedWireHighlight.mode === "none" &&
+      canvas.dataset.labHighlightedWire === "");
+    mounted.setWiring(null);
+    check("clearing-wiring-clears-committed-route-metadata",
+      canvas.dataset.labWireCount === "0" &&
+      canvas.dataset.labWireRouteMode === "none" &&
+      canvas.dataset.labWireRoutePointCount === "0" &&
+      canvas.dataset.labHighlightedWire === "");
 
     let pendingOutsideEditRejected = false;
     try { mounted.setPendingWireTerminal("D13"); }
@@ -390,12 +572,25 @@ export async function runScene3DContracts() {
       canvas.dataset.labPendingWireHoverTerminal === "" &&
       canvas.dataset.labPendingWirePreview === "none");
     mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    mounted.setWiring(sampleCircuit, terminals);
+    mounted.setHighlightedLabWire(committedWireId);
     mounted.setPendingWireTerminal("D13");
     mounted.setLabLayout(null);
     check("layout-stage-clear-resets-pending-wire-preview",
       canvas.dataset.labPendingWireTerminal === "" &&
       canvas.dataset.labPendingWireHoverTerminal === "" &&
       canvas.dataset.labPendingWirePreview === "none");
+    check("layout-stage-clear-resets-highlighted-wire",
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireRouteMode === "none" &&
+      canvas.dataset.labWireRoutePointCount === "0" &&
+      canvas.dataset.labWireGeometryRevision === "0");
+    let highlightAfterStageClearRejected = false;
+    try { mounted.setHighlightedLabWire(committedWireId); }
+    catch (error) { highlightAfterStageClearRejected = error instanceof RangeError; }
+    check("highlighted-wire-rejected-after-stage-layout-clear",
+      highlightAfterStageClearRejected && canvas.dataset.labHighlightedWire === "");
+    mounted.setWiring(null);
     mounted.setLabEdit({ enabled: false });
     const readOnlyBeforeContext = mounted.setInspectedTerminal("D13", layout);
     check("read-only-label-before-context-loss",
@@ -465,6 +660,11 @@ export async function runScene3DContracts() {
       canvas.dataset.labPendingWireTerminal === "" &&
       canvas.dataset.labPendingWireHoverTerminal === "" &&
       canvas.dataset.labPendingWirePreview === "none");
+    check("dispose-clears-highlighted-wire-metadata",
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireRouteMode === "none" &&
+      canvas.dataset.labWireRoutePointCount === "0" &&
+      canvas.dataset.labWireGeometryRevision === "0");
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     check("dispose-detaches-context-listeners", queuedFrames.size === 0);
 
@@ -484,11 +684,27 @@ export async function runScene3DContracts() {
     const lossCanvas = host.querySelector("canvas");
     lossDispose.setLesson({ id: 2 });
     lossDispose.setLabLayout(layout);
+    lossDispose.setWiring(sampleCircuit, terminals);
+    lossDispose.setHighlightedLabWire(committedWireId);
+    lossDispose.setLesson({ id: 3 });
+    check("lesson-change-clears-highlighted-wire",
+      lossCanvas.dataset.labHighlightedWire === "" &&
+      lossCanvas.dataset.labWireRouteMode === "none" &&
+      lossCanvas.dataset.labWireRoutePointCount === "0" &&
+      lossCanvas.dataset.labWireGeometryRevision === "0");
+    lossDispose.setLesson({ id: 2 });
+    lossDispose.setLabLayout(layout);
+    lossDispose.setWiring(sampleCircuit, terminals);
+    lossDispose.setHighlightedLabWire(committedWireId);
     lossDispose.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
     lossDispose.setPendingWireTerminal("D13");
+    const revisionBeforeContextLoss = Number(lossCanvas.dataset.labWireGeometryRevision);
     check("pending-wire-armed-before-context-reset",
       lossCanvas.dataset.labPendingWireTerminal === "D13" &&
-      lossCanvas.dataset.labPendingWirePreview === "none");
+      lossCanvas.dataset.labPendingWirePreview === "none" &&
+      lossCanvas.dataset.labHighlightedWire === committedWireId &&
+      lossCanvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      revisionBeforeContextLoss > 0);
     const lossGl = lossCanvas.getContext("webgl2");
     const lossExtension = lossGl?.getExtension("WEBGL_lose_context");
     const lossPromise = waitEvent(lossCanvas, "webglcontextlost");
@@ -500,6 +716,10 @@ export async function runScene3DContracts() {
       lossCanvas.dataset.labPendingWireHoverTerminal === "" &&
       lossCanvas.dataset.labPendingWirePreview === "none" &&
       !/Terminal đầu đang chờ nối/.test(lossCanvas.getAttribute("aria-label") || ""));
+    check("context-reset-clears-highlighted-wire",
+      lossCanvas.dataset.labHighlightedWire === "" &&
+      lossCanvas.dataset.labWireGeometryRevision === "0" &&
+      !/Dây đang được đánh dấu/.test(lossCanvas.getAttribute("aria-label") || ""));
     lossDispose.dispose();
     check("dispose-while-context-lost-removes-canvas", !lossCanvas.isConnected && !host.querySelector("canvas"));
     check("dispose-while-context-lost-no-render", queuedFrames.size === 0);

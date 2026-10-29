@@ -159,18 +159,30 @@ function forgeBranch(analysis,id,patch) {
   };
 }
 
-function fakeStudyDocument() {
+function fakeStudyDocument({
+  branchControls=false,
+  topologyValue="divider",
+  r3Value="2000",
+}={}) {
   const doc=new FakeDocument();
   const supply=doc.register("resistiveV",new FakeNode("input"));
   const r1=doc.register("resistiveR1",new FakeNode("input"));
   const r2=doc.register("resistiveR2",new FakeNode("input"));
+  let topology=null;
+  let r3=null;
+  if(branchControls){
+    topology=doc.register("resistiveTopology",new FakeNode("select"));
+    r3=doc.register("resistiveR3",new FakeNode("input"));
+    topology.value=topologyValue;
+    r3.value=r3Value;
+  }
   const solve=doc.register("resistiveSolve",new FakeNode("button"));
   const result=doc.register("resistiveResult",new FakeNode("p"));
   const details=doc.register("resistiveDetails",new FakeNode("div"));
   supply.value="5";
   r1.value="1000";
   r2.value="1000";
-  return {doc,supply,r1,r2,solve,result,details};
+  return {doc,supply,r1,r2,topology,r3,solve,result,details};
 }
 
 export function runResistiveStudyUiContracts() {
@@ -434,6 +446,103 @@ export function runResistiveStudyUiContracts() {
       assert(fixture.result.textContent===before,"disposed UI ignores button");
       assert(mounted.calculate()===null,"disposed calculate returns null");
     }
+  });
+
+  check("optional-branch-controls-render-accessible-three-resistor-study",()=>{
+    const fixture=fakeStudyDocument({
+      branchControls:true,
+      topologyValue:"branch",
+      r3Value:"2000",
+    });
+    fixture.r2.value="2000";
+    const mounted=mountResistiveStudy(fixture.doc);
+    const analysis=mounted.calculate();
+    assert(analysis?.calculated===true&&analysis.resistorResults.length===3,
+      "branch mode solver result");
+    assert(mounted.snapshot()===analysis,"branch snapshot remains raw solver analysis");
+    assert(fixture.result.dataset.result==="calculated"&&fixture.result.dataset.topology==="branch",
+      "branch status metadata");
+    assert(/V\(MID\).*2[,.]5 V.*I1 = 2[,.]5 mA.*I2 \+ I3 = 2[,.]5 mA/i.test(
+      fixture.result.textContent),"branch status verified math");
+    const visual=fixture.details.querySelector("[data-resistive-branch-visual]");
+    const svg=visual?.querySelector("svg");
+    assert(svg?.getAttribute("role")==="img","branch SVG accessible role");
+    assert(/R1.*R2.*R3.*I1.*I2.*I3/i.test(svg?.getAttribute("aria-label")||""),
+      "branch SVG explicit topology/current label");
+    assert(svg?.getAttribute("width")==="100%"&&svg?.style.maxWidth==="100%"&&
+      svg?.style.height==="auto","branch SVG responsive");
+    const table=fixture.details.querySelector("[data-resistive-branch-table]");
+    assert(table?.querySelector("tbody")?.querySelectorAll("tr").length===3,
+      "branch table has exactly three resistor rows");
+    assert(/R2 \|\| R3|R2.*R3/i.test(table?.querySelector("caption")?.textContent||""),
+      "branch table caption topology");
+    assert(/ideal-dc-resistor-model/i.test(fixture.details.textContent)&&
+      /không phải firmware.*phần cứng Arduino.*phép đo/i.test(fixture.details.textContent),
+      "branch ideal-model boundary");
+    mounted.dispose();
+  });
+
+  check("enhanced-controls-divider-mode-keeps-r3-out-of-divider-path",()=>{
+    const fixture=fakeStudyDocument({
+      branchControls:true,
+      topologyValue:"divider",
+      r3Value:"not-a-number",
+    });
+    const mounted=mountResistiveStudy(fixture.doc);
+    const analysis=mounted.calculate();
+    assert(analysis?.calculated===true&&analysis.resistorResults.length===2,
+      "divider ignores inactive R3");
+    assert(fixture.result.dataset.topology==="divider","divider topology metadata");
+    assert(fixture.details.querySelector("[data-resistive-divider-visual]"),
+      "legacy divider visual");
+    assert(!fixture.details.querySelector("[data-resistive-branch-visual]"),
+      "no branch visual in divider mode");
+    mounted.dispose();
+  });
+
+  check("branch-invalid-r3-clears-stale-output-and-snapshot",()=>{
+    const fixture=fakeStudyDocument({
+      branchControls:true,
+      topologyValue:"branch",
+      r3Value:"2000",
+    });
+    fixture.r2.value="2000";
+    const mounted=mountResistiveStudy(fixture.doc);
+    mounted.calculate();
+    assert(fixture.details.children.length===1,"valid branch presentation exists");
+    fixture.r3.value="NaN";
+    const rejected=mounted.calculate();
+    assert(rejected===null&&mounted.snapshot()===null,"invalid branch input clears snapshot");
+    assert(fixture.result.dataset.result==="error"&&fixture.result.dataset.topology===undefined,
+      "invalid branch clears topology metadata");
+    assert(fixture.details.children.length===0,"invalid branch clears SVG/table");
+    mounted.dispose();
+  });
+
+  check("partial-branch-control-integration-fails-closed-at-mount",()=>{
+    const onlyTopology=fakeStudyDocument();
+    onlyTopology.doc.register("resistiveTopology",new FakeNode("select")).value="branch";
+    expectThrow(()=>mountResistiveStudy(onlyTopology.doc),
+      /đồng thời.*resistiveTopology.*resistiveR3/i,"topology without R3");
+    const onlyR3=fakeStudyDocument();
+    onlyR3.doc.register("resistiveR3",new FakeNode("input")).value="2000";
+    expectThrow(()=>mountResistiveStudy(onlyR3.doc),
+      /đồng thời.*resistiveTopology.*resistiveR3/i,"R3 without topology");
+  });
+
+  check("unsupported-topology-fails-closed-without-numeric-presentation",()=>{
+    const fixture=fakeStudyDocument({
+      branchControls:true,
+      topologyValue:"parallel-magic",
+      r3Value:"2000",
+    });
+    const mounted=mountResistiveStudy(fixture.doc);
+    const rejected=mounted.calculate();
+    assert(rejected===null&&mounted.snapshot()===null,"unknown topology rejected");
+    assert(fixture.result.dataset.result==="error"&&
+      /divider hoặc branch/i.test(fixture.result.textContent),"unknown topology error");
+    assert(fixture.details.children.length===0,"unknown topology no presentation");
+    mounted.dispose();
   });
 
   return Object.freeze({

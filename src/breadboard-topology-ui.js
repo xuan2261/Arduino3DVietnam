@@ -434,6 +434,76 @@ export function mountBreadboardStudy({
       item.textContent=`${record.terminalId} → ${record.holeId} · nhóm profile ${record.nodeId}`;
       placedList.append(item);
     }
+    try{
+      const grouped=placementSession.getAuthoredGroups();
+      if(!grouped)return;
+      const section=doc.createElement("section");
+      section.setAttribute("data-bb-authored-groups","");
+      section.setAttribute("role","region");
+      section.setAttribute("aria-label","Nhóm tiếp xúc từ các gán lỗ do người dùng khai báo trong phiên");
+      section.dataset.profile=grouped.profileId;
+      section.dataset.groupCount=String(grouped.groupCount);
+      const heading=doc.createElement("h4");
+      heading.textContent="Nhóm tiếp xúc của bản nháp phiên";
+      const boundary=doc.createElement("p");
+      boundary.setAttribute("data-bb-authored-groups-boundary","");
+      boundary.textContent=
+        "Các nhóm dưới đây chỉ gom những terminal đã được người dùng gán lỗ tường minh theo internal contact node của profile. " +
+        "Chúng không tự tạo dây, không tự ánh xạ lỗ, không suy điện áp/dòng và không xác nhận tiếp xúc hay lắp ráp vật lý.";
+      section.append(heading,boundary);
+      const list=doc.createElement("ul");
+      list.setAttribute("data-bb-authored-groups-list","");
+      for(const group of grouped.groups){
+        const item=doc.createElement("li");
+        item.setAttribute("data-bb-authored-group",String(group.order));
+        item.setAttribute("data-bb-authored-group-status",group.status);
+        item.setAttribute("data-bb-authored-group-node",group.nodeId??"");
+        item.setAttribute("data-bb-authored-group-kind",group.nodeKind??"unknown");
+        item.setAttribute("data-bb-authored-group-region",group.region);
+        item.setAttribute("data-bb-authored-group-terminal-count",String(group.terminalIds.length));
+        item.setAttribute("tabindex","0");
+        item.setAttribute(
+          "aria-label",
+          `${group.label}. ${group.status==="known"?"Nhóm đã biết theo profile":"Nhóm chưa xác minh theo profile"}. `+
+          `Terminal được gán: ${group.terminalIds.join(", ")}. Chỉ là nhóm tiếp xúc nội bộ read-only.`,
+        );
+        const label=doc.createElement("strong");
+        label.setAttribute("data-bb-authored-group-label","");
+        label.textContent=group.label;
+        const status=doc.createElement("span");
+        status.setAttribute("data-bb-authored-group-status-label","");
+        status.textContent=group.status==="known"
+          ? " · đã biết theo profile"
+          : " · chưa xác minh theo profile";
+        const mappings=doc.createElement("p");
+        mappings.setAttribute("data-bb-authored-group-mappings","");
+        mappings.textContent="Gán tường minh: "+group.placements
+          .map(record=>`${record.terminalId} → ${record.holeId}`)
+          .join("; ");
+        const members=doc.createElement("p");
+        members.setAttribute("data-bb-authored-group-members","");
+        members.textContent=group.status!=="known"
+          ? "Profile hiện tại chưa chứng minh contact members cho nhóm này."
+          : group.nodeKind==="power-rail"
+            ? `Contact node profile: ${group.members[0]}…${group.members.at(-1)} · ${group.members.length} lỗ trên rail này.`
+            : `Contact node profile: ${group.members.join(", ")}.`;
+        const provenance=doc.createElement("p");
+        provenance.setAttribute("data-bb-authored-group-provenance","");
+        provenance.textContent="Profile provenance: "+(group.provenance?.scope??"unknown")+".";
+        item.append(label,status,mappings,members,provenance);
+        list.append(item);
+      }
+      section.append(list);
+      placedList.append(section);
+    }catch(error){
+      const rejected=doc.createElement("p");
+      rejected.setAttribute("data-bb-authored-groups-error","");
+      rejected.setAttribute("role","note");
+      rejected.textContent="Không thể nhóm bản nháp không hợp lệ: "+
+        (error?.message||"mapping/profile không nhất quán")+
+        ". Không có wire hay trạng thái điện nào được tạo.";
+      placedList.append(rejected);
+    }
   };
   const renderTerminalOptions = state => {
     const doc=terminalSelect.ownerDocument;
@@ -866,6 +936,7 @@ export function mountBreadboardStudy({
     compare:compareHoles,
     snapshot:()=>comparison,
     getAuthoredPlacement:()=>placementSession.getPlacement(),
+    getAuthoredGroups:()=>placementSession.getAuthoredGroups(),
     getContactInspection:()=>contactInspection,
     dispose(){
       if(disposed)return;

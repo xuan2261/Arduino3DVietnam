@@ -269,6 +269,13 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .uno-pin-reference { margin-top:18px; padding-top:14px; border-top:1px solid #d9e7e0; }
 .uno-pin-reference h4 { margin:0 0 7px; font-size:14px; color:#245b4a; }
 .uno-pin-reference h5 { margin:12px 0 6px; font-size:12px; color:#365c54; }
+.uno-mechanical-reference { min-width:0; margin:12px 0; padding:11px 12px; border:1px solid #c7dfd2; border-radius:9px; background:#f8fcf9; }
+.uno-mechanical-reference h5 { margin:0 0 8px; color:#255b4e; }
+.uno-mechanical-summary { font-size:12px; color:#375d51; line-height:1.6; }
+.uno-mechanical-reference svg { display:block; width:100%; max-width:620px; max-height:360px; margin:8px auto; background:#fff; border:1px solid #d2e5d8; border-radius:7px; }
+.uno-mechanical-boundary { padding:9px 11px; background:#f0f5f2; border-left:3px solid #8ba79c; font-size:11.5px; line-height:1.55; color:#466256; }
+.uno-mechanical-link { display:inline-flex; align-items:center; min-height:44px; padding:10px 0; margin-right:16px; color:#0c7568; font-size:11.5px; text-underline-offset:3px; font-weight:740; }
+.uno-mechanical-link:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
 .uno-pin-source,.uno-pin-boundary { margin:6px 0; font-size:11.5px; line-height:1.65; color:#526b63; }
 .uno-pin-group { min-width:0; }
 .uno-pin-table { width:100%; border-collapse:collapse; text-align:left; font-size:11.5px; line-height:1.55; }
@@ -293,6 +300,13 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .breadboard-authored-list ul { margin:7px 0 0; padding-left:19px; }
 .breadboard-authored-list li { margin:4px 0; }
 .breadboard-authored-list [data-bb-authored-hole] { color:#1e6454; font-weight:780; }
+.breadboard-authored-list [data-bb-authored-groups] { min-width:0; margin-top:13px; padding:10px 12px; border:1px solid #cce0d3; border-radius:8px; background:#f9fdf9; }
+.breadboard-authored-list [data-bb-authored-groups] h4 { margin:0 0 5px; font-size:12px; color:#245b4b; }
+.breadboard-authored-list [data-bb-authored-groups-list] { display:grid; gap:8px; list-style:none; margin:8px 0 0; padding:0; }
+.breadboard-authored-list [data-bb-authored-group] { min-width:0; padding:9px 11px; border:1px solid #bed8c9; border-left:4px solid #4d9b78; border-radius:7px; background:#eef8f2; color:#2e5a4a; }
+.breadboard-authored-list [data-bb-authored-group-status="unknown"] { background:#fff8e9; border-color:#dcc79d; border-left-color:#af8339; }
+.breadboard-authored-list [data-bb-authored-group]:focus-visible { outline:3px solid #187969; outline-offset:2px; }
+.breadboard-authored-list [data-bb-authored-group] p { margin:5px 0; line-height:1.55; overflow-wrap:anywhere; }
 .breadboard-authored [role="status"] { margin:6px 0; }
 .breadboard-hole-picker { min-width:0; max-width:100%; margin:15px 0 4px; padding:12px 11px; border:1px solid #d0e2d8; border-radius:8px; background:#fff; }
 .breadboard-hole-picker h3 { font-size:12.5px; margin:0 0 6px; color:#265d50; }

@@ -4,7 +4,9 @@
 const waitTask = () => new Promise(resolve => setTimeout(resolve, 0));
 
 export async function runScene3DVisualFidelityContracts() {
-  const [{ mountScene }, { createLabLayout }, { listTerminals }] = await Promise.all([
+  const [{ mountScene }, { createLabLayout, moveLabComponent, rotateLabComponent }, {
+    listTerminals, createCircuit, connectCircuit, createSampleCircuit,
+  }] = await Promise.all([
     import(`../src/scene3d.js?scene3d-visual-fidelity=${Date.now()}`),
     import("../src/lab-layout.js"),
     import("../src/circuit-router.js"),
@@ -29,6 +31,11 @@ export async function runScene3DVisualFidelityContracts() {
     /labTerminalLabelFeedback/.test(source));
   check("source-never-upgrades-visuals-to-physical-proof",
     !/physicalVerified:true|breadboardHoleMapping:true|electricalPower:true|electricalAuthority:true/.test(source));
+  check("source-committed-wire-route-is-distinct-from-pending-ghost",
+    /LAB_COMMITTED_WIRE_ROUTE_POINTS = 8/.test(source) &&
+    /routeModel:"elevated-multisegment"/.test(source) &&
+    /new T\.Float32BufferAttribute\(9,3\)/.test(source) &&
+    /kind:"lab-pending-wire-preview",committed:false/.test(source));
 
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-10000px;top:0;width:720px;height:420px";
@@ -85,6 +92,88 @@ export async function runScene3DVisualFidelityContracts() {
       canvas.dataset.labHoveredTerminal === "" &&
       canvas.dataset.labTerminalLabelFeedback === "none");
 
+    const sampleCircuit = createSampleCircuit(2);
+    const committedWireId = sampleCircuit.wires[0].id;
+    scene.setWiring(sampleCircuit, listTerminals(2));
+    check("committed-wire-uses-elevated-route-inventory",
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      canvas.dataset.labWireRoutePointCount === "8" &&
+      Number(canvas.dataset.labWireGeometryRevision) > 0 &&
+      Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length);
+    const highlighted = scene.setHighlightedLabWire(committedWireId);
+    check("committed-wire-highlight-does-not-become-pending-ghost",
+      highlighted.mode === "committed-wire-highlight" &&
+      highlighted.physicalVerified === false &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length);
+
+    const r1Before = layout.components.find(component => component.id === "R1");
+    const movedLayout = moveLabComponent(layout, "R1", layout.bounds.maxX, layout.bounds.maxZ);
+    const r1Moved = movedLayout.components.find(component => component.id === "R1");
+    const revisionBeforeLayoutMove = Number(canvas.dataset.labWireGeometryRevision);
+    scene.setLabLayout(movedLayout);
+    const revisionAfterLayoutMove = Number(canvas.dataset.labWireGeometryRevision);
+    check("committed-wire-highlight-survives-set-layout-move-route-rebuild",
+      r1Before && r1Moved &&
+      (r1Moved.x !== r1Before.x || r1Moved.z !== r1Before.z) &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
+      revisionAfterLayoutMove > revisionBeforeLayoutMove);
+    const rotatedLayout = rotateLabComponent(movedLayout, "R1", 1);
+    scene.setLabLayout(rotatedLayout);
+    const revisionAfterLayoutRotate = Number(canvas.dataset.labWireGeometryRevision);
+    check("committed-wire-highlight-survives-set-layout-rotate-route-rebuild",
+      rotatedLayout.components.find(component => component.id === "R1")?.quarterTurns !== r1Moved.quarterTurns &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireRoutePointCount === "8" &&
+      revisionAfterLayoutRotate > revisionAfterLayoutMove);
+    check("committed-wire-revision-strictly-increases-across-layout-move-rotate",
+      revisionBeforeLayoutMove < revisionAfterLayoutMove &&
+      revisionAfterLayoutMove < revisionAfterLayoutRotate);
+    scene.setLabLayout(layout);
+
+    const sameIdDifferentEndpoints = connectCircuit(createCircuit(2), "D13", "GND");
+    scene.setWiring(sameIdDifferentEndpoints, listTerminals(2));
+    check("committed-wire-highlight-clears-on-same-id-endpoint-replacement",
+      sameIdDifferentEndpoints.wires[0].id === committedWireId &&
+      canvas.dataset.labHighlightedWire === "" &&
+      Number(canvas.dataset.labWireCount) === 1);
+    scene.setWiring(sampleCircuit, listTerminals(2));
+    scene.setHighlightedLabWire(committedWireId);
+
+    const movable = layout.components.find(component =>
+      component.fixed === false &&
+      component.terminalIds.some(id => id === sampleCircuit.wires[0].from || id === sampleCircuit.wires[0].to)
+    ) || layout.components.find(component => component.fixed === false && component.id !== "breadboard");
+    check("wire-route-fixture-has-movable-terminal-component", !!movable);
+    scene.setLabEdit({ enabled: true, selectedComponentId: movable.id });
+    canvas.focus();
+    const revisionBeforeMove = Number(canvas.dataset.labWireGeometryRevision);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true, cancelable: true }));
+    const revisionAfterMove = Number(canvas.dataset.labWireGeometryRevision);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "q", bubbles: true, cancelable: true }));
+    const revisionAfterRotate = Number(canvas.dataset.labWireGeometryRevision);
+    check("wire-route-recomputes-on-component-move-and-rotate",
+      revisionAfterMove > revisionBeforeMove &&
+      revisionAfterRotate > revisionAfterMove &&
+      canvas.dataset.labHighlightedWire === committedWireId &&
+      Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length);
+
+    const revisionBeforeWireLod = Number(canvas.dataset.labWireGeometryRevision);
+    host.style.width = "420px";
+    host.style.height = "300px";
+    scene.resize(true);
+    const revisionAfterWireLod = Number(canvas.dataset.labWireGeometryRevision);
+    check("wire-route-recomputes-across-lod-refresh",
+      canvas.dataset.sceneLod === "reduced" &&
+      revisionAfterWireLod > revisionBeforeWireLod &&
+      canvas.dataset.labWireRoutePointCount === "8" &&
+      canvas.dataset.labHighlightedWire === committedWireId);
+    host.style.width = "720px";
+    host.style.height = "420px";
+    scene.resize(true);
+
     const inspected = scene.setInspectedTerminal("D13");
     check("inspection-shows-readable-terminal-feedback",
       inspected.mode === "lab-halo" &&
@@ -95,7 +184,8 @@ export async function runScene3DVisualFidelityContracts() {
       pending.mode === "first-terminal-preview" &&
       canvas.dataset.labTerminalLabelFeedback === "pending" &&
       canvas.dataset.labPendingWireTerminal === "D13" &&
-      canvas.dataset.labWireCount === "0");
+      Number(canvas.dataset.labWireCount) === sampleCircuit.wires.length &&
+      canvas.dataset.labHighlightedWire === committedWireId);
 
     let invalidPendingRejected = false;
     try { scene.setPendingWireTerminal("D13 "); }
@@ -117,7 +207,10 @@ export async function runScene3DVisualFidelityContracts() {
       Number(canvas.dataset.sceneBreadboardHoleVisualCount) === legacyHoles &&
       Number(canvas.dataset.sceneBreadboardContactStripVisualCount) === legacyStrips &&
       canvas.dataset.labHoveredTerminal === "" &&
-      canvas.dataset.labTerminalLabelFeedback === "none");
+      canvas.dataset.labTerminalLabelFeedback === "none" &&
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireRouteMode === "none" &&
+      canvas.dataset.labWireGeometryRevision === "0");
 
     const readOnly = scene.setInspectedTerminal("D13", layout);
     check("read-only-inspection-does-not-recreate-3d-terminal-geometry",

@@ -158,13 +158,16 @@
             <div><span class="panel-index">THỬ NGHIỆM ĐIỆN TRỞ · MÔ HÌNH TOÁN HỌC ĐỘC LẬP</span><h2 id="resistiveStudyHeading">Mạng điện trở DC tuyến tính</h2></div>
           </div>
           <div class="resistive-study-body">
-            <p>Tự khai báo một mạch chia áp gồm <strong>hai điện trở nối tiếp</strong> và nguồn DC lý tưởng 0–5 V. Kết quả được tính bằng bộ giải nút tuyến tính, <strong>không lấy từ dây 3D, cảm biến hoặc firmware</strong> và không phải số đo trên Arduino.</p>
+            <p>Tự khai báo mạng điện trở DC lý tưởng: <strong>mạch chia áp hai điện trở</strong> hoặc <strong>R1 nối tiếp với hai nhánh R2/R3 song song</strong>. Kết quả được tính bằng bộ giải nút tuyến tính, <strong>không lấy từ dây 3D, cảm biến hoặc firmware</strong> và không phải số đo trên Arduino.</p>
             <div class="resistive-study-fields">
+              <label for="resistiveTopology">Mô hình toán học</label><select id="resistiveTopology" aria-describedby="resistiveModelBoundary"><option value="divider" selected>Chia áp · R1 nối tiếp R2</option><option value="branch">Phân nhánh · R1 nối tiếp (R2 ∥ R3)</option></select>
               <label for="resistiveV">Nguồn DC lý tưởng (V)</label><input id="resistiveV" type="number" min="0" max="5" step="0.1" value="5" inputmode="decimal">
               <label for="resistiveR1">R1 từ VCC → MID (Ω)</label><input id="resistiveR1" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal">
               <label for="resistiveR2">R2 từ MID → GND (Ω)</label><input id="resistiveR2" type="number" min="1" max="1000000" step="1" value="1000" inputmode="decimal">
+              <label for="resistiveR3">R3 từ MID → GND (Ω), chỉ dùng khi phân nhánh</label><input id="resistiveR3" type="number" min="1" max="1000000" step="1" value="2000" inputmode="decimal" aria-describedby="resistiveModelBoundary">
               <button type="button" class="button button-soft" id="resistiveSolve">Tính theo mô hình</button>
             </div>
+            <p id="resistiveModelBoundary" class="resistive-study-hint">Đổi chế độ không nối dây thật hoặc thay đổi mạch của 16 bài học. Mạng phân nhánh chỉ áp dụng cho ba điện trở tuyến tính lý tưởng; hãy đối chiếu định luật Ohm và Kirchhoff trong kết quả.</p>
             <p id="resistiveResult" class="resistive-study-status" role="status" aria-live="polite">Chưa giải mạng điện trở; giá trị mặc định chỉ là ví dụ để người học thử.</p>
             <div class="resistive-study-results" id="resistiveDetails" aria-label="Kết quả toán học của từng node và điện trở"></div>
             <p class="resistive-study-boundary">Chỉ có điện trở tuyến tính và các nguồn nút cố định được khai báo; không hỗ trợ LED, transistor, động cơ, servo, nguồn Arduino có nội trở, dây/lỗ breadboard thực. Giá trị dòng và công suất mang nhãn <strong>ước tính lý tưởng</strong>, không phải giới hạn an toàn phần cứng.</p>

@@ -303,6 +303,17 @@ function renderSchematicEquivalent(doc, model, showReference) {
       const copy = textNode(doc, "span", `${wire.id}: ${wire.from} ↔ ${wire.to}`);
       if (wire.issueSeverity) li.dataset.severity = wire.issueSeverity;
       li.append(copy);
+      // An explicit visual inspection of an existing learner wire is not a
+      // connect/disconnect command. It becomes available only when that same
+      // learner graph has a mounted editable 3D layout.
+      const inspectWire = button(doc, `Xem ${wire.id} trên 3D`, {
+        "data-explorer-highlight-wire": wire.id,
+        "aria-label": `Làm nổi bật dây ${wire.id} từ ${wire.from} đến ${wire.to} trong mô hình 3D khái niệm`,
+        "aria-disabled": canFocus(model) ? "false" : "true",
+      });
+      inspectWire.className = "lab-explorer-highlight-wire-button";
+      inspectWire.disabled = !canFocus(model);
+      li.append(inspectWire);
       if (model.schematic.editableWireDeletion) {
         const remove = button(doc, `Gỡ ${wire.id}`, {
           "data-explorer-disconnect": wire.id,
@@ -529,6 +540,7 @@ export function mountLabExplorer(host, options = {}) {
   const onConnect = requireCallback(options.onConnect, "onConnect");
   const onDisconnect = requireCallback(options.onDisconnect, "onDisconnect");
   const onFocus = requireCallback(options.onFocus, "onFocus");
+  const onHighlightWire = requireCallback(options.onHighlightWire, "onHighlightWire");
   const doc = host.ownerDocument;
   const root = doc.createElement("section");
   root.className = "lab-explorer";
@@ -602,9 +614,10 @@ export function mountLabExplorer(host, options = {}) {
 
   function invoke(action, ...args) {
     try {
-      action(...args);
+      return action(...args);
     } catch (error) {
       status.textContent = `Không thể thực hiện thao tác: ${error?.message || "callback lỗi"}`;
+      return false;
     }
   }
 
@@ -617,6 +630,19 @@ export function mountLabExplorer(host, options = {}) {
       status.textContent = showReference
         ? "Đang hiển thị overlay mạch mẫu read-only; checker và dây editable vẫn thuộc bản tự đấu."
         : `${currentModel.source.label} · overlay mạch mẫu đã ẩn.`;
+      return;
+    }
+    const highlightWireId = target.getAttribute?.("data-explorer-highlight-wire");
+    if(highlightWireId != null){
+      const canonical = currentModel.schematic.wires.find(wire=>wire.id===highlightWireId);
+      if(!canFocus(currentModel)||!canonical){
+        status.textContent="Chỉ xem nổi bật dây người học trên 3D khi bật chỉnh sửa và có layout đang hiển thị.";
+        return;
+      }
+      const inspection=invoke(onHighlightWire,canonical.id);
+      status.textContent=inspection?.active===true
+        ? `Đang làm nổi bật dây ${canonical.id} trên 3D. Chỉ là nét hiển thị của bản tự đấu, không thay đổi netlist hoặc chứng minh điện thực.`
+        : `Chưa thể làm nổi bật ${canonical.id} trong 3D; không có dây mới và netlist không thay đổi.`;
       return;
     }
     const disconnectId = target.getAttribute?.("data-explorer-disconnect");
@@ -647,7 +673,7 @@ export function mountLabExplorer(host, options = {}) {
   }
 
   const onClick = event => {
-    const target = event.target.closest?.("[data-explorer-reference-toggle],[data-explorer-disconnect],[data-explorer-connect],[data-explorer-terminal],[data-explorer-focus],[data-explorer-component]");
+    const target = event.target.closest?.("[data-explorer-reference-toggle],[data-explorer-highlight-wire],[data-explorer-disconnect],[data-explorer-connect],[data-explorer-terminal],[data-explorer-focus],[data-explorer-component]");
     if (target && root.contains(target)) activate(target);
   };
   const onKeyDown = event => {

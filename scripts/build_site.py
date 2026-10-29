@@ -93,6 +93,16 @@ POST_V16_FIDELITY_FILES = [
     "docs/PRACTICE_CHECKLIST_NEXT.md",
     "docs/SKETCH_LEXICAL_FEEDBACK_NEXT.md",
 ]
+POST_V16_GUIDED_INSPECTION_FILES = [
+    "src/breadboard-authored-groups.js",
+    "src/resistive-branch-study.js",
+    "src/uno-mechanical-reference.js",
+    "docs/BREADBOARD_AUTHORED_GROUPS_NEXT.md",
+    "docs/SCENE_WIRE_INSPECTION_NEXT.md",
+    "docs/RESISTIVE_BRANCH_STUDY_NEXT.md",
+    "docs/UNO_MECHANICAL_REFERENCE_NEXT.md",
+    "docs/PRACTICE_PAIR_PREVIEW_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -147,6 +157,7 @@ FILES = [
     *POST_V16_INTERACTION_FILES,
     *POST_V16_GUIDED_WIRING_FILES,
     *POST_V16_FIDELITY_FILES,
+    *POST_V16_GUIDED_INSPECTION_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

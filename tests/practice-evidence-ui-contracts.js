@@ -906,6 +906,98 @@ export function runPracticeEvidenceUiContracts() {
     }
   });
 
+  check("authored-missing-pair-2d-preview-only-after-native-click", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    let circuit = createCircuit(2);
+    circuit = connectCircuit(circuit,"D13","R1:A");
+    const inspection=inspectPracticeEvidence({
+      lesson,stepIndex:0,circuit,referenceCircuit:createSampleCircuit(2),
+      analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true,
+    });
+    const triggered=[];
+    const before=JSON.stringify(inspection);
+    const section=render(inspection,{onPreviewMissingPairIn2D:pair=>triggered.push(pair)});
+    const rows=section.querySelectorAll("[data-practice-checklist-row]");
+    const buttons=section.querySelectorAll("[data-practice-preview-pair-2d]");
+    assert(rows.length===3 && buttons.length===2,"only two still-missing authored pairs can expose preview");
+    assert(!rows[0].querySelector("[data-practice-preview-pair-2d]"),"matched pair cannot offer missing-wire preview");
+    assert(buttons[0].type==="button" && buttons[0].tagName==="BUTTON", "must be a real button, not form submit");
+    assert(buttons[0].getAttribute("data-practice-preview-from")==="R1:B" &&
+      buttons[0].getAttribute("data-practice-preview-to")==="LED:A", "preview first missing pair exact authored order");
+    assert(buttons[1].getAttribute("data-practice-preview-from")==="LED:K" &&
+      buttons[1].getAttribute("data-practice-preview-to")==="GND", "preview second missing pair exact authored order");
+    assert(triggered.length===0 && buttons.every(button=>!button.focused),"render must never auto-preview or steal focus");
+    buttons[0].click();
+    assert(triggered.length===1 && JSON.stringify(triggered[0])===JSON.stringify(["R1:B","LED:A"]),
+      "exact canonical missing pair forwards only after explicit click");
+    assert(Object.isFrozen(triggered[0]),"host callback receives immutable pair to prevent mutation");
+    assert(JSON.stringify(inspection)===before && inspection.claims.lessonCompleted===false &&
+      inspection.claims.mastery===false,"click may not mutate evidence or claim mastery");
+  });
+
+  check("missing-pair-2d-preview-disabled-without-callback-and-fail-fast-bad-hook", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const circuit=createCircuit(2);
+    const inspection=inspectPracticeEvidence({lesson,stepIndex:0,circuit,
+      referenceCircuit:createSampleCircuit(2),analysis:analyzeCircuit(2,circuit),hasLearnerDraft:true});
+    const section=render(inspection);
+    const actions=section.querySelectorAll("[data-practice-preview-pair-2d]");
+    assert(actions.length===3 && actions.every(button=>button.disabled &&
+      button.getAttribute("aria-disabled")==="true"),"optional callback absent must disable all preview buttons");
+    expectThrow(()=>render(inspection,{onPreviewMissingPairIn2D:4}),
+      /onPreviewMissingPairIn2D.*function/i,"bad preview callback must fail fast");
+  });
+
+  check("manual-complete-extra-and-forged-wire-checklists-never-preview-missing", () => {
+    const lesson=lessons.find(item=>item.id===2);
+    const reference=createSampleCircuit(2);
+    const all=inspectPracticeEvidence({lesson,stepIndex:0,circuit:reference,
+      referenceCircuit:reference,analysis:analyzeCircuit(2,reference),hasLearnerDraft:true});
+    assert(render(all,{onPreviewMissingPairIn2D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-2d]").length===0,
+      "complete authored pair checklist has no preview-missing button");
+    const manual=inspectPracticeEvidence({lesson,stepIndex:1,circuit:createCircuit(2),
+      referenceCircuit:reference,analysis:analyzeCircuit(2,createCircuit(2)),hasLearnerDraft:true});
+    assert(render(manual,{onPreviewMissingPairIn2D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-2d]").length===0,
+      "manual checkpoint cannot expose missing pair preview");
+    let extraCircuit=createSampleCircuit(2);
+    extraCircuit=connectCircuit(extraCircuit,"D13","GND");
+    const extra=inspectPracticeEvidence({lesson,stepIndex:0,circuit:extraCircuit,
+      referenceCircuit:reference,analysis:analyzeCircuit(2,extraCircuit),hasLearnerDraft:true});
+    assert(render(extra,{onPreviewMissingPairIn2D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-2d]").length===0,
+      "extra-only review cannot fabricate missing action");
+    const incomplete=inspectPracticeEvidence({lesson,stepIndex:0,circuit:createCircuit(2),
+      referenceCircuit:reference,analysis:analyzeCircuit(2,createCircuit(2)),hasLearnerDraft:true});
+    const forged={...incomplete,wireGuidance:{...incomplete.wireGuidance,
+      pairChecklist:incomplete.wireGuidance.pairChecklist.map((row,i)=>
+        i===0?{...row,pair:["constructor","GND"]}:row)}};
+    assert(render(forged,{onPreviewMissingPairIn2D:()=>{}})
+      .querySelectorAll("[data-practice-preview-pair-2d]").length===0,
+      "forged canonical source pair suppresses all preview buttons");
+  });
+
+  check("authored-48-steps-preview-available-only-for-real-missing-wiring-pairs", () => {
+    let steps=0,missingPairs=0;
+    for(const lesson of lessons){
+      const circuit=lesson.id===1?null:createCircuit(lesson.id);
+      for(let index=0;index<lesson.steps.length;index++){
+        const inspection=inspectPracticeEvidence({lesson,stepIndex:index,circuit,
+          referenceCircuit:lesson.id===1?null:createSampleCircuit(lesson.id),
+          analysis:lesson.id===1?null:analyzeCircuit(lesson.id,circuit),hasLearnerDraft:lesson.id!==1});
+        const rendered=render(inspection,{onPreviewMissingPairIn2D:()=>{}});
+        const actions=rendered.querySelectorAll("[data-practice-preview-pair-2d]");
+        const rows=rendered.querySelectorAll("[data-practice-checklist-row]");
+        const expected=rows.filter(row=>row.getAttribute("data-practice-pair-status")==="missing").length;
+        assert(actions.length===expected,"lesson "+lesson.id+" step "+index+" missing authored action count drifted");
+        missingPairs+=expected;
+        steps++;
+      }
+    }
+    assert(steps===48 && missingPairs>20,"all 48 authored checkpoints must be covered");
+  });
+
   return Object.freeze({
     total: checks.length,
     passed: checks.length,

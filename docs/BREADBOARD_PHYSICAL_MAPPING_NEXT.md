@@ -127,6 +127,25 @@ BB830 có rail picker riêng cho đúng bốn rail `P1+`, `P1-`, `P2+`, `P2-`, i
 
 Chi tiết contract, pagination, accessibility và fail-closed behavior nằm ở `docs/BREADBOARD_HOLE_PICKER_NEXT.md`.
 
+### Read-only grouping của authored placement
+
+`src/breadboard-authored-groups.js` bổ sung một projection chỉ đọc trên **placement đã được
+validate**. Nó gom các terminal→hole do người dùng khai báo trong phiên theo internal
+contact node của selected profile:
+
+- A–E cùng cột là một five-hole group;
+- F–J cùng cột là một five-hole group khác qua center gap;
+- BB830 giữ bốn signed rail `P1+`, `P1-`, `P2+`, `P2-` là bốn node độc lập, mỗi node 50 hole;
+- generic rail vẫn `unknown-unmodeled` và không được authored placement validator chấp nhận.
+
+Projection không tạo dây, không tự map terminal sang hole, không đọc scene, không suy
+voltage/current hoặc physical/mechanical validity. UI render group bên dưới `#bbPlacedList`
+chỉ để học viên thấy các authored mappings nào đang cùng **profile contact node**.
+
+Không có split-rail profile mới trong phase này. FAQ chung hoặc sản phẩm khác không đủ để
+khẳng định một SKU chưa xác minh có rail split/continuous. Chi tiết API, DOM hooks,
+prototype/forged-input guards và reset lifecycle ở `docs/BREADBOARD_AUTHORED_GROUPS_NEXT.md`.
+
 Phần explorer so sánh hole giữ nguyên các contract trước:
 
 - dùng tri-state diagnostic để phân biệt **unknown** với **known separate**;

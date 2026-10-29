@@ -173,6 +173,8 @@
 .practice-evidence-checklist-copy { min-width:0; font-size:12px; font-weight:750; color:#2f5549; overflow-wrap:anywhere; }
 .practice-evidence-checklist-explanation { grid-column:1/-1; margin:0!important; font-size:11px!important; color:#49665a; }
 .practice-evidence-checklist-button { min-height:44px; max-width:100%; }
+.practice-evidence-pair-preview-button { min-height:44px; max-width:100%; border-style:dashed; background:#fff8e9; color:#74501a; }
+.practice-evidence-pair-preview-button:hover:not(:disabled) { background:#fff0ce; border-color:#bd9756; }
 
 /* A session-scoped observation is not a pass/fail grade. Keep this visually
    separate from the canonical topology evidence and from lesson completion. */
@@ -206,6 +208,7 @@
   [data-practice-extra-review-row] { grid-template-columns:minmax(0,1fr); }
   .practice-evidence-checklist-row .practice-evidence-checklist-button,
   [data-practice-extra-review-row] .practice-evidence-checklist-button { width:100%; }
+  .practice-evidence-checklist-row .practice-evidence-pair-preview-button { width:100%; }
   .practice-observation { padding: 12px; }
 }
 

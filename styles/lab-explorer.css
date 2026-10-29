@@ -54,6 +54,9 @@
 .lab-explorer-wire-list { padding-left:18px; display:grid; gap:6px; }
 .lab-explorer-wire-list li { padding-left:2px; }
 .lab-explorer-wire-list button { margin-left:8px; min-height:44px; padding:8px 10px; }
+.lab-explorer-highlight-wire-button { border:1px dashed #a8b9cc; background:#f1f6fb; color:#235879; border-radius:7px; font-weight:740; }
+.lab-explorer-highlight-wire-button:focus-visible { outline:3px solid #147b75; outline-offset:2px; }
+.lab-explorer-highlight-wire-button:disabled { opacity:.52; cursor:not-allowed; }
 .lab-explorer-reference-list { color:#75623e; }
 .lab-explorer-minimap-svg { display:block; width:100%; min-height:235px; border:1px solid var(--line); border-radius:9px; background:#f7faf7; }
 .lab-explorer-minimap-ground { fill:#f2f6f1; stroke:#b4c7c0; stroke-width:.8; }

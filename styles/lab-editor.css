@@ -69,8 +69,10 @@
 .resistive-study-body p { margin:0 0 12px; }
 .resistive-study-fields { display:grid; grid-template-columns:minmax(165px,auto) minmax(0,240px); align-items:center; gap:9px 14px; }
 .resistive-study-fields label { font-size:11px; font-weight:750; color:#23564b; }
-.resistive-study-fields input { min-width:0; min-height:44px; padding:8px 10px; border:1px solid #a9c9bd; border-radius:7px; font:inherit; color:#1d4638; }
+.resistive-study-fields input,.resistive-study-fields select { min-width:0; width:100%; min-height:44px; padding:8px 10px; border:1px solid #a9c9bd; border-radius:7px; font:inherit; color:#1d4638; background:#fff; }
+.resistive-study-fields input:focus-visible,.resistive-study-fields select:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
 .resistive-study-fields button { grid-column:2; justify-self:start; min-height:44px; }
+.resistive-study-hint { margin:10px 0 4px!important; padding:8px 10px; background:#f2f7f3; border-left:3px solid #60907a; color:#3e6052; }
 .resistive-study-status { margin-top:14px!important; padding:10px 12px; border:1px solid #bedccc; background:#eaf6ee; color:#215948; border-radius:8px; }
 .resistive-study-status[data-result="error"] { background:#fff0e9; border-color:#deb3a2; color:#823a30; }
 .resistive-study-results { max-width:100%; overflow-x:auto; }

@@ -158,6 +158,18 @@ function lessonContext(lessonId) {
   return { lessonId, terminals: lessonId === 1 ? [] : listTerminals(lessonId) };
 }
 
+function descendants(node, predicate) {
+  const found = [];
+  const visit = current => {
+    for (const child of current.children) {
+      if (predicate(child)) found.push(child);
+      visit(child);
+    }
+  };
+  visit(node);
+  return found;
+}
+
 export function runBreadboardPlacementSessionContracts() {
   const checks = [];
   const check = (name, run) => { run(); checks.push(name); };
@@ -439,6 +451,114 @@ export function runBreadboardPlacementSessionContracts() {
       fixture.document.getElementById("bbAssignHole").click();
       assert(fixture.ui.getAuthoredPlacement() === null, "disposed assign listener removed");
     } finally { fixture.restore(); }
+  });
+
+  check("authored-groups-session-api-starts-null-and-groups-same-node", () => {
+    const terminals = listTerminals(2);
+    const session = createBreadboardPlacementSession({ lessonId: 2, terminals });
+    assert(session.getAuthoredGroups() === null, "empty session groups must be null");
+    session.assign("D13", "A12");
+    session.assign("R1:A", "E12");
+    const grouped = session.getAuthoredGroups();
+    assert(grouped.groupCount === 1 && grouped.groups[0].nodeId === "strip:12:left",
+      "same node grouped");
+    assert(grouped.groups[0].terminalIds.join(",") === "D13,R1:A", "canonical terminal IDs retained");
+    assert(grouped.claims.automaticWireCreation === false && grouped.claims.voltageInferred === false,
+      "session grouping stays read-only");
+  });
+
+  check("authored-groups-session-reset-on-lesson-and-profile", () => {
+    const terminals = listTerminals(2);
+    const session = createBreadboardPlacementSession({ lessonId: 2, terminals });
+    session.assign("D13", "A12");
+    assert(session.getAuthoredGroups()?.groupCount === 1, "precondition group exists");
+    session.sync({ lessonId: 3, terminals: listTerminals(3), profileId: "generic-63x10-terminal-strips" });
+    assert(session.getAuthoredGroups() === null, "lesson reset clears groups");
+    session.sync({ lessonId: 2, terminals, profileId: "generic-63x10-terminal-strips" });
+    session.assign("D13", "A12");
+    session.sync({ lessonId: 2, terminals, profileId: "busboard-bb830-rev7" });
+    assert(session.getAuthoredGroups() === null, "profile reset clears groups");
+  });
+
+  check("authored-groups-bb830-keeps-signed-rails-independent", () => {
+    const terminals = listTerminals(2);
+    const session = createBreadboardPlacementSession({
+      lessonId: 2,
+      terminals,
+      profileId: "busboard-bb830-rev7",
+    });
+    session.assign("D13", "P1+1");
+    session.assign("R1:A", "P1+50");
+    session.assign("R1:B", "P1-1");
+    const grouped = session.getAuthoredGroups();
+    assert(grouped.groupCount === 2, "P1+ and P1- are separate groups");
+    assert(grouped.groups[0].nodeId === "rail:P1+" && grouped.groups[0].terminalIds.length === 2,
+      "P1+ same rail grouped");
+    assert(grouped.groups[1].nodeId === "rail:P1-" && grouped.groups[1].terminalIds.length === 1,
+      "P1- remains independent");
+  });
+
+  check("dom-authored-groups-render-known-focusable-read-only-region", () => {
+    const ref = { current: lessonContext(2) };
+    const fixture = domFixture(ref);
+    try {
+      const terminal = fixture.document.getElementById("bbTerminal");
+      const input = fixture.document.getElementById("bbPlaceHole");
+      terminal.value = "D13"; input.value = "A12";
+      fixture.document.getElementById("bbAssignHole").click();
+      terminal.value = "R1:A"; input.value = "E12";
+      fixture.document.getElementById("bbAssignHole").click();
+      const placed = fixture.document.getElementById("bbPlacedList");
+      const regions = descendants(placed, node => node.getAttribute("data-bb-authored-groups") !== null);
+      const groups = descendants(placed, node => node.getAttribute("data-bb-authored-group") !== null);
+      assert(regions.length === 1 && regions[0].getAttribute("role") === "region", "group region semantics");
+      assert(groups.length === 1 && groups[0].getAttribute("tabindex") === "0", "group keyboard focusable");
+      assert(groups[0].getAttribute("data-bb-authored-group-status") === "known", "known status hook");
+      assert(groups[0].getAttribute("data-bb-authored-group-node") === "strip:12:left", "node hook");
+      assert(groups[0].getAttribute("data-bb-authored-group-region") === "A-E", "A-E region hook");
+      assert(/D13 → A12; R1:A → E12/.test(groups[0].textContent), "canonical mapping copy");
+      assert(/A12, B12, C12, D12, E12/.test(groups[0].textContent), "contact member copy");
+      assert(/không tự tạo dây|không suy điện áp\/dòng/i.test(regions[0].textContent), "read-only boundary copy");
+      assert(descendants(groups[0], node => node.tagName === "BUTTON").length === 0, "grouping adds no action buttons");
+      assert(groups[0].listeners.size === 0, "grouping adds no keyboard/click mutation handlers");
+      assert(fixture.ui.getAuthoredGroups()?.groupCount === 1, "UI grouping API exposed");
+    } finally { fixture.ui.dispose(); fixture.restore(); }
+  });
+
+  check("dom-authored-groups-reset-removes-stale-region", () => {
+    const ref = { current: lessonContext(2) };
+    const fixture = domFixture(ref);
+    try {
+      fixture.document.getElementById("bbTerminal").value = "D13";
+      fixture.document.getElementById("bbPlaceHole").value = "A12";
+      fixture.document.getElementById("bbAssignHole").click();
+      const placed = fixture.document.getElementById("bbPlacedList");
+      assert(descendants(placed, node => node.getAttribute("data-bb-authored-groups") !== null).length === 1,
+        "precondition group region");
+      ref.current = lessonContext(3);
+      fixture.ui.update();
+      assert(fixture.ui.getAuthoredGroups() === null, "lesson update clears grouping API");
+      assert(descendants(placed, node => node.getAttribute("data-bb-authored-groups") !== null).length === 0,
+        "lesson update clears stale group region");
+      assert(placed.getAttribute("data-bb-authored-group-node") === null, "no stale group metadata on list root");
+    } finally { fixture.ui.dispose(); fixture.restore(); }
+  });
+
+  check("dom-duplicate-failure-preserves-prior-valid-group-only", () => {
+    const ref = { current: lessonContext(2) };
+    const fixture = domFixture(ref);
+    try {
+      const terminal = fixture.document.getElementById("bbTerminal");
+      const input = fixture.document.getElementById("bbPlaceHole");
+      terminal.value = "D13"; input.value = "A12";
+      fixture.document.getElementById("bbAssignHole").click();
+      terminal.value = "R1:A"; input.value = "A12";
+      fixture.document.getElementById("bbAssignHole").click();
+      const grouped = fixture.ui.getAuthoredGroups();
+      assert(grouped.groupCount === 1 && grouped.mappedTerminalCount === 1, "duplicate cannot enter group projection");
+      assert(grouped.groups[0].terminalIds.join(",") === "D13", "prior canonical terminal only");
+      assert(fixture.document.getElementById("bbPlacementStatus").dataset.result === "error", "duplicate remains assignment error");
+    } finally { fixture.ui.dispose(); fixture.restore(); }
   });
 
   return Object.freeze({

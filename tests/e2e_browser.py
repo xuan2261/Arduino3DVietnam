@@ -598,7 +598,7 @@ def main() -> None:
                 fidelity_names = {item.get("name") for item in fidelity.get("results", [])}
                 check("vnext-threejs-visual-fidelity-instancing-hover-physical-boundary",
                       fidelity["failed"] == 0
-                      and fidelity["passed"] == fidelity["total"] == 18
+                      and fidelity["passed"] == fidelity["total"] == 28
                       and "source-uses-instancing-for-repeated-visual-detail" in fidelity_names
                       and "source-contact-strips-remain-nonauthoritative" in fidelity_names
                       and "compact-viewport-reduces-lod-without-changing-detail-inventory" in fidelity_names
@@ -1022,7 +1022,7 @@ def main() -> None:
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] == 26
+                      and practice_ui_contracts["total"] == 30
                       and "missing-terminal-inspector-callback-fires-only-on-explicit-click" in
                           practice_ui_names
                       and "inspector-button-appears-only-for-proven-authored-missing-canonical-pair-across-48-steps" in
@@ -1269,7 +1269,7 @@ def main() -> None:
                 check("post-v16-resistive-visual-study-direct-contracts",
                       resistive_ui_contracts["passed"] == resistive_ui_contracts["total"]
                       and resistive_ui_contracts["passed"] == len(resistive_ui_contracts["checks"])
-                      and resistive_ui_contracts["total"] == 18,
+                      and resistive_ui_contracts["total"] == 23,
                       f"{resistive_ui_contracts['passed']}/{resistive_ui_contracts['total']} source-verified visual-study checks")
                 bb_session_contracts = run_page_contract(
                     page, "./tests/breadboard-placement-session-contracts.js",
@@ -1277,8 +1277,30 @@ def main() -> None:
                 check("post-v16-breadboard-placement-session-direct-contracts",
                       bb_session_contracts["passed"] == bb_session_contracts["total"]
                       and bb_session_contracts["passed"] == len(bb_session_contracts["checks"])
-                      and bb_session_contracts["total"] == 22,
+                      and bb_session_contracts["total"] == 28,
                       f"{bb_session_contracts['passed']}/{bb_session_contracts['total']} authored-session checks")
+
+                authored_group_contracts = run_page_contract(
+                    page, "./tests/breadboard-authored-groups-contracts.js",
+                    "runBreadboardAuthoredGroupsContracts")
+                check("vnext-breadboard-authored-contact-groups-read-only-negative-contracts",
+                      authored_group_contracts["passed"] == authored_group_contracts["total"] == 19
+                      and len(authored_group_contracts["checks"]) == 19,
+                      f"{authored_group_contracts['passed']}/{authored_group_contracts['total']} session-authored contact group contracts")
+                branch_solver_contracts = run_page_contract(
+                    page,"./tests/resistive-branch-study-contracts.js",
+                    "runResistiveBranchStudyContracts")
+                check("vnext-ideal-dc-branch-ohm-kcl-zero-voltage-provenance-contracts",
+                      branch_solver_contracts["passed"] == branch_solver_contracts["total"] == 20
+                      and len(branch_solver_contracts["checks"]) == 20,
+                      f"{branch_solver_contracts['passed']}/{branch_solver_contracts['total']} bounded ideal DC tests")
+                uno_mechanical_contracts = run_page_contract(
+                    page,"./tests/uno-mechanical-reference-contracts.js",
+                    "runUnoMechanicalReferenceContracts")
+                check("vnext-uno-a000066-mechanical-outline-source-without-cad-or-pin-map",
+                      uno_mechanical_contracts["passed"] == uno_mechanical_contracts["total"] == 18
+                      and len(uno_mechanical_contracts["checks"]) == 18,
+                      f"{uno_mechanical_contracts['passed']}/{uno_mechanical_contracts['total']} manufacturer bounded geometry checks")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -3892,6 +3914,213 @@ def main() -> None:
                 finally:
                     practice_context.close()
 
+                # New post-v1.6 guided-inspection phase: exercise the REAL host
+                # wiring/Explorer/Practice callbacks on one isolated page. The
+                # dotted suggestion and wire highlight cannot become netlist.
+                guided_context = browser.new_context(
+                    viewport={"width": 1280, "height": 820}, service_workers="allow")
+                try:
+                    guided = guided_context.new_page()
+                    capture_console(guided)
+                    guided.goto(base, wait_until="domcontentloaded", timeout=20000)
+                    ready(guided)
+                    guided.locator('.lesson-link[data-lesson="2"]').click()
+                    guided.locator("#bbProfile").select_option("generic-63x10-terminal-strips")
+                    guided.locator("#bbTerminal").select_option("D13")
+                    guided.locator("#bbPlaceHole").fill("A12")
+                    guided.locator("#bbAssignHole").click()
+                    guided.locator("#bbTerminal").select_option("R1:A")
+                    guided.locator("#bbPlaceHole").fill("B12")
+                    guided.locator("#bbAssignHole").click()
+                    authored_group = guided.locator("#bbPlacedList [data-bb-authored-groups]")
+                    group_rows = authored_group.locator("[data-bb-authored-group]")
+                    group_labels = group_rows.all_inner_texts()
+                    check("vnext-explicit-two-terminal-authored-hole-groups-same-profile-node-no-wire",
+                          authored_group.get_attribute("role") == "region"
+                          and authored_group.get_attribute("data-group-count") == "1"
+                          and group_rows.count() == 1
+                          and group_rows.first.get_attribute("data-bb-authored-group-status") == "known"
+                          and group_rows.first.get_attribute("data-bb-authored-group-terminal-count") == "2"
+                          and "D13" in group_labels[0] and "A12" in group_labels[0]
+                          and "R1:A" in group_labels[0] and "B12" in group_labels[0]
+                          and "không tự tạo dây" in authored_group.inner_text().lower()
+                          and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0"
+                          and guided.locator("#completeButton").is_hidden(),
+                          json.dumps({"groups":group_labels}, ensure_ascii=False))
+                    guided.locator('.lesson-link[data-lesson="3"]').click()
+                    check("vnext-authored-group-lesson-switch-revokes-session-placement",
+                          guided.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                          and guided.locator("#bbPlacedList [data-bb-authored-group]").count() == 0
+                          and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0")
+                    guided.locator('.lesson-link[data-lesson="2"]').click()
+                    guided.locator("#infoTabPinout").click()
+                    mech = guided.locator("[data-uno-mechanical-reference='outline-only']")
+                    check("vnext-a000066-mechanical-outline-labelled-without-fake-cad-snap",
+                          mech.get_attribute("role") == "group"
+                          and mech.get_attribute("data-uno-scene-snap") == "unverified"
+                          and "68,6" in mech.inner_text() and "53,4" in mech.inner_text()
+                          and "66,04 × 50,80 mm" in mech.locator(".uno-mechanical-boundary").inner_text()
+                          and "Ø3,2" in mech.inner_text()
+                          and mech.locator("svg[role='img']").count() == 1
+                          and "không thể hiện tọa độ lỗ" in
+                              (mech.locator("svg").get_attribute("aria-label") or "")
+                          and mech.locator("a").first.get_attribute("href") ==
+                              "https://store.arduino.cc/products/arduino-uno-rev3"
+                          and mech.locator("a").nth(1).get_attribute("href") ==
+                              "https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf"
+                          and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0")
+
+                    guided.locator("#infoTabPractice").click()
+                    practice_pair = guided.locator(
+                        "#learningCoach [data-practice-preview-pair-2d]").first
+                    practice_pair_data = {
+                        "from": practice_pair.get_attribute("data-practice-preview-from"),
+                        "to": practice_pair.get_attribute("data-practice-preview-to"),
+                        "name": practice_pair.get_attribute("aria-label"),
+                    }
+                    observed_before = guided.locator("#learningCoach [data-practice-observation]").get_attribute(
+                        "data-observation-lesson-events")
+                    practice_pair.focus()
+                    practice_pair.press("Enter")
+                    guided.wait_for_function("document.querySelector('[data-wire-suggestion-preview]') !== null")
+                    suggested_host = guided.locator(".wiring-view")
+                    check("vnext-authored-missing-pair-2d-keyboard-guidance-no-graph-or-journal",
+                          practice_pair_data["from"] == "D13"
+                          and practice_pair_data["to"] == "R1:A"
+                          and "chưa tạo dây" in (practice_pair_data["name"] or "").lower()
+                          and guided.locator("#stageTabWiring").get_attribute("aria-selected") == "true"
+                          and suggested_host.get_attribute("data-wire-suggested-pair") == "D13|R1:A"
+                          and suggested_host.locator("[data-wire-suggestion-preview]").count() == 1
+                          and suggested_host.locator('[data-terminal="D13"][data-wire-suggested="from"]').count() == 1
+                          and suggested_host.locator('[data-terminal="R1:A"][data-wire-suggested="to"]').count() == 1
+                          and suggested_host.locator(".wire-connected").count() == 0
+                          and guided.locator("#learningCoach [data-practice-observation]").get_attribute(
+                              "data-observation-lesson-events") == observed_before
+                          and guided.locator("#completeButton").is_hidden(),
+                          json.dumps(practice_pair_data, ensure_ascii=False))
+                    suggested_host.locator('[data-terminal="D13"]').click()
+                    check("vnext-view-only-2d-preview-clears-when-learner-arms-real-terminal",
+                          suggested_host.get_attribute("data-wire-suggested-pair") is None
+                          and suggested_host.locator("[data-wire-suggestion-preview]").count() == 0
+                          and suggested_host.locator(".wire-connected").count() == 0)
+                    suggested_host.locator('[data-terminal="R1:A"]').click()
+                    check("vnext-only-explicit-two-terminal-clicks-create-canonical-wire",
+                          suggested_host.locator(".wire-connected").count() == 1
+                          and suggested_host.get_attribute("data-wire-suggested-pair") is None
+                          and guided.locator("#labExplorer [data-explorer-wire]").count() >= 1)
+                    guided.locator("#stageTab3d").click()
+                    guided.locator("#labEditToggle").click()
+                    wire_button = guided.locator("#labExplorer [data-explorer-highlight-wire]").first
+                    wire_id = wire_button.get_attribute("data-explorer-highlight-wire")
+                    wire_button.focus()
+                    wire_button.press("Enter")
+                    scene_canvas = guided.locator("#sceneMount canvas")
+                    check("vnext-existing-learner-wire-inspector-highlights-only-committed-3d-route",
+                          wire_id is not None and not wire_button.is_disabled()
+                          and scene_canvas.get_attribute("data-lab-wire-count") == "1"
+                          and scene_canvas.get_attribute("data-lab-highlighted-wire") == wire_id
+                          and scene_canvas.get_attribute("data-lab-wire-route-mode") == "elevated-multisegment"
+                          and scene_canvas.get_attribute("data-lab-wire-route-point-count") == "8"
+                          and scene_canvas.get_attribute("data-lab-pending-wire-terminal") == ""
+                          and "nổi bật" in guided.locator("#labExplorer .lab-explorer-status").inner_text().lower(),
+                          json.dumps({"wireId":wire_id,
+                              "highlight":scene_canvas.get_attribute("data-lab-highlighted-wire"),
+                              "route":scene_canvas.get_attribute("data-lab-wire-route-mode")}))
+                    # Exercise the actual LabEditor callback-driven layout
+                    # replacement. A scene-only visual transform would miss
+                    # the setLabLayout teardown that previously lost highlight.
+                    guided.locator("#labComponent").select_option("R1")
+                    route_revision_before = int(scene_canvas.get_attribute(
+                        "data-lab-wire-geometry-revision") or "0")
+                    guided.locator('[data-lab-nudge="0.5,0"]').click()
+                    route_revision_moved = int(scene_canvas.get_attribute(
+                        "data-lab-wire-geometry-revision") or "0")
+                    guided.locator("#labRotateRight").click()
+                    route_revision_rotated = int(scene_canvas.get_attribute(
+                        "data-lab-wire-geometry-revision") or "0")
+                    check("vnext-existing-wire-highlight-survives-real-lab-move-and-rotate",
+                          route_revision_before < route_revision_moved < route_revision_rotated
+                          and scene_canvas.get_attribute("data-lab-highlighted-wire") == wire_id
+                          and scene_canvas.get_attribute("data-lab-wire-count") == "1"
+                          and guided.locator("#labExplorer [data-explorer-highlight-wire]").count() == 1
+                          and scene_canvas.get_attribute("data-lab-pending-wire-terminal") == "",
+                          json.dumps({"wireId":wire_id,
+                              "revisions":[route_revision_before,route_revision_moved,
+                                           route_revision_rotated]}))
+                    guided.locator("#stageTabWiring").click()
+                    check("vnext-3d-wire-highlight-clears-on-2d-stage-and-persists-learner-graph",
+                          scene_canvas.get_attribute("data-lab-highlighted-wire") in ("", None)
+                          and guided.locator(".wire-connected").count() == 1
+                          and guided.locator("#labExplorer [data-explorer-wire]").count() >= 1)
+
+                    guided.set_viewport_size({"width":375,"height":812})
+                    guided.locator("#resistiveTopology").select_option("branch")
+                    for selector,value in [
+                        ("#resistiveV","5"),("#resistiveR1","1000"),
+                        ("#resistiveR2","2000"),("#resistiveR3","2000"),
+                    ]: guided.locator(selector).fill(value)
+                    guided.locator("#resistiveSolve").click()
+                    branch_figure = guided.locator("#resistiveDetails [data-resistive-branch-visual]")
+                    branch_name = branch_figure.locator("svg").get_attribute("aria-label")
+                    branch_rows = guided.locator("#resistiveDetails [data-resistive-branch-table] tbody tr")
+                    branch_targets = guided.evaluate("""() =>
+                        ['#resistiveTopology','#resistiveR3','#resistiveSolve'].map(s=>{
+                            const r=document.querySelector(s).getBoundingClientRect();
+                            return {width:r.width,height:r.height};
+                        })""")
+                    check("vnext-375px-three-resistor-branch-ohm-kcl-render-without-fake-measurement",
+                          guided.locator("#resistiveResult").get_attribute("data-result") == "calculated"
+                          and guided.locator("#resistiveResult").get_attribute("data-topology") == "branch"
+                          and branch_rows.count() == 3
+                          and branch_figure.locator("svg").get_attribute("role") == "img"
+                          and all(token in (branch_name or "") for token in ("R1","R2","R3","MID","GND"))
+                          and "2,5" in (branch_name or "")
+                          and "KCL" in guided.locator("#resistiveDetails").inner_text()
+                          and "không phải firmware" in guided.locator("#resistiveDetails").inner_text()
+                          and all(item["width"] >= 44 and item["height"] >= 44 for item in branch_targets)
+                          and guided.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                          and guided.locator(".wire-connected").count() == 1,
+                          json.dumps({"name":branch_name,"targets":branch_targets},ensure_ascii=False))
+                    guided.locator("#resistiveR3").fill("0")
+                    guided.locator("#resistiveSolve").click()
+                    check("vnext-branch-invalid-input-clears-stale-numeric-output",
+                          guided.locator("#resistiveResult").get_attribute("data-result") == "error"
+                          and guided.locator("#resistiveDetails").locator("*").count() == 0)
+                    guided.locator("#resistiveTopology").select_option("divider")
+                    guided.locator("#resistiveSolve").click()
+                    check("vnext-return-to-divider-preserves-legacy-two-resistor-mode",
+                          guided.locator("#resistiveResult").get_attribute("data-result") == "calculated"
+                          and guided.locator("#resistiveResult").get_attribute("data-topology") == "divider"
+                          and guided.locator("#resistiveDetails [data-resistive-divider-table] tbody tr").count() == 2)
+                    # Router-generated IDs restart at w1 when a canonical
+                    # learner graph is replaced. An old inspection of w1 on
+                    # D13-R1:B must not silently become a highlight on the
+                    # sample's different w1 edge D13-R1:A.
+                    guided.set_viewport_size({"width":1280,"height":820})
+                    guided.locator("#stageTab3d").click()
+                    if guided.locator("#labEditToggle").get_attribute("aria-pressed") != "true":
+                        guided.locator("#labEditToggle").click()
+                    guided.locator("#labClearWires").click()
+                    guided.locator("#labFromPin").select_option("D13")
+                    guided.locator("#labToPin").select_option("R1:B")
+                    guided.locator("#labConnect").click()
+                    custom_wire = guided.locator("#labExplorer [data-explorer-highlight-wire]").first
+                    custom_id = custom_wire.get_attribute("data-explorer-highlight-wire")
+                    custom_wire.click()
+                    custom_highlight = scene_canvas.get_attribute("data-lab-highlighted-wire")
+                    guided.locator("#labSampleWires").click()
+                    check("vnext-reused-wire-id-different-endpoints-clears-old-3d-highlight",
+                          custom_id == "w1" and custom_highlight == "w1"
+                          and scene_canvas.get_attribute("data-lab-highlighted-wire") in ("",None)
+                          and scene_canvas.get_attribute("data-lab-wire-count") == "3"
+                          and guided.locator("#labExplorer [data-explorer-highlight-wire]").count() == 3
+                          and guided.locator("#completeButton").is_hidden(),
+                          json.dumps({"oldId":custom_id,"oldHighlight":custom_highlight,
+                              "newHighlight":scene_canvas.get_attribute("data-lab-highlighted-wire"),
+                              "newWireCount":scene_canvas.get_attribute("data-lab-wire-count")}))
+                finally:
+                    guided_context.close()
+
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
                 if not (dist / ".arduino-3d-viet-generated").is_file():
@@ -4262,6 +4491,41 @@ def main() -> None:
                       len(fidelity_docs_offline) == 3
                       and all(row["ok"] and row["contents"] > 150 for row in fidelity_docs_offline),
                       json.dumps(fidelity_docs_offline, ensure_ascii=False))
+                guided_inspection_offline = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [groups, branch, mechanical] = await Promise.all([
+                        import(new URL('./src/breadboard-authored-groups.js',baseUrl).href),
+                        import(new URL('./src/resistive-branch-study.js',baseUrl).href),
+                        import(new URL('./src/uno-mechanical-reference.js',baseUrl).href),
+                    ]);
+                    const docs=[
+                        './docs/BREADBOARD_AUTHORED_GROUPS_NEXT.md',
+                        './docs/SCENE_WIRE_INSPECTION_NEXT.md',
+                        './docs/RESISTIVE_BRANCH_STUDY_NEXT.md',
+                        './docs/UNO_MECHANICAL_REFERENCE_NEXT.md',
+                        './docs/PRACTICE_PAIR_PREVIEW_NEXT.md',
+                    ];
+                    const fetched=await Promise.all(docs.map(async name=>{
+                        const response=await fetch(new URL(name,baseUrl));
+                        return {name,ok:response.ok,length:response.ok?(await response.text()).length:0};
+                    }));
+                    return {
+                        groups:typeof groups.groupBreadboardAuthoredPlacement==='function' &&
+                            groups.BREADBOARD_AUTHORED_GROUPS_SCHEMA_VERSION===1,
+                        branch:typeof branch.solveResistiveBranchStudy==='function' &&
+                            branch.RESISTIVE_BRANCH_LIMITS.voltageMaxVolts===5,
+                        mechanical:typeof mechanical.getUnoMechanicalOutline==='function' &&
+                            mechanical.UNO_MECHANICAL_OUTLINE.claims.sceneCoordinatesVerified===false,
+                        docs:fetched,
+                    };
+                }""")
+                check("vnext-guided-inspection-three-runtime-modules-and-five-docs-offline",
+                      guided_inspection_offline["groups"]
+                      and guided_inspection_offline["branch"]
+                      and guided_inspection_offline["mechanical"]
+                      and len(guided_inspection_offline["docs"]) == 5
+                      and all(x["ok"] and x["length"] > 150 for x in guided_inspection_offline["docs"]),
+                      json.dumps(guided_inspection_offline, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.
