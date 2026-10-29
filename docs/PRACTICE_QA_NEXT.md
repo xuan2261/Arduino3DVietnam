@@ -1,5 +1,14 @@
 # QA — Practice Evidence hậu v1.6 (ứng viên, chưa phát hành)
 
+> **Mốc lịch sử của nhánh feature/post-v16-practice-evidence tại SHA 7e1276c...**:
+> các số liệu 47/14/90/320, allowlist 87 và các assertion về nhóm dây
+> deterministic dưới đây là bằng chứng của commit đó, không phải trạng thái
+> của nhánh authored-checkpoint kế tiếp. Trên nhánh
+> feature/post-v16-authored-lab-checkpoints, việc chia nhóm dây đã được thay
+> bằng 48 checkpoint biên tập theo lesson.steps; xem
+> docs/AUTHORED_PRACTICE_CHECKPOINTS.md và
+> docs/POST_V16_LAB_QA.md. Không được gán số PASS lịch sử cho SHA mới.
+
 ## Phạm vi
 
 Nhánh `feature/post-v16-practice-evidence` bắt đầu từ commit v1.6.0 đã công bố `341449b12d50c681be3f04d6e291965bf6015d99`. Các thử nghiệm dưới đây xác minh **mã ứng viên trong Windows workspace**, không chứng minh tính năng đã được đưa lên GitHub Pages và không cho phép sửa lại tag v1.6.0.

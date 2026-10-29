@@ -12,6 +12,15 @@ import { mountBreadboardStudy } from "./breadboard-topology-ui.js";
 import { mountResistiveStudy } from "./resistive-study-ui.js";
 import { inspectPracticeEvidence } from "./practice-evidence.js";
 import { renderPracticeEvidence } from "./practice-evidence-ui.js";
+import { listUnoPinReferences, UNO_REFERENCE_CLAIMS } from "./uno-reference.js";
+import { inspectSketchDraft } from "./sketch-review.js";
+import { renderSketchReview } from "./sketch-review-ui.js";
+import {
+  createPracticeObservationJournal,
+  recordPracticeObservation,
+  inspectPracticeObservation,
+} from "./practice-observation.js";
+import { renderPracticeObservation } from "./practice-observation-ui.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -37,10 +46,48 @@ const state = {
   // Read-only terminal inspection is UI state, NOT a pending wiring gesture.
   inspectedTerminalId: null,
   breadboardUI: null, resistiveUI: null, avrEvidence: null,
-  learningSteps: new Map(), learningHints: new Set()
+  learningSteps: new Map(), learningHints: new Set(),
+  practiceObservations: createPracticeObservationJournal(),
 };
 
 function currentLesson() { return lessonById(state.lessonId); }
+function refreshSceneInspectionNote(){
+  const note=$("sceneInspectionStatus");
+  if(!note)return;
+  const id=state.stageTab==="3d" && !state.labEditorUI?.snapshot?.()?.editing
+    ? state.inspectedTerminalId
+    : null;
+  note.hidden=id===null;
+  note.textContent=id
+    ? "Đang xem " + id + " · chân trong sơ đồ khái niệm; không xác nhận lỗ cắm vật lý."
+    : "";
+}
+function currentPracticeObservation(){
+  const lesson=currentLesson();
+  const selected=state.learningSteps.get(lesson.id)??0;
+  return inspectPracticeObservation({
+    lesson,
+    stepIndex:Math.max(0,Math.min(lesson.steps.length-1,selected)),
+    journal:state.practiceObservations,
+  });
+}
+function recordPracticeAction(eventType){
+  // One category occurrence per lesson is sufficient: no timestamps, step
+  // attribution, user telemetry or implied mastery. Repeated slider input
+  // cannot exhaust the journal's bounded 128-record budget.
+  if (state.practiceObservations.entries.some(
+    entry=>entry.lessonId===state.lessonId && entry.eventType===eventType
+  )) return;
+  state.practiceObservations=recordPracticeObservation(
+    state.practiceObservations,{lessonId:state.lessonId,eventType}
+  );
+  if(state.infoTab==="practice"){
+    const existing=$("infoContent")?.querySelector("[data-practice-observation]");
+    if(existing)existing.replaceWith(
+      renderPracticeObservation(document,currentPracticeObservation())
+    );
+  }
+}
 function learnerCircuit(lessonId = state.lessonId) {
   if (!supportedWiringLessons().includes(lessonId)) return null;
   // The learner's canonical 2D/3D draft is empty until they connect a wire
@@ -115,7 +162,9 @@ function explorerSelectComponent(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
   // Inspector selection never switches stage or enables editing.
   state.inspectedTerminalId=null;
+  state.scene?.setInspectedTerminal?.(null);
   state.labEditorUI.selectComponent(id);
+  refreshSceneInspectionNote();
   refreshLabExplorer();
   return true;
 }
@@ -126,12 +175,17 @@ function explorerSelectTerminal(id) {
   if(state.labEditorUI.snapshot().editing){
     // Two-terminal wiring is possible ONLY after explicit edit opt-in.
     state.inspectedTerminalId=null;
+    state.scene?.setInspectedTerminal?.(null);
     state.labEditorUI.selectTerminal(id);
   }else{
     // Pure inspection: don't arm firstTerminal, create a wire or open editor.
     state.inspectedTerminalId=id;
     state.labEditorUI.selectComponent(terminal.component);
+    // The scene's blue-violet halo is read-only. It does not select a wiring
+    // endpoint or infer a physical breadboard hole from the conceptual anchor.
+    state.scene?.setInspectedTerminal?.(id,state.labEditorUI.snapshot().layout);
   }
+  refreshSceneInspectionNote();
   refreshLabExplorer();
   return true;
 }
@@ -142,7 +196,15 @@ function explorerConnect(from,to) {
     throw new RangeError("Cần bật chỉnh sửa mạch trước khi nối.");
   // The same 3D controller owns pending terminal gestures; using its command
   // prevents stale 'firstTerminal' after a schematic dropdown connection.
+  const previousWireCount=learnerCircuit().wires.length;
   state.labEditorUI.connectTerminals(from,to);
+  // Only a real Explorer connect action that actually appended a canonical
+  // learner edge is reported. Invalid clicks and sample-preset loading do
+  // not masquerade as a user-created wire. This observation is lesson-scoped,
+  // not proof of a physical action, mastery or the current checkpoint.
+  if(learnerCircuit().wires.length===previousWireCount+1){
+    recordPracticeAction("connect-wire");
+  }
   refreshLabExplorer();
   return true;
 }
@@ -252,6 +314,55 @@ function renderHeading(lesson) {
   document.title=`${lesson.title} — Arduino 3D Việt Nam`;
   $("sceneLabel").textContent=lesson.category.split("·").at(-1).trim();
 }
+function renderUnoPinReference() {
+  // Manufacturer pin-label reference: not an electrical source or CAD mapping.
+  const region = el("section", "uno-pin-reference");
+  region.setAttribute("data-uno-pin-reference", "");
+  region.setAttribute("role", "region");
+  region.setAttribute("aria-label", "Chú giải chức năng chân Arduino Uno R3");
+  region.append(
+    el("h4", "", "Chức năng chân Arduino Uno R3"),
+    el("p", "uno-pin-source",
+      "Theo Arduino UNO Rev3 A000066; đây không phải vị trí lỗ breadboard, phép đo hay kết quả firmware."),
+  );
+  const groups = [
+    ["digital", "D0–D13 · chân số"],
+    ["analog", "A0–A5 · chân analog"],
+    ["i2c", "Header I²C · chức năng trùng A4/A5"],
+    ["power", "Nguồn, reset và tham chiếu"],
+  ];
+  for (const [group, heading] of groups) {
+    const field = el("div", "uno-pin-group");
+    field.append(el("h5", "", heading));
+    const table = el("table", "uno-pin-table");
+    const thead = el("thead");
+    const tr = el("tr");
+    tr.append(el("th", "", "Chân"), el("th", "", "Chức năng được tài liệu ghi nhận"));
+    thead.append(tr);
+    const tbody = el("tbody");
+    for (const pin of listUnoPinReferences().filter(item => item.group === group)) {
+      const row = el("tr");
+      row.setAttribute("data-uno-pin-id", pin.id);
+      row.append(el("th", "", pin.id), el("td", "", pin.functionLabel));
+      tbody.append(row);
+    }
+    table.append(thead, tbody);
+    field.append(table);
+    region.append(field);
+  }
+  const note = el("p", "uno-pin-boundary",
+    "Nhãn chức năng theo tài liệu hãng không chứng minh bố trí chân/đầu cắm 3D " +
+    "hay liên thông lỗ breadboard. Dây trong bài chỉ do circuit-router đánh giá.");
+  note.setAttribute("data-uno-physical-boundary", "");
+  region.append(note);
+  const link = el("a", "uno-pin-link", "Tài liệu pinout Arduino Uno R3 (PDF chính thức)");
+  link.href = "https://content.arduino.cc/assets/A000066-full-pinout.pdf";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.setAttribute("data-uno-pin-provenance", UNO_REFERENCE_CLAIMS.source);
+  region.append(link);
+  return region;
+}
 function renderInfo() {
   const lesson=currentLesson();
   for(const tab of document.querySelectorAll("[data-info]")){
@@ -271,6 +382,7 @@ function renderInfo() {
     <table class="wire-table"><thead><tr><th>TỪ</th><th>ĐẾN</th><th>Ý NGHĨA</th></tr></thead><tbody>
     ${lesson.wiring.map(([a,b,c])=>`<tr><td>${safe(a)}</td><td>${safe(b)}</td><td>${safe(c)}</td></tr>`).join("")}
     </tbody></table>`;
+    host.append(renderUnoPinReference());
   }else{
     host.innerHTML=`<div class="goal-box"><small>THỰC HÀNH CÓ HƯỚNG DẪN</small><strong>${safe(lesson.goal)}</strong></div>
     <h3>Thực hiện theo thứ tự</h3><ol>${lesson.steps.map(x=>`<li>${safe(x)}</li>`).join("")}</ol>
@@ -334,7 +446,16 @@ function renderInfo() {
           state.stageTab="wiring";
           renderStage();
           refreshLabExplorer();
+          recordPracticeAction("view-wiring");
           $("stageTabWiring").focus({preventScroll:true});
+        },
+        onOpen3D(){
+          if(lesson.id!==state.lessonId)return;
+          state.stageTab="3d";
+          renderStage();
+          refreshLabExplorer();
+          recordPracticeAction("view-3d");
+          $("stageTab3d").focus({preventScroll:true});
         },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
@@ -342,6 +463,11 @@ function renderInfo() {
           $("infoContent").querySelector("[data-practice-recheck]")?.focus({preventScroll:true});
         },
       }));
+      wrapper.append(
+        renderPracticeObservation(document,inspectPracticeObservation({
+          lesson,stepIndex:current,journal:state.practiceObservations,
+        }))
+      );
       const actions=el("div","coach-actions");
       const previous=el("button","","← Bước trước");
       previous.id="coachPrevious";previous.type="button";previous.dataset.coachAction="previous";
@@ -360,6 +486,11 @@ function renderInfo() {
   $("safetyNote").textContent=lesson.caution;
 }
 function renderStage() {
+  if(state.stageTab!=="3d" && state.inspectedTerminalId!==null){
+    state.inspectedTerminalId=null;
+    state.scene?.setInspectedTerminal?.(null);
+  }
+  refreshSceneInspectionNote();
   state.wiringUI?.dispose();
   state.wiringUI=null;
   for(const tab of document.querySelectorAll("[data-stage]")){
@@ -487,6 +618,24 @@ function renderSketch(){
   $("editCode").textContent="✎ Sửa mã";
   updateCodeDraftStatus();
 }
+function updateSketchReview(){
+  const host=$("sketchReviewMount");
+  if(!host)return;
+  // This is a source-text comparison only, never a C++ compiler or firmware
+  // execution result. Keep the reference Sketch separate from edited text.
+  try {
+    const inspection=inspectSketchDraft({
+      lessonId:state.lessonId,
+      reference:currentLesson().sketch,
+      draft:state.code,
+    });
+    host.replaceChildren(renderSketchReview(document,inspection));
+  } catch {
+    host.replaceChildren(el("p","sketch-review-boundary",
+      "Không thể đối chiếu bản nháp này; ứng dụng không biên dịch hoặc xác nhận mã Arduino C++."));
+  }
+  host.hidden=false;
+}
 function updateCodeDraftStatus(){
   const changed=state.codeDrafts.has(state.lessonId);
   state.avrPanel?.setDraftChanged(changed);
@@ -495,6 +644,7 @@ function updateCodeDraftStatus(){
   $("codeEditStatus").textContent=changed
     ? "Mã đã sửa · chỉ lưu trong tab này"
     : "Mã tham khảo · không chạy trên mô phỏng";
+  updateSketchReview();
 }
 function toggleCodeEditor(){
   state.editingCode=!state.editingCode;
@@ -626,6 +776,7 @@ function setLesson(id,replaceHash=true){
   if(!lesson)return;
   stopClock();
   state.inspectedTerminalId=null;
+  refreshSceneInspectionNote();
   state.lessonId=lesson.id;state.elapsedMs=0;state.lastLogTime=0;state.controls=defaultControls(lesson);
   state.memory={};state.serial=[];state.previousSignature="";state.infoTab="overview";state.stageTab="3d";
   // Clear previous-lesson 3D wiring before workbench callbacks can update it.
@@ -645,6 +796,7 @@ function onControlsInput(event){
   const key=target.dataset.control;
   const config=currentLesson().controls.find(c=>c.key===key);
   if(!config)return;
+  const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
     state.controls[key]=value;
@@ -655,12 +807,14 @@ function onControlsInput(event){
     if(key==="buttonMode")state.memory={};
   }
   const snap=updateSnapshot(true);
+  if(state.controls[key]!==previous)recordPracticeAction("change-control");
   if(state.running&&event.type==="change")log(snap.serial);
 }
 function setButtonPress(pressed){
   if(state.lessonId!==3&&state.lessonId!==16)return;
   if(!!state.controls.pressed===pressed)return;
   state.controls.pressed=pressed;
+  if(pressed)recordPracticeAction("change-control");
   if(pressed&&state.lessonId===3&&state.running){
     state.memory=advanceToggleState(state.memory,state.controls.buttonMode,performance.now());
   }
@@ -767,11 +921,18 @@ function wireEvents(){
   window.addEventListener("hashchange",onHashChange);
   document.querySelector(".stage-tabs").addEventListener("click",event=>{
     const tab=event.target.closest("[data-stage]");
-    if(tab){state.stageTab=tab.dataset.stage;renderStage();}
+    if(tab){
+      state.stageTab=tab.dataset.stage;renderStage();
+      if(state.stageTab==="3d")recordPracticeAction("view-3d");
+      else if(state.stageTab==="wiring")recordPracticeAction("view-wiring");
+    }
   });
   document.querySelector(".info-tabs").addEventListener("click",event=>{
     const tab=event.target.closest("[data-info]");
-    if(tab){state.infoTab=tab.dataset.info;renderInfo();}
+    if(tab){
+      state.infoTab=tab.dataset.info;renderInfo();
+      if(state.infoTab==="pinout")recordPracticeAction("view-pinout");
+    }
   });
   $("infoContent").addEventListener("click",event=>{
     const control=event.target.closest("[data-coach-action]");
@@ -811,11 +972,16 @@ function wireEvents(){
     const note=event.target.closest("[data-note]");
     if(!note)return;
     state.controls.note=note.dataset.note;
+    recordPracticeAction("change-control");
     for(const b of exp.querySelectorAll("[data-note]")) b.setAttribute("aria-pressed",String(b.dataset.note===state.controls.note));
     const snap=updateSnapshot(true);
     if(state.running){log(snap.serial);playNote(snap.toneHz);}
   });
-  $("runButton").addEventListener("click",startPause);
+  $("runButton").addEventListener("click",()=>{
+    const wasRunning=state.running;
+    startPause();
+    if(!wasRunning&&state.running)recordPracticeAction("start-simulation");
+  });
   $("resetButton").addEventListener("click",resetSimulation);
   $("cameraToolbar").addEventListener("click",event=>{
     const b=event.target.closest("[data-camera]");
@@ -836,6 +1002,7 @@ function wireEvents(){
     state.code=draft;
     if(draft===currentLesson().sketch)state.codeDrafts.delete(state.lessonId);
     else state.codeDrafts.set(state.lessonId,draft);
+    recordPracticeAction("edit-sketch");
     updateCodeDraftStatus();
   });
   $("copyCode").addEventListener("click",async()=>{
@@ -906,7 +1073,13 @@ async function init(){
   syncSidebar(false,false);
   state.labEditorUI=mountLabEditor({
     getCircuit: lessonId => learnerCircuit(lessonId),
-    onEditModeChange(){state.inspectedTerminalId=null;refresh3DWiring();refreshLabExplorer();},
+    onEditModeChange(){
+      state.inspectedTerminalId=null;
+      state.scene?.setInspectedTerminal?.(null);
+      refreshSceneInspectionNote();
+      refresh3DWiring();
+      refreshLabExplorer();
+    },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange:refreshLabExplorer,
     onCircuitChange(lessonId,model,analysis){
@@ -915,6 +1088,12 @@ async function init(){
   });
   state.breadboardUI=mountBreadboardStudy({
     getLayout:()=>state.labEditorUI?.snapshot()?.layout??null,
+    getLessonTerminals:()=>({
+      lessonId:state.lessonId,
+      terminals:supportedWiringLessons().includes(state.lessonId)
+        ? listTerminals(state.lessonId)
+        : [],
+    }),
   });
   state.resistiveUI=mountResistiveStudy();
   state.labExplorerUI=mountLabExplorer($("labExplorer"),{

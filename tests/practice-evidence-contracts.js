@@ -79,36 +79,28 @@ export function runPracticeEvidenceContracts() {
       const evidence = inspectPracticeEvidence(finalInput(lesson.id));
       assert(evidence.lessonId === lesson.id, "lesson id " + lesson.id);
       assert(evidence.stepIndex === lesson.steps.length - 1, "final step " + lesson.id);
-      if (lesson.id === 1) {
-        assert(
-          evidence.scope === "manual" &&
-          evidence.status === "manual-checkpoint" &&
-          evidence.required === 0 &&
-          evidence.matched === 0,
-          "lesson01 manual checkpoint",
-        );
-      } else if (lesson.id === 10 || lesson.id === 14) {
-        assert(
-          evidence.scope === "signal-only" &&
-          evidence.status === "signal-topology-match" &&
-          evidence.matched === evidence.required,
-          "signal-only final " + lesson.id,
-        );
-      } else {
-        assert(
-          evidence.scope === "topology" &&
-          evidence.status === "topology-match" &&
-          evidence.matched === evidence.required,
-          "topology final " + lesson.id,
-        );
-      }
+      assert(
+        evidence.scope === "manual" &&
+        evidence.status === "manual-checkpoint" &&
+        evidence.required === 0 &&
+        evidence.matched === 0 &&
+        evidence.checkpoint.kind === "manual",
+        "final simulation/observation step remains manual " + lesson.id,
+      );
       assert(
         evidence.claims.physicalVerified === false &&
         evidence.claims.measured === false &&
         evidence.claims.mastery === false &&
         evidence.claims.autoCompletion === false &&
-        evidence.claims.lessonCompleted === false,
+        evidence.claims.lessonCompleted === false &&
+        evidence.claims.teacherValidated === false &&
+        evidence.claims.checkpointPrerequisiteForAdvance === false,
         "non-claim boundary " + lesson.id,
+      );
+      assert(
+        evidence.checkpoint.provenance.scheme === "human-authored-from-lesson-text" &&
+        evidence.checkpoint.provenance.teacherValidated === false,
+        "authored provenance " + lesson.id,
       );
     });
   }
@@ -126,18 +118,75 @@ export function runPracticeEvidenceContracts() {
       });
       assert(
         evidence.status === "manual-checkpoint" &&
-        evidence.nextAction === lesson.steps[stepIndex],
+        evidence.checkpoint.sourceStep === lesson.steps[stepIndex] &&
+        evidence.nextAction === evidence.guidance &&
+        evidence.checkpoint.provenance.scheme === "human-authored-from-lesson-text",
         "lesson01 step " + stepIndex,
       );
     }
   });
 
-  check("lesson02-balanced-cumulative-groups-1-2-3", () => {
+  check("all-48-authored-checkpoints-integrate-with-inspector", () => {
+    for (const lesson of lessons) {
+      for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+        const circuit = lesson.id === 1 ? null : createSampleCircuit(lesson.id);
+        const referenceCircuit = lesson.id === 1 ? null : createSampleCircuit(lesson.id);
+        const analysis = lesson.id === 1 ? null : analyzeCircuit(lesson.id, circuit);
+        const evidence = inspectPracticeEvidence({
+          lesson,
+          stepIndex,
+          circuit,
+          referenceCircuit,
+          analysis,
+          hasLearnerDraft: lesson.id !== 1,
+        });
+        assert(evidence.checkpoint.sourceStep === lesson.steps[stepIndex],
+          "source-step integration " + lesson.id + "/" + stepIndex);
+        assert(evidence.guidance === evidence.checkpoint.guidance,
+          "guidance integration " + lesson.id + "/" + stepIndex);
+        if (evidence.checkpoint.kind === "manual") {
+          assert(
+            evidence.status === "manual-checkpoint" && evidence.required === 0 && evidence.matched === 0,
+            "manual integration " + lesson.id + "/" + stepIndex,
+          );
+        } else {
+          assert(
+            evidence.required === evidence.checkpoint.requiredPairs.length &&
+            evidence.matched === evidence.required &&
+            ["topology-match", "signal-topology-match"].includes(evidence.status),
+            "wiring integration " + lesson.id + "/" + stepIndex,
+          );
+        }
+        assert(
+          evidence.claims.teacherValidated === false &&
+          evidence.claims.learnerActionProven === false &&
+          evidence.claims.mastery === false &&
+          evidence.claims.autoCompletion === false,
+          "bounded claims integration " + lesson.id + "/" + stepIndex,
+        );
+      }
+    }
+  });
+
+  check("lesson02-authored-wiring-only-on-step-1", () => {
     const lesson = lessonById(2);
     const reference = createSampleCircuit(2);
-    for (const [stepIndex, expected] of [[0, 1], [1, 2], [2, 3]]) {
-      const circuit = circuitFromReferencePrefix(2, expected);
-      const evidence = inspectPracticeEvidence({
+    const circuit = createSampleCircuit(2);
+    const wiring = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: reference,
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    assert(
+      wiring.checkpoint.kind === "wiring" && wiring.required === 3 && wiring.matched === 3 &&
+      wiring.status === "topology-match",
+      "lesson02 step1 authored LED branch",
+    );
+    for (const stepIndex of [1, 2]) {
+      const manual = inspectPracticeEvidence({
         lesson,
         stepIndex,
         circuit,
@@ -145,18 +194,63 @@ export function runPracticeEvidenceContracts() {
         analysis: analyzeCircuit(2, circuit),
         hasLearnerDraft: true,
       });
-      assert(evidence.required === expected && evidence.matched === expected,
-        "lesson02 cumulative group " + stepIndex);
+      assert(
+        manual.status === "manual-checkpoint" && manual.required === 0 && manual.matched === 0,
+        "lesson02 timing/simulation manual " + stepIndex,
+      );
     }
   });
 
-  check("lesson08-two-edges-front-loaded-across-three-steps", () => {
+  // legacy expectation retired by requested authored checkpoint behavior, check absence
+  check("lesson02-balanced-cumulative-groups-1-2-3", () => {
+    const lesson = lessonById(2);
+    const circuit = createSampleCircuit(2);
+    const referenceCircuit = createSampleCircuit(2);
+    const requiredByStep = [];
+    const statuses = [];
+    for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+      const evidence = inspectPracticeEvidence({
+        lesson,
+        stepIndex,
+        circuit,
+        referenceCircuit,
+        analysis: analyzeCircuit(2, circuit),
+        hasLearnerDraft: true,
+      });
+      requiredByStep.push(evidence.required);
+      statuses.push(evidence.status);
+      assert(evidence.checkpoint.provenance.scheme === "human-authored-from-lesson-text",
+        "lesson02 legacy check requires authored provenance step " + stepIndex);
+      assert(evidence.claims.teacherValidated === false &&
+        evidence.claims.checkpointPrerequisiteForAdvance === false &&
+        evidence.claims.autoCompletion === false &&
+        evidence.claims.lessonCompleted === false,
+      "lesson02 legacy check preserves no-teacher/no-advance/no-completion boundary step " + stepIndex);
+    }
+    assert(JSON.stringify(requiredByStep) === JSON.stringify([3, 0, 0]),
+      "lesson02 authored requirements must be [3,0,0]");
+    assert(JSON.stringify(requiredByStep) !== JSON.stringify([1, 2, 3]),
+      "lesson02 superseded balanced cumulative [1,2,3] must remain absent");
+    assert(statuses[1] === "manual-checkpoint" && statuses[2] === "manual-checkpoint",
+      "lesson02 timing/simulation steps remain manual");
+  });
+
+  check("lesson08-authored-buzzer-polarity-only-on-step-1", () => {
     const lesson = lessonById(8);
     const reference = createSampleCircuit(8);
-    const expected = [1, 2, 2];
-    for (let stepIndex = 0; stepIndex < 3; stepIndex += 1) {
-      const circuit = circuitFromReferencePrefix(8, expected[stepIndex]);
-      const evidence = inspectPracticeEvidence({
+    const circuit = createSampleCircuit(8);
+    const wiring = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: reference,
+      analysis: analyzeCircuit(8, circuit),
+      hasLearnerDraft: true,
+    });
+    assert(wiring.required === 2 && wiring.matched === 2 && wiring.checkpoint.kind === "wiring",
+      "lesson08 step1 buzzer polarity");
+    for (const stepIndex of [1, 2]) {
+      const manual = inspectPracticeEvidence({
         lesson,
         stepIndex,
         circuit,
@@ -164,16 +258,49 @@ export function runPracticeEvidenceContracts() {
         analysis: analyzeCircuit(8, circuit),
         hasLearnerDraft: true,
       });
-      assert(evidence.required === expected[stepIndex], "lesson08 required " + stepIndex);
+      assert(manual.status === "manual-checkpoint", "lesson08 control/simulation manual " + stepIndex);
     }
   });
 
-  check("lesson09-six-eleven-sixteen-cumulative-groups", () => {
+  // legacy expectation retired by requested authored checkpoint behavior, check absence
+  check("lesson08-two-edges-front-loaded-across-three-steps", () => {
+    const lesson = lessonById(8);
+    const circuit = createSampleCircuit(8);
+    const referenceCircuit = createSampleCircuit(8);
+    const requiredByStep = [];
+    const kinds = [];
+    for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+      const evidence = inspectPracticeEvidence({
+        lesson,
+        stepIndex,
+        circuit,
+        referenceCircuit,
+        analysis: analyzeCircuit(8, circuit),
+        hasLearnerDraft: true,
+      });
+      requiredByStep.push(evidence.required);
+      kinds.push(evidence.checkpoint.kind);
+      assert(evidence.checkpoint.provenance.scheme === "human-authored-from-lesson-text" &&
+        evidence.claims.teacherValidated === false,
+      "lesson08 legacy check requires authored no-teacher provenance step " + stepIndex);
+      assert(evidence.claims.checkpointPrerequisiteForAdvance === false &&
+        evidence.claims.autoCompletion === false &&
+        evidence.claims.lessonCompleted === false,
+      "lesson08 legacy check preserves no-advance/no-completion boundary step " + stepIndex);
+    }
+    assert(JSON.stringify(requiredByStep) === JSON.stringify([2, 0, 0]),
+      "lesson08 authored requirements must be [2,0,0]");
+    assert(JSON.stringify(requiredByStep) !== JSON.stringify([1, 2, 2]),
+      "lesson08 superseded front-loaded [1,2,2] must remain absent");
+    assert(JSON.stringify(kinds) === JSON.stringify(["wiring", "manual", "manual"]),
+      "lesson08 authored/manual kinds must remain explicit");
+  });
+
+  check("lesson09-frequency-steps-have-no-invented-wiring-checkpoint", () => {
     const lesson = lessonById(9);
     const reference = createSampleCircuit(9);
-    const expected = [6, 11, 16];
     for (let stepIndex = 0; stepIndex < 3; stepIndex += 1) {
-      const circuit = circuitFromReferencePrefix(9, expected[stepIndex]);
+      const circuit = createSampleCircuit(9);
       const evidence = inspectPracticeEvidence({
         lesson,
         stepIndex,
@@ -183,11 +310,43 @@ export function runPracticeEvidenceContracts() {
         hasLearnerDraft: true,
       });
       assert(
-        evidence.required === expected[stepIndex] &&
-        evidence.matched === expected[stepIndex],
-        "lesson09 group " + stepIndex,
+        evidence.status === "manual-checkpoint" &&
+        evidence.required === 0 &&
+        evidence.matched === 0,
+        "lesson09 manual frequency step " + stepIndex,
       );
     }
+  });
+
+  // legacy expectation retired by requested authored checkpoint behavior, check absence
+  check("lesson09-six-eleven-sixteen-cumulative-groups", () => {
+    const lesson = lessonById(9);
+    const circuit = createSampleCircuit(9);
+    const referenceCircuit = createSampleCircuit(9);
+    const requiredByStep = [];
+    for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+      const evidence = inspectPracticeEvidence({
+        lesson,
+        stepIndex,
+        circuit,
+        referenceCircuit,
+        analysis: analyzeCircuit(9, circuit),
+        hasLearnerDraft: true,
+      });
+      requiredByStep.push(evidence.required);
+      assert(evidence.status === "manual-checkpoint" && evidence.checkpoint.kind === "manual",
+        "lesson09 legacy check requires manual authored semantics step " + stepIndex);
+      assert(evidence.checkpoint.provenance.scheme === "human-authored-from-lesson-text" &&
+        evidence.claims.teacherValidated === false &&
+        evidence.claims.checkpointPrerequisiteForAdvance === false &&
+        evidence.claims.autoCompletion === false &&
+        evidence.claims.lessonCompleted === false,
+      "lesson09 legacy check preserves provenance and no implicit completion step " + stepIndex);
+    }
+    assert(JSON.stringify(requiredByStep) === JSON.stringify([0, 0, 0]),
+      "lesson09 authored requirements must remain all manual");
+    assert(JSON.stringify(requiredByStep) !== JSON.stringify([6, 11, 16]),
+      "lesson09 superseded cumulative [6,11,16] must remain absent");
   });
 
   check("future-valid-reference-edge-is-not-extra", () => {
@@ -226,29 +385,30 @@ export function runPracticeEvidenceContracts() {
     });
     assert(
       evidence.matched === 1 &&
-      evidence.required === 1 &&
+      evidence.required === 3 &&
+      evidence.missingPairs.length === 2 &&
       evidence.extraPairs.length === 0,
       "unordered edge comparison",
     );
   });
 
   check("partial-draft-reports-missing-pairs", () => {
-    const lesson = lessonById(5);
-    const circuit = circuitFromReferencePrefix(5, 2);
+    const lesson = lessonById(16);
+    const circuit = circuitFromReferencePrefix(16, 2);
     const evidence = inspectPracticeEvidence({
       lesson,
-      stepIndex: 2,
+      stepIndex: 0,
       circuit,
-      referenceCircuit: createSampleCircuit(5),
-      analysis: analyzeCircuit(5, circuit),
+      referenceCircuit: createSampleCircuit(16),
+      analysis: analyzeCircuit(16, circuit),
       hasLearnerDraft: true,
     });
     assert(
       evidence.status === "incomplete" &&
       evidence.matched === 2 &&
-      evidence.required === 7 &&
-      evidence.missingPairs.length === 5,
-      "partial final draft",
+      evidence.required === 14 &&
+      evidence.missingPairs.length === 12,
+      "partial authored full-pin-table checkpoint",
     );
   });
 
@@ -273,14 +433,24 @@ export function runPracticeEvidenceContracts() {
   });
 
   check("sample-copied-match-is-not-action-or-mastery-proof", () => {
-    const evidence = inspectPracticeEvidence(finalInput(16));
+    const lesson = lessonById(16);
+    const circuit = createSampleCircuit(16);
+    const evidence = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(16),
+      analysis: analyzeCircuit(16, circuit),
+      hasLearnerDraft: true,
+    });
     assert(
       evidence.status === "topology-match" &&
       evidence.claims.sampleCopiedDoesNotProveAction === true &&
       evidence.claims.learnerActionProven === false &&
       evidence.claims.mastery === false &&
       evidence.claims.lessonCompleted === false &&
-      /không phải.*mastery|không.*mastery/i.test(evidence.summary),
+      evidence.claims.teacherValidated === false &&
+      /không chứng minh.*mastery|không phải.*mastery/i.test(evidence.summary),
       "sample copy remains bounded claim",
     );
   });
@@ -290,7 +460,7 @@ export function runPracticeEvidenceContracts() {
     const circuit = createCircuit(6);
     const evidence = inspectPracticeEvidence({
       lesson,
-      stepIndex: 2,
+      stepIndex: 0,
       circuit,
       referenceCircuit: createSampleCircuit(6),
       analysis: analyzeCircuit(6, circuit),
@@ -303,7 +473,7 @@ export function runPracticeEvidenceContracts() {
       /ứng dụng chưa ghi nhận bản tự đấu/i.test(evidence.summary) &&
       !/chưa có dây do người học tạo|chưa có thao tác đấu dây của người học/i.test(evidence.summary) &&
       evidence.claims.learnerActionProven === false &&
-      /mạch mẫu.*không được tính/i.test(evidence.summary),
+      /reference sample/i.test(evidence.summary),
       "reference alone cannot count; absent in-app draft cannot disprove learner action elsewhere",
     );
   });
@@ -324,34 +494,61 @@ export function runPracticeEvidenceContracts() {
   });
 
   check("signal-only-lessons-never-claim-functional-hardware", () => {
-    for (const id of [10, 14]) {
-      const circuit = createSampleCircuit(id);
-      const analysis = analyzeCircuit(id, circuit);
-      const evidence = inspectPracticeEvidence(finalInput(id));
-      assert(
-        analysis.functional === false &&
-        evidence.status === "signal-topology-match" &&
-        evidence.claims.functionalHardware === false &&
-        evidence.claims.signalOnly === true &&
-        evidence.claims.physicalVerified === false,
-        "signal boundary " + id,
-      );
-    }
+    const lesson10 = lessonById(10);
+    const circuit10 = createSampleCircuit(10);
+    const analysis10 = analyzeCircuit(10, circuit10);
+    const evidence10 = inspectPracticeEvidence({
+      lesson: lesson10,
+      stepIndex: 0,
+      circuit: circuit10,
+      referenceCircuit: createSampleCircuit(10),
+      analysis: analysis10,
+      hasLearnerDraft: true,
+    });
+    assert(
+      analysis10.functional === false &&
+      evidence10.status === "manual-checkpoint" &&
+      evidence10.claims.functionalHardware === false &&
+      evidence10.claims.signalOnly === true &&
+      evidence10.claims.physicalVerified === false,
+      "lesson10 manual signal boundary",
+    );
+
+    const lesson14 = lessonById(14);
+    const circuit14 = createSampleCircuit(14);
+    const analysis14 = analyzeCircuit(14, circuit14);
+    const evidence14 = inspectPracticeEvidence({
+      lesson: lesson14,
+      stepIndex: 0,
+      circuit: circuit14,
+      referenceCircuit: createSampleCircuit(14),
+      analysis: analysis14,
+      hasLearnerDraft: true,
+    });
+    assert(
+      analysis14.functional === false &&
+      evidence14.status === "signal-topology-match" &&
+      evidence14.claims.functionalHardware === false &&
+      evidence14.claims.signalOnly === true &&
+      evidence14.claims.physicalVerified === false,
+      "lesson14 authored signal boundary",
+    );
   });
 
   check("step-match-does-not-auto-complete-lesson", () => {
-    const lesson = lessonById(11);
-    const circuit = circuitFromReferencePrefix(11, 2);
+    const lesson = lessonById(3);
+    const circuit = circuitFromReferencePrefix(3, 4);
     const evidence = inspectPracticeEvidence({
       lesson,
       stepIndex: 0,
       circuit,
-      referenceCircuit: createSampleCircuit(11),
-      analysis: analyzeCircuit(11, circuit),
+      referenceCircuit: createSampleCircuit(3),
+      analysis: analyzeCircuit(3, circuit),
       hasLearnerDraft: true,
     });
     assert(
       evidence.status === "step-sample-match" &&
+      evidence.matched === 4 && evidence.required === 4 &&
       evidence.claims.autoCompletion === false &&
       evidence.claims.lessonCompleted === false,
       "step match no completion",
@@ -527,6 +724,17 @@ export function runPracticeEvidenceContracts() {
     );
   });
 
+  check("tampered-authored-lesson-text-fails-closed-through-inspector", () => {
+    const input = finalInput(16);
+    const lesson = { ...input.lesson, steps: [...input.lesson.steps] };
+    lesson.steps[0] += " [tampered]";
+    expectThrow(
+      () => inspectPracticeEvidence({ ...input, lesson, stepIndex: 0 }),
+      /không khớp nội dung.*biên tập checkpoint/i,
+      "tampered authored lesson text",
+    );
+  });
+
   check("hasLearnerDraft-must-be-boolean", () => {
     expectThrow(
       () => inspectPracticeEvidence({ ...finalInput(2), hasLearnerDraft: "yes" }),
@@ -566,7 +774,10 @@ export function runPracticeEvidenceContracts() {
       Object.isFrozen(evidence.missingPairs) &&
       Object.isFrozen(evidence.extraPairs) &&
       Object.isFrozen(evidence.issues) &&
-      Object.isFrozen(evidence.claims),
+      Object.isFrozen(evidence.claims) &&
+      Object.isFrozen(evidence.checkpoint) &&
+      Object.isFrozen(evidence.checkpoint.requiredPairs) &&
+      Object.isFrozen(evidence.checkpoint.provenance),
       "deep freeze top-level",
     );
     assert(evidence.issues.every(Object.isFrozen), "issue objects frozen");

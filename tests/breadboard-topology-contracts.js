@@ -2,6 +2,8 @@ import {
   createBreadboardTopology,
   breadboardNode,
   areBreadboardHolesConnected,
+  diagnoseBreadboardHole,
+  diagnoseBreadboardHolePair,
   mapCircuitTerminalToHole,
 } from "../src/breadboard-topology.js";
 
@@ -75,6 +77,24 @@ export function runBreadboardTopologyContracts() {
   check("generic-center-gap-claim", () => {
     assert(generic.claims.centerGapIsolatesSides === true, "center gap isolation claim");
   });
+  check("generic-provenance-bounded", () => {
+    const urls = generic.provenance.sources.map(source => source.url);
+    assert(
+      generic.provenance.scope === "generic-terminal-field-only" &&
+      urls.some(url => /digilent\.com/i.test(url)) &&
+      urls.some(url => /sparkfun\.com/i.test(url)),
+      "generic terminal-field provenance",
+    );
+  });
+  check("generic-mechanical-geometry-unclaimed", () => {
+    assert(
+      generic.geometry.overallDimensionsMm === null &&
+      generic.geometry.holePitchMm === null &&
+      generic.claims.overallDimensionsVerified === false &&
+      generic.claims.holePitchVerified === false,
+      "generic geometry remains unverified",
+    );
+  });
   check("generic-rails-unknown", () => {
     assert(generic.claims.powerRails === "unknown-unmodeled", "default rails unknown");
   });
@@ -130,6 +150,26 @@ export function runBreadboardTopologyContracts() {
   check("bb830-profile-id", () => {
     assert(bb830.profileId === "busboard-bb830-rev7", "BB830 profile ID");
   });
+  check("bb830-manufacturer-dimensions-and-pitch", () => {
+    assert(
+      bb830.geometry.overallDimensionsMm.length === 165.1 &&
+      bb830.geometry.overallDimensionsMm.width === 54.6 &&
+      bb830.geometry.overallDimensionsMm.height === 8.5 &&
+      bb830.claims.overallDimensionsVerified === true &&
+      bb830.geometry.holePitchMm === 2.54 &&
+      bb830.claims.holePitchVerified === true,
+      "BB830 manufacturer-backed overall dimensions and matching-pattern hole pitch",
+    );
+  });
+  check("bb830-manufacturer-provenance", () => {
+    const urls = bb830.provenance.sources.map(source => source.url);
+    assert(
+      urls.includes("https://www.busboard.com/BB830") &&
+      urls.some(url => /BPS-DAT-%28BB830%29-Datasheet\.pdf/i.test(url)) &&
+      urls.includes("https://www.busboard.com/SB830"),
+      "BB830 manufacturer sources",
+    );
+  });
   check("bb830-four-independent-rails", () => {
     const rails = bb830.sections.find(section => section.id === "power-rails");
     assert(
@@ -172,6 +212,51 @@ export function runBreadboardTopologyContracts() {
       "terminal strip behavior preserved",
     );
   });
+  check("diagnostic-known-hole", () => {
+    const result = diagnoseBreadboardHole("A7");
+    assert(
+      result.status === "known" &&
+      result.nodeId === "strip:7:left" &&
+      result.nodeKind === "terminal-strip",
+      "known terminal hole diagnostic",
+    );
+  });
+  check("diagnostic-generic-rail-unknown", () => {
+    const result = diagnoseBreadboardHole("P1+1");
+    assert(
+      result.status === "unknown" &&
+      result.nodeId === null &&
+      result.reason === "profile-power-rail-unmodeled",
+      "generic rail remains explicitly unknown",
+    );
+  });
+  check("pair-diagnostic-connected", () => {
+    const result = diagnoseBreadboardHolePair("A12", "E12");
+    assert(
+      result.status === "connected" &&
+      result.connected === true &&
+      result.externalConnectionInspected === false &&
+      result.circuitRouterInspected === false,
+      "pair diagnostic scopes internal profile contact only",
+    );
+  });
+  check("pair-diagnostic-separate", () => {
+    const result = diagnoseBreadboardHolePair("E12", "F12");
+    assert(
+      result.status === "separate" &&
+      result.connected === false &&
+      result.externalConnectionInspected === false,
+      "different profile nodes are known separate internally",
+    );
+  });
+  check("pair-diagnostic-unknown-rail-not-false-disconnect", () => {
+    const result = diagnoseBreadboardHolePair("P1+1", "P1+2");
+    assert(
+      result.status === "unknown" &&
+      result.connected === null,
+      "generic unmodeled rail is unknown rather than disconnected",
+    );
+  });
   check("forged-profile-object-rejected", () => {
     expectThrow(
       () => createBreadboardTopology({ profileId: "busboard-bb830-rev7" }),
@@ -194,6 +279,13 @@ export function runBreadboardTopologyContracts() {
       () => createBreadboardTopology("mystery-board"),
       /profile/i,
       "unknown profile rejected",
+    );
+  });
+  check("prototype-name-profile-rejected", () => {
+    expectThrow(
+      () => createBreadboardTopology("__proto__"),
+      /profile/i,
+      "prototype-chain name cannot bypass profile allowlist",
     );
   });
   check("malformed-hole-rejected", () => {

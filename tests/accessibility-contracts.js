@@ -409,22 +409,29 @@ export async function runAccessibilityContracts() {
     "Learning coach cần accessible name/buttons và disclosure rằng tiến độ/hướng dẫn không đo hay xác nhận phần cứng.", "P1");
 
   // Post-v1.6 step-specific evidence belongs to the same practice panel.
-  // It compares canonical learner edges against sample groups and must not
-  // use unlabeled buttons, colors alone or a mastery/physical-success claim.
+  // It compares canonical learner edges against human-authored checkpoints and
+  // must keep provenance explicit without a mastery/physical-success claim.
   const practiceEvidence = coach?.querySelector("[data-practice-evidence]");
   const practiceStatus = practiceEvidence?.querySelector("[data-practice-status-label]");
   const practiceButtons = [
     practiceEvidence?.querySelector("[data-practice-open-wiring]"),
+    practiceEvidence?.querySelector("[data-practice-open-3d]"),
     practiceEvidence?.querySelector("[data-practice-recheck]"),
   ];
+  const practiceProvenance = practiceEvidence?.querySelector("[data-practice-provenance-note]");
   const practiceBoundary = practiceEvidence?.querySelector(".practice-evidence-boundary")?.textContent || "";
   record("post-v16-practice-evidence-named-accessible-physical-boundary",
     Boolean(practiceEvidence && accessibleName(practiceEvidence)) &&
     practiceEvidence.tagName === "SECTION" &&
     practiceEvidence.getAttribute("data-practice-lesson") === "2" &&
     practiceEvidence.getAttribute("data-practice-status") === "not-attempted" &&
+    practiceEvidence.getAttribute("data-practice-checkpoint-kind") === "wiring" &&
+    practiceEvidence.getAttribute("data-practice-checkpoint-id") === "lesson-02-step-01" &&
+    practiceEvidence.getAttribute("data-practice-provenance") === "human-authored-from-lesson-text" &&
     practiceStatus?.getAttribute("role") === "status" &&
     practiceStatus?.getAttribute("aria-live") === "polite" &&
+    practiceProvenance?.getAttribute("role") === "note" &&
+    /không phải xác nhận của giáo viên|không chứng minh người học/i.test(practiceProvenance?.textContent || "") &&
     practiceButtons.every(button =>
       button && button.tagName === "BUTTON" && Boolean(accessibleName(button)) &&
       button.getBoundingClientRect().height >= 44) &&
@@ -432,6 +439,9 @@ export async function runAccessibilityContracts() {
     /không tự xác nhận mức độ hiểu|không.*hoàn thành bài/i.test(practiceBoundary),
     JSON.stringify({
       status: practiceEvidence?.getAttribute("data-practice-status"),
+      checkpointKind: practiceEvidence?.getAttribute("data-practice-checkpoint-kind"),
+      checkpointId: practiceEvidence?.getAttribute("data-practice-checkpoint-id"),
+      provenance: practiceEvidence?.getAttribute("data-practice-provenance"),
       name: accessibleName(practiceEvidence),
       statusRole: practiceStatus?.getAttribute("role"),
       buttons: practiceButtons.map(button => ({
@@ -441,6 +451,65 @@ export async function runAccessibilityContracts() {
       boundary: practiceBoundary,
     }),
     "Bằng chứng thực hành từng bước cần region/status có tên, nút native >=44px và tuyên bố rõ không đo/không tự xác nhận hoàn thành.", "P1");
+
+  const practiceObservation = coach?.querySelector("[data-practice-observation]");
+  const observationBoundary = practiceObservation?.querySelector("[data-observation-boundary]")?.textContent || "";
+  const observationAttribution = practiceObservation?.querySelector(
+    "[data-observation-attribution-note]",
+  )?.textContent || "";
+  record("post-v16-practice-observation-accessible-no-attribution-or-mastery",
+    Boolean(practiceObservation && accessibleName(practiceObservation)) &&
+    practiceObservation.tagName === "SECTION" &&
+    practiceObservation.getAttribute("role") === "status" &&
+    practiceObservation.getAttribute("aria-live") === "polite" &&
+    practiceObservation.getAttribute("aria-atomic") === "false" &&
+    practiceObservation.getAttribute("data-observation-lesson") === "2" &&
+    practiceObservation.getAttribute("data-observation-step") === "0" &&
+    practiceObservation.getAttribute("data-observation-checkpoint") === "lesson-02-step-01" &&
+    Boolean(practiceObservation.querySelector("[data-observation-expected]")) &&
+    Boolean(practiceObservation.querySelector("[data-observation-recorded]")) &&
+    Boolean(practiceObservation.querySelector("[data-observation-overlap]")) &&
+    /không lưu stepIndex hay timestamp/i.test(observationAttribution) &&
+    /không chứng minh event.*bước hiện tại/i.test(observationAttribution) &&
+    /không đo mastery/i.test(observationBoundary) &&
+    /không tự hoàn thành bài/i.test(observationBoundary) &&
+    /không phải điều kiện để chuyển bước/i.test(observationBoundary),
+    JSON.stringify({
+      name: accessibleName(practiceObservation),
+      role: practiceObservation?.getAttribute("role") || "",
+      live: practiceObservation?.getAttribute("aria-live") || "",
+      lesson: practiceObservation?.getAttribute("data-observation-lesson") || "",
+      step: practiceObservation?.getAttribute("data-observation-step") || "",
+      checkpoint: practiceObservation?.getAttribute("data-observation-checkpoint") || "",
+      attribution: observationAttribution,
+      boundary: observationBoundary,
+    }),
+    "Practice observation phải là live status có tên, giữ phạm vi lesson-event và nói rõ không step attribution/mastery/completion.", "P1");
+
+  const sketchReview = document.querySelector("#sketchReviewMount [data-sketch-review]");
+  const sketchReviewStatus = sketchReview?.querySelector("[data-sketch-review-status-label]");
+  const sketchReviewBoundary = sketchReview?.querySelector("[data-sketch-review-boundary]");
+  record("post-v16-sketch-review-accessible-source-only-boundary",
+    Boolean(sketchReview && accessibleName(sketchReview)) &&
+    sketchReview.tagName === "SECTION" &&
+    sketchReview.getAttribute("data-sketch-review-lesson") === "2" &&
+    sketchReview.getAttribute("data-sketch-review-status") === "reference" &&
+    sketchReviewStatus?.getAttribute("role") === "status" &&
+    sketchReviewStatus?.getAttribute("aria-live") === "polite" &&
+    sketchReviewStatus?.getAttribute("aria-atomic") === "true" &&
+    sketchReviewBoundary?.getAttribute("role") === "note" &&
+    /không biên dịch Arduino C\+\+|không chạy firmware/i.test(sketchReviewBoundary?.textContent || "") &&
+    /không đánh giá mức độ hoàn thành|không.*hiểu bài/i.test(sketchReviewBoundary?.textContent || "") &&
+    sketchReview.querySelectorAll("button,input,textarea,select").length === 0,
+    JSON.stringify({
+      name: accessibleName(sketchReview),
+      lesson: sketchReview?.getAttribute("data-sketch-review-lesson"),
+      status: sketchReview?.getAttribute("data-sketch-review-status"),
+      statusRole: sketchReviewStatus?.getAttribute("role"),
+      statusLive: sketchReviewStatus?.getAttribute("aria-live"),
+      boundary: sketchReviewBoundary?.textContent?.trim() || "",
+    }),
+    "Sketch review cần named region/status polite và disclosure rõ đây chỉ là so sánh source, không phải compile/firmware/completion.", "P1");
 
   // v1.6 Lab Explorer exposes the same canonical lesson state through three
   // equivalent surfaces. SVG surfaces need explicit names/roles AND HTML
@@ -582,6 +651,32 @@ export async function runAccessibilityContracts() {
     }),
     "Breadboard Study phải có tên/label/status, diagram có text alternative và disclosure chưa map lỗ vật lý/netlist.", "P1");
 
+  const authoredBreadboard = document.querySelector("#bbAuthoredStudy");
+  const authoredBreadboardControls = ["#bbTerminal", "#bbPlaceHole", "#bbAssignHole", "#bbRemoveHole"]
+    .map(selector => document.querySelector(selector));
+  const authoredBreadboardStatus = document.querySelector("#bbPlacementStatus");
+  const authoredBreadboardList = document.querySelector("#bbPlacedList");
+  const authoredBreadboardBoundary = document.querySelector("#bbAuthoredBoundary")?.textContent || "";
+  record("post-v16-breadboard-authored-hole-controls-accessible-explicit-boundary",
+    Boolean(authoredBreadboard && accessibleName(authoredBreadboard)) &&
+    authoredBreadboardControls.every(control => control && accessibleName(control)) &&
+    authoredBreadboardStatus?.getAttribute("role") === "status" &&
+    authoredBreadboardStatus?.getAttribute("aria-live") === "polite" &&
+    Boolean(accessibleName(authoredBreadboardList)) &&
+    /do người dùng khai báo trong phiên/i.test(authoredBreadboardBoundary) &&
+    /không phải.*đo|không phải kết quả đo/i.test(authoredBreadboardBoundary) &&
+    /không.*kết nối điện|không.*tự sinh/i.test(authoredBreadboardBoundary) &&
+    /không.*3D.*xác minh|3D.*chưa.*xác minh/i.test(authoredBreadboardBoundary),
+    JSON.stringify({
+      fieldsetName: accessibleName(authoredBreadboard),
+      controlNames: authoredBreadboardControls.map(accessibleName),
+      statusRole: authoredBreadboardStatus?.getAttribute("role") || "",
+      statusLive: authoredBreadboardStatus?.getAttribute("aria-live") || "",
+      listName: accessibleName(authoredBreadboardList),
+      boundary: authoredBreadboardBoundary,
+    }),
+    "UI gán lỗ phải có legend/label/live status và nói rõ đây là khai báo trong phiên, không phải đo/kết nối điện/vị trí 3D đã xác minh.", "P1");
+
   const resistiveStudy = document.querySelector("#resistiveStudy");
   const resistiveControls = ["#resistiveV", "#resistiveR1", "#resistiveR2", "#resistiveSolve"]
     .map(selector => document.querySelector(selector));
@@ -606,6 +701,28 @@ export async function runAccessibilityContracts() {
       boundary: resistiveBoundary,
     }),
     "Resistive Study cần label/status đọc được và disclosure rõ đây là mô hình toán học độc lập, không phải lesson/3D/firmware/phần cứng.", "P1");
+
+  document.querySelector("#resistiveSolve")?.click();
+  await nextTask();
+  const resistiveVisual = document.querySelector("[data-resistive-divider-visual]");
+  const resistiveSvg = resistiveVisual?.querySelector("svg");
+  const resistiveAssumptions = document.querySelector("[data-resistive-assumptions]")?.textContent || "";
+  record("post-v16-resistive-divider-visual-accessible-source-verified",
+    Boolean(resistiveVisual && resistiveSvg) &&
+    resistiveSvg.getAttribute("role") === "img" &&
+    /VCC.*R1.*MID.*R2.*GND/i.test(accessibleName(resistiveSvg)) &&
+    /2[,.]5 V/i.test(accessibleName(resistiveSvg)) &&
+    Boolean(document.querySelector("[data-resistive-divider-table]")) &&
+    /nguồn DC lý tưởng do người học khai báo/i.test(resistiveAssumptions) &&
+    /kết quả toán học của solver/i.test(resistiveAssumptions) &&
+    /không phải phần cứng Arduino hoặc phép đo/i.test(resistiveAssumptions),
+    JSON.stringify({
+      visual: Boolean(resistiveVisual),
+      svgRole: resistiveSvg?.getAttribute("role") || "",
+      svgName: accessibleName(resistiveSvg),
+      assumptions: resistiveAssumptions,
+    }),
+    "Divider visual phải có SVG text alternative và table equivalent, đồng thời tách rõ giá trị khai báo khỏi kết quả solver/phần cứng.", "P1");
 
   const cssText = allCssText();
   record("visible-focus-indicator-css",

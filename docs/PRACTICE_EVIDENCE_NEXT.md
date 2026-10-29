@@ -1,4 +1,4 @@
-# Practice Evidence — post-v1.6 bounded learner wiring evidence
+# Practice Evidence — checkpoint theo nội dung bài (nhánh hậu v1.6)
 
 <code>src/practice-evidence.js</code> cung cấp một lớp kiểm tra **thuần, deterministic, bounded** cho phần thực hành từng bước của 16 bài học. Module chỉ so sánh **canonical learner circuit** với **explicit reference sample** từ <code>circuit-router</code>.
 
@@ -42,6 +42,8 @@ Kết quả:
   issues,
   summary,
   nextAction,
+  guidance,
+  checkpoint,
   claims
 }
 ~~~
@@ -54,7 +56,7 @@ Toàn bộ result được deep-freeze.
 
 <code>lesson.id</code> phải là số nguyên 1..16. <code>lesson.steps</code> phải là mảng bước học hữu hạn, không rỗng.
 
-Module dùng chính số lượng và nội dung <code>lesson.steps</code> do caller truyền vào, nhưng không tuyên bố rằng việc chia sample wires theo step là mapping sư phạm đã được tác giả lesson xác nhận.
+Module so chính xác <code>lesson.steps</code> với registry biên tập trong <code>src/practice-checkpoints.js</code>; sai nguồn text hoặc số bước thì fail-closed. Checkpoint được biên tập từ nội dung bài, **không phải nội dung đã được giáo viên xác nhận**.
 
 ### circuit
 
@@ -92,7 +94,7 @@ Caller phải truyền explicit reference circuit, ví dụ:
 createSampleCircuit(lesson.id)
 ~~~
 
-Module tự gọi <code>createSampleCircuit(lesson.id)</code> và yêu cầu <code>referenceCircuit</code> có chính xác cùng unordered edge set. Thứ tự hoặc orientation của edge không được dùng làm bằng chứng điện; thứ tự canonical nội bộ từ <code>createSampleCircuit()</code> chỉ được dùng để chia sample edge groups.
+Module tự gọi <code>createSampleCircuit(lesson.id)</code> và yêu cầu <code>referenceCircuit</code> có chính xác cùng unordered edge set. Thứ tự hoặc orientation của edge không được dùng làm bằng chứng điện; mỗi nhóm edge của checkpoint được biên tập từ nội dung <code>lesson.steps</code> và kiểm chứng là tập con của canonical sample; thứ tự sample không sinh yêu cầu tự động.
 
 ### analysis
 
@@ -117,29 +119,13 @@ Phải là boolean.
 - <code>false</code> + learner graph có wire: fail-closed, vì reference/sample không được giả làm learner action.
 - <code>true</code> + graph rỗng sau khi người học xóa dây: vẫn là learner draft và thường trả <code>incomplete</code>.
 
-## Deterministic sample-edge groups
+## Checkpoint biên tập từ nội dung 16 bài
 
-Các sample wires canonical được chia thành contiguous groups theo số step:
+Registry <code>src/practice-checkpoints.js</code> ghi rõ **48 checkpoint**, mỗi bài 3 bước. Ở bước thực sự nêu rõ kết nối, mỗi <code>wiring</code> checkpoint đưa ra tập edge tham chiếu được biên tập và giới hạn bằng canonical <code>sampleWires(lessonId)</code>. Các bước chỉ quan sát bo, thay giá trị slider, thử nút, chạy mô phỏng hoặc so sánh hành vi được gắn <code>manual</code> — không có yêu cầu dây ẩn. **Không tích lũy nhóm dây bằng phép chia đều tự động.**
 
-1. <code>base = floor(edgeCount / stepCount)</code>
-2. <code>remainder = edgeCount % stepCount</code>
-3. các step đầu nhận thêm một edge cho đến khi hết <code>remainder</code>
+Mỗi kết quả trả <code>checkpoint</code> deep-frozen gồm ID, nội dung bước gốc, loại <code>manual/wiring</code>, hướng dẫn và <code>provenance</code>. Nguồn là <code>lessons.steps</code>, schema <code>human-authored-from-lesson-text</code>; trường <code>teacherValidated</code>, <code>hardwareValidated</code>, <code>prerequisiteForAdvance</code> đều là false. Bước manual không được chấm topology dù bản tự đấu đã có dây.
 
-Evidence ở <code>stepIndex = N</code> dùng **cumulative groups 0..N**.
-
-Ví dụ:
-
-- 3 edges / 3 steps → required counts <code>1, 2, 3</code>
-- 2 edges / 3 steps → <code>1, 2, 2</code>
-- 16 edges / 3 steps → <code>6, 11, 16</code>
-
-Đây chỉ là <code>deterministic-balanced-contiguous-cumulative</code> và luôn có:
-
-~~~js
-claims.sampleGroupingPedagogyVerified === false
-~~~
-
-Không được diễn giải rằng step 1 thật sự tương ứng với wire 1 nếu lesson chưa có metadata author-verified riêng.
+Xem bảng mapping và từng cặp chân trong <code>docs/AUTHORED_PRACTICE_CHECKPOINTS.md</code>. Không coi nội dung biên tập này là chương trình học được chuyên gia xác nhận, thao tác thực tế của người học hoặc bằng chứng mastery.
 
 ## Edge comparison
 
@@ -152,9 +138,9 @@ R1:A ↔ D13
 
 được coi là cùng một edge.
 
-<code>matched</code> và <code>required</code> là số lượng cumulative required sample edges.
+<code>matched</code> và <code>required</code> là số lượng edge bắt buộc của checkpoint wiring đang chọn.
 
-<code>missingPairs</code> gồm cumulative required edges chưa có trong learner graph.
+<code>missingPairs</code> gồm edge thuộc checkpoint wiring chưa có trong learner graph.
 
 <code>extraPairs</code> chỉ gồm learner edges không thuộc toàn bộ reference sample. Vì vậy một learner đã nối sớm một edge thuộc sample của step sau không bị gọi là extra.
 
@@ -162,7 +148,7 @@ R1:A ↔ D13
 
 ### manual-checkpoint
 
-Chỉ bài 01. Bài này dùng LED L tích hợp và không có external interactive netlist. Result không giả tạo pass/fail từ wiring.
+Bài 01 và các bước thao tác/quan sát của bài 02–16. Bước manual không gán pass/fail từ wiring, nhưng vẫn kiểm tra input canonical của bài có netlist.
 
 ### not-attempted
 
@@ -179,11 +165,11 @@ Không thể là success.
 
 ### incomplete
 
-Learner draft có tồn tại nhưng thiếu ít nhất một cumulative required sample edge.
+Learner draft có tồn tại nhưng thiếu ít nhất một reference edge đã biên tập cho bước wiring.
 
 ### step-sample-match
 
-Các required sample edges đến step hiện tại đã có, không có extra/error, nhưng chưa ở final full-reference match.
+Các required sample edges của checkpoint wiring đang chọn đã có, không có extra/error, nhưng chưa exact full-reference match.
 
 ### signal-step-match
 
@@ -193,7 +179,7 @@ Tương tự <code>step-sample-match</code>, nhưng lesson có <code>scope: "sig
 
 Chỉ khi:
 
-- đang ở final step;
+- checkpoint hiện tại là <code>wiring</code>;
 - learner graph có exact same unordered edge set như canonical reference sample;
 - không có extra edge/error.
 
@@ -201,7 +187,7 @@ Nó chỉ có nghĩa topology match với sample, không có nghĩa người h�
 
 ### signal-topology-match
 
-Final full sample match cho bài 10 và 14.
+Full sample match trên checkpoint wiring thuộc phạm vi signal-only (bài 14); bài 10 các bước hiện tại đều được biên tập là manual nên không tự có status này.
 
 Hai bài này vẫn giữ:
 
@@ -221,7 +207,10 @@ Mọi result có:
 claims: {
   origin: "learner-circuit-vs-reference-sample",
   electricalAuthority: "circuit-router",
-  sampleEdgeGrouping: "deterministic-balanced-contiguous-cumulative",
+  sampleEdgeGrouping: "human-authored-step-checkpoint",
+  checkpointEditorialProvenance: "human-authored-from-lesson-text",
+  teacherValidated: false,
+  checkpointPrerequisiteForAdvance: false,
   sampleGroupingPedagogyVerified: false,
   sampleCopiedDoesNotProveAction: true,
   learnerActionProven: false,
@@ -254,12 +243,12 @@ inspectPracticeEvidence({
 
 Nếu caller đưa external circuit/reference/analysis hoặc <code>hasLearnerDraft:true</code> cho bài 01, module fail-closed.
 
-## Example — full lesson 02 sample
+## Example — full lesson 02 sample, wiring checkpoint step 1
 
 ~~~js
 {
   lessonId: 2,
-  stepIndex: 2,
+  stepIndex: 0,
   scope: "topology",
   status: "topology-match",
   matched: 3,
@@ -275,11 +264,11 @@ Nếu caller đưa external circuit/reference/analysis hoặc <code>hasLearnerDr
 
 ## Contract coverage
 
-<code>tests/practice-evidence-contracts.js</code> có 47 checks:
+<code>tests/practice-evidence-contracts.js</code> hiện có 49 checks, cộng 37 checkpoint contracts:
 
 - final evidence cho đủ 16 lessons;
 - lesson01 manual-only ở mọi step;
-- deterministic cumulative grouping với 2/3/16-edge samples;
+- authored per-step groups và trạng thái manual ở các bước timing/mô phỏng;
 - partial draft và missing pairs;
 - future-step sample edge không bị gọi extra;
 - unordered endpoint matching;
@@ -300,6 +289,6 @@ Module này chỉ export pure evidence inspector. UI rendering thuộc lớp ri�
 
 - canonical learner circuit là nguồn duy nhất cho learner evidence;
 - reference overlay/sample chỉ là đối chiếu;
-- action “Mở bàn đấu dây” chỉ đổi UI stage;
+- actions “Mở sơ đồ 2D” và “Mở 3D” chỉ đổi UI stage;
 - action “Kiểm tra lại” chỉ recompute evidence;
 - không mutation lesson progress chỉ vì <code>topology-match</code>.

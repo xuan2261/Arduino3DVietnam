@@ -484,6 +484,53 @@ def main() -> None:
                 check("desktop-no-overflow",
                       page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
+                # The 3D module is a progressive enhancement. Prove the real
+                # app-level error boundary keeps lessons, quiz and the canonical
+                # wiring workbench usable when the scene module cannot load.
+                # Abort only this module in an isolated context; no production
+                # code is patched and the main positive-path page stays intact.
+                fallback_context = browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    service_workers="block",
+                )
+                try:
+                    fallback_page = fallback_context.new_page()
+                    fallback_page_errors: list[str] = []
+                    fallback_page.on("pageerror", lambda exc: fallback_page_errors.append(str(exc)))
+                    fallback_page.route("**/src/scene3d.js", lambda route: route.abort("failed"))
+                    fallback_page.goto(base + "#bai-02", wait_until="domcontentloaded", timeout=15000)
+                    fallback_page.wait_for_function(
+                        "document.documentElement.dataset.ready === 'fallback'",
+                        timeout=15000,
+                    )
+                    fallback_text = fallback_page.locator("#sceneMount .scene-fallback").inner_text()
+                    check("scene-module-failure-explicit-error-boundary",
+                          fallback_page.locator("#sceneMount canvas").count() == 0
+                          and fallback_page.locator("#sceneMount .scene-fallback").count() == 1
+                          and "Không thể tải mô hình 3D" in fallback_text
+                          and "Bạn vẫn có thể sử dụng sơ đồ kết nối, bài học, điều khiển và bài kiểm tra" in fallback_text
+                          and fallback_page.locator(".lesson-link").count() == 16
+                          and fallback_page.locator("#quizChoices input").count() >= 3
+                          and not fallback_page_errors,
+                          json.dumps({
+                              "fallback": fallback_text[:500],
+                              "pageErrors": fallback_page_errors,
+                          }, ensure_ascii=False))
+                    fallback_page.locator("#stageTabWiring").click()
+                    check("scene-module-failure-keeps-wiring-workbench-usable",
+                          fallback_page.locator("#stageTabWiring").get_attribute("aria-selected") == "true"
+                          and fallback_page.locator("#viewport .wiring-view.is-interactive").count() == 1
+                          and fallback_page.locator("#sceneMount").is_hidden())
+                    fallback_page.locator('.lesson-link[data-lesson="3"]').click()
+                    check("scene-module-failure-keeps-lesson-navigation-usable",
+                          fallback_page.locator(
+                              '.lesson-link[data-lesson="3"]'
+                          ).get_attribute("aria-current") == "page"
+                          and fallback_page.locator("#quizChoices input").count() >= 3
+                          and fallback_page.locator("#codeViewer").inner_text().strip() != "")
+                finally:
+                    fallback_context.close()
+
                 contracts = page.evaluate(
                     "() => import('./tests/browser-contracts.js').then(m => m.runContracts())"
                 )
@@ -502,14 +549,30 @@ def main() -> None:
                 scene_lifecycle = page.evaluate(
                     "() => import('./tests/scene3d-contracts.js').then(m => m.runScene3DContracts())"
                 )
-                check("scene-3d-lifecycle-contracts", scene_lifecycle["failed"] == 0,
+                scene_lifecycle_names = {
+                    item.get("name") for item in scene_lifecycle.get("results", [])
+                }
+                check("scene-3d-lifecycle-contracts",
+                      scene_lifecycle["failed"] == 0
+                      and "touch-11px-jitter-still-selects" in scene_lifecycle_names
+                      and "touch-14px-drag-does-not-select" in scene_lifecycle_names
+                      and "inspection-read-only-label-mode" in scene_lifecycle_names
+                      and "inspection-read-only-label-does-not-mount-or-move-scene" in
+                          scene_lifecycle_names
+                      and "inspection-read-only-dataset" in scene_lifecycle_names,
                       f"{scene_lifecycle['passed']} passed")
                 scene_lab = run_page_contract(
                     page, "./tests/scene3d-lab-contracts.js", "runScene3DLabContracts")
+                scene_lab_names = {
+                    item.get("name") for item in scene_lab.get("results", [])
+                }
                 check("scene-3d-lab-edit-contracts",
                       scene_lab["failed"] == 0
                       and scene_lab["passed"] == scene_lab["total"]
-                      and scene_lab["total"] >= 34,
+                      and scene_lab["total"] >= 34
+                      and "touch-terminal-jitter-4px-still-taps" in scene_lab_names
+                      and "lab-wiring-keeps-conceptual-contract" in scene_lab_names
+                      and "layout-dataset-claims" in scene_lab_names,
                       f"{scene_lab['passed']}/{scene_lab['total']} passed")
                 scene_v16 = run_page_contract(
                     page, "./tests/scene3d-v16-contracts.js", "runScene3DV16Contracts")
@@ -631,14 +694,25 @@ def main() -> None:
                 check("v16-breadboard-topology-direct-contracts",
                       breadboard_contracts["passed"] == breadboard_contracts["total"]
                       and breadboard_contracts["passed"] == len(breadboard_contracts["checks"])
-                      and breadboard_contracts["total"] == 46,
+                      and breadboard_contracts["total"] == 56,
                       f"{breadboard_contracts['passed']}/{breadboard_contracts['total']} passed")
+                placement_contracts = run_page_contract(
+                    page, "./tests/breadboard-placement-contracts.js",
+                    "runBreadboardPlacementContracts")
+                check("post-v16-breadboard-placement-direct-contracts",
+                      placement_contracts["passed"] == placement_contracts["total"]
+                      and placement_contracts["passed"] == len(placement_contracts["checks"])
+                      and placement_contracts["total"] == 30,
+                      f"{placement_contracts['passed']}/{placement_contracts['total']} passed")
                 breadboard_profile = page.evaluate("""async () => {
                     const module = await import('./src/breadboard-topology.js');
                     const generic = module.createBreadboardTopology();
                     const bb830 = module.createBreadboardTopology('busboard-bb830-rev7');
                     const genericRail = module.breadboardNode('P1+1', generic);
                     const bb830Rail = module.breadboardNode('P1+1', bb830);
+                    const connected = module.diagnoseBreadboardHolePair('A12', 'E12', generic);
+                    const separate = module.diagnoseBreadboardHolePair('E12', 'F12', generic);
+                    const unknown = module.diagnoseBreadboardHolePair('P1+1', 'P1+2', generic);
                     return {
                         genericProfile: generic.profileId,
                         genericRailModel: generic.claims.powerRails,
@@ -650,6 +724,14 @@ def main() -> None:
                         bb830Profile: bb830.profileId,
                         bb830RailKnown: bb830Rail?.kind === 'power-rail',
                         bb830PlacementVerified: bb830.claims.physicalPlacementVerified,
+                        triState: {
+                            connected: [connected.status, connected.connected,
+                                connected.circuitRouterInspected],
+                            separate: [separate.status, separate.connected,
+                                separate.circuitRouterInspected],
+                            unknown: [unknown.status, unknown.connected,
+                                unknown.circuitRouterInspected],
+                        },
                     };
                 }""")
                 check("v16-breadboard-profile-unverified-default",
@@ -666,6 +748,124 @@ def main() -> None:
                       and breadboard_profile["bb830RailKnown"]
                       and not breadboard_profile["bb830PlacementVerified"],
                       json.dumps(breadboard_profile, ensure_ascii=False))
+                check("post-v16-breadboard-profile-tristate-never-false-disconnects-unknown",
+                      breadboard_profile["triState"]["connected"] == ["connected", True, False]
+                      and breadboard_profile["triState"]["separate"] == ["separate", False, False]
+                      and breadboard_profile["triState"]["unknown"] == ["unknown", None, False],
+                      json.dumps(breadboard_profile["triState"], ensure_ascii=False))
+                authored_placement = page.evaluate("""async () => {
+                    const placement = await import('./src/breadboard-placement.js');
+                    const router = await import('./src/circuit-router.js');
+                    const terminals = router.listTerminals(2);
+                    const before = JSON.stringify(router.createSampleCircuit(2).wires);
+                    const model = placement.createBreadboardPlacement({
+                        terminals,
+                        terminalToHole: {'D13':'A1', 'R1:A':'E1'},
+                    });
+                    const validation = placement.validateBreadboardPlacement(model, terminals);
+                    const pair = placement.diagnosePlacedTerminalPair(model, 'D13', 'R1:A', terminals);
+                    const after = JSON.stringify(router.createSampleCircuit(2).wires);
+                    const forged = JSON.parse(JSON.stringify(model));
+                    forged.claims.sceneCoordinateMapped = true;
+                    let duplicateRejected = false;
+                    let unverifiedRailRejected = false;
+                    let unknownTerminalRejected = false;
+                    try {
+                        placement.createBreadboardPlacement({
+                            terminals,
+                            terminalToHole: {'D13':'A1', 'R1:A':'A1'},
+                        });
+                    } catch { duplicateRejected = true; }
+                    try {
+                        placement.createBreadboardPlacement({
+                            terminals,
+                            terminalToHole: {'D13':'P1+1'},
+                        });
+                    } catch { unverifiedRailRejected = true; }
+                    try {
+                        placement.createBreadboardPlacement({
+                            terminals,
+                            terminalToHole: {'NOT_A_TERMINAL':'A1'},
+                        });
+                    } catch { unknownTerminalRejected = true; }
+                    const d13 = placement.describeArduinoUnoR3Pin('D13');
+                    return {
+                        model: model.model,
+                        validator: model.validatedBy,
+                        profile: model.profileId,
+                        validationOk: validation.ok,
+                        mapped: validation.stats.mapped,
+                        d13Hole: placement.mapBreadboardPlacementTerminalToHole(model, 'D13', terminals),
+                        pairStatus: pair.status,
+                        pairConnected: pair.breadboardInternalConnected,
+                        routerInferred: pair.circuitRouterConnectionInferred,
+                        claims: model.claims,
+                        routerUnchanged: before === after,
+                        forgedRejected: !placement.validateBreadboardPlacement(forged, terminals).ok,
+                        duplicateRejected,
+                        unverifiedRailRejected,
+                        unknownTerminalRejected,
+                        d13Official: d13?.provenance?.sourceType === 'official-manufacturer-pinout',
+                    };
+                }""")
+                check("post-v16-authored-breadboard-placement-proof-gates",
+                      authored_placement["model"] == "explicit-authored-breadboard-placement-v2"
+                      and authored_placement["validator"] == "breadboard-placement-v2"
+                      and authored_placement["profile"] == "generic-63x10-terminal-strips"
+                      and authored_placement["validationOk"]
+                      and authored_placement["mapped"] == 2
+                      and authored_placement["d13Hole"] == "A1"
+                      and authored_placement["pairStatus"] == "same-profile-node"
+                      and authored_placement["pairConnected"] is True
+                      and authored_placement["routerInferred"] is False
+                      and authored_placement["claims"]["explicitAuthoredHoleAssociation"] is True
+                      and authored_placement["claims"]["sceneCoordinateMapped"] is False
+                      and authored_placement["claims"]["circuitRouterMutated"] is False
+                      and authored_placement["claims"]["mechanicalFitVerified"] is False
+                      and authored_placement["claims"]["physicalCircuitSafetyVerified"] is False
+                      and authored_placement["routerUnchanged"]
+                      and authored_placement["forgedRejected"]
+                      and authored_placement["duplicateRejected"]
+                      and authored_placement["unverifiedRailRejected"]
+                      and authored_placement["unknownTerminalRejected"]
+                      and authored_placement["d13Official"],
+                      json.dumps(authored_placement, ensure_ascii=False))
+                uno_reference_contracts = run_page_contract(
+                    page, "./tests/uno-reference-contracts.js",
+                    "runUnoReferenceContracts")
+                check("post-v16-uno-reference-direct-contracts",
+                      uno_reference_contracts["passed"] == uno_reference_contracts["total"]
+                      and uno_reference_contracts["passed"] ==
+                          len(uno_reference_contracts["checks"])
+                      and uno_reference_contracts["total"] == 15,
+                      f"{uno_reference_contracts['passed']}/{uno_reference_contracts['total']} passed")
+                uno_header_aliases = page.evaluate("""() => import('./src/uno-reference.js').then(m => {
+                    const pick = id => {
+                        const pin = m.getUnoPinReference(id);
+                        return pin ? {id:pin.id,group:pin.group,label:pin.functionLabel,physical:pin.physicalHoleVerified} : null;
+                    };
+                    return {
+                        aref: pick('AREF'),
+                        sda: pick('SDA'),
+                        scl: pick('SCL'),
+                        independentI2cPins: m.UNO_REFERENCE_CLAIMS.i2cHeaderCreatesIndependentMicrocontrollerPins,
+                    };
+                })""")
+                check("post-v16-uno-official-aref-sda-scl-header-aliases",
+                      uno_header_aliases["aref"]["id"] == "AREF"
+                      and uno_header_aliases["aref"]["group"] == "power"
+                      and "không phải ngõ cấp nguồn" in uno_header_aliases["aref"]["label"]
+                      and uno_header_aliases["sda"]["id"] == "SDA"
+                      and uno_header_aliases["sda"]["group"] == "i2c"
+                      and "A4" in uno_header_aliases["sda"]["label"]
+                      and uno_header_aliases["scl"]["id"] == "SCL"
+                      and uno_header_aliases["scl"]["group"] == "i2c"
+                      and "A5" in uno_header_aliases["scl"]["label"]
+                      and uno_header_aliases["aref"]["physical"] is False
+                      and uno_header_aliases["sda"]["physical"] is False
+                      and uno_header_aliases["scl"]["physical"] is False
+                      and uno_header_aliases["independentI2cPins"] is False,
+                      json.dumps(uno_header_aliases, ensure_ascii=False))
                 learning_contracts = run_page_contract(
                     page, "./tests/learning-coach-contracts.js", "runLearningCoachContracts")
                 check("learning-coach-16-lesson-contracts",
@@ -673,12 +873,20 @@ def main() -> None:
                       and learning_contracts["passed"] == len(learning_contracts["checks"])
                       and learning_contracts["total"] > 0,
                       f"{learning_contracts['passed']}/{learning_contracts['total']} passed")
+                checkpoint_contracts = run_page_contract(
+                    page, "./tests/practice-checkpoints-contracts.js",
+                    "runPracticeCheckpointContracts")
+                check("post-v16-authored-checkpoints-16-lesson-contracts",
+                      checkpoint_contracts["passed"] == checkpoint_contracts["total"]
+                      and checkpoint_contracts["passed"] == len(checkpoint_contracts["checks"])
+                      and checkpoint_contracts["total"] == 37,
+                      f"{checkpoint_contracts['passed']}/{checkpoint_contracts['total']} passed")
                 practice_contracts = run_page_contract(
                     page, "./tests/practice-evidence-contracts.js", "runPracticeEvidenceContracts")
                 check("post-v16-practice-evidence-16-lesson-pure-contracts",
                       practice_contracts["passed"] == practice_contracts["total"]
                       and practice_contracts["passed"] == len(practice_contracts["checks"])
-                      and practice_contracts["total"] >= 40,
+                      and practice_contracts["total"] == 52,
                       f"{practice_contracts['passed']}/{practice_contracts['total']} passed")
                 practice_ui_contracts = run_page_contract(
                     page, "./tests/practice-evidence-ui-contracts.js",
@@ -687,8 +895,139 @@ def main() -> None:
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] >= 12,
+                      and practice_ui_contracts["total"] == 18,
                       f"{practice_ui_contracts['passed']}/{practice_ui_contracts['total']} passed")
+                observation_contracts = run_page_contract(
+                    page, "./tests/practice-observation-contracts.js",
+                    "runPracticeObservationContracts")
+                check("post-v16-practice-observation-48-step-pure-contracts",
+                      observation_contracts["passed"] == observation_contracts["total"]
+                      and observation_contracts["passed"] ==
+                          len(observation_contracts["checks"])
+                      and observation_contracts["total"] == 14,
+                      f"{observation_contracts['passed']}/{observation_contracts['total']} passed")
+                observation_ui_contracts = run_page_contract(
+                    page, "./tests/practice-observation-ui-contracts.js",
+                    "runPracticeObservationUiContracts")
+                check("post-v16-practice-observation-dom-aria-contracts",
+                      observation_ui_contracts["passed"] == observation_ui_contracts["total"]
+                      and observation_ui_contracts["passed"] ==
+                          len(observation_ui_contracts["checks"])
+                      and observation_ui_contracts["total"] == 12,
+                      f"{observation_ui_contracts['passed']}/{observation_ui_contracts['total']} passed")
+                sketch_contracts = run_page_contract(
+                    page, "./tests/sketch-review-contracts.js",
+                    "runSketchReviewContracts")
+                check("post-v16-sketch-review-direct-contracts",
+                      sketch_contracts["passed"] == sketch_contracts["total"]
+                      and sketch_contracts["passed"] == len(sketch_contracts["checks"])
+                      and sketch_contracts["total"] == 15,
+                      f"{sketch_contracts['passed']}/{sketch_contracts['total']} passed")
+                sketch_ui_contracts = run_page_contract(
+                    page, "./tests/sketch-review-ui-contracts.js",
+                    "runSketchReviewUiContracts")
+                check("post-v16-sketch-review-ui-direct-contracts",
+                      sketch_ui_contracts["passed"] == sketch_ui_contracts["total"]
+                      and sketch_ui_contracts["passed"] == len(sketch_ui_contracts["checks"])
+                      and sketch_ui_contracts["total"] == 11,
+                      f"{sketch_ui_contracts['passed']}/{sketch_ui_contracts['total']} passed")
+                sketch_review = page.evaluate("""async () => {
+                    const {lessons} = await import('./src/lessons.js');
+                    const model = await import('./src/sketch-review.js');
+                    const ui = await import('./src/sketch-review-ui.js');
+                    const falseClaims = [
+                        'compiled','semanticValidated','firmwareExecuted',
+                        'simulationBehaviorValidated','hardwareValidated',
+                        'learnerCompletion','learnerMastery',
+                    ];
+                    const lessonsChecked = lessons.map(lesson => {
+                        const result = model.inspectSketchDraft({
+                            lessonId: lesson.id,
+                            reference: lesson.sketch,
+                            draft: lesson.sketch,
+                        });
+                        return {
+                            lessonId: lesson.id,
+                            status: result.status,
+                            provenance: result.provenance,
+                            claimsFalse: falseClaims.every(key => result.claims?.[key] === false),
+                            frozen: Object.isFrozen(result) && Object.isFrozen(result.claims),
+                        };
+                    });
+                    const lesson = lessons.find(item => item.id === 3);
+                    const changed = model.inspectSketchDraft({
+                        lessonId: lesson.id,
+                        reference: lesson.sketch,
+                        draft: lesson.sketch + '\\n// learner local draft change\\n',
+                    });
+                    const section = ui.renderSketchReview(document, changed);
+                    let invalidLessonRejected = false;
+                    let unknownFieldRejected = false;
+                    let bidiRejected = false;
+                    let forgedPositiveClaimRejected = false;
+                    try {
+                        model.inspectSketchDraft({lessonId:17, reference:lesson.sketch, draft:lesson.sketch});
+                    } catch { invalidLessonRejected = true; }
+                    try {
+                        model.inspectSketchDraft({
+                            lessonId:lesson.id, reference:lesson.sketch, draft:lesson.sketch,
+                            completion:true,
+                        });
+                    } catch { unknownFieldRejected = true; }
+                    try {
+                        model.inspectSketchDraft({
+                            lessonId:lesson.id,
+                            reference:lesson.sketch,
+                            draft:lesson.sketch + '\\n// \\u202e hidden bidi',
+                        });
+                    } catch { bidiRejected = true; }
+                    try {
+                        const forged = JSON.parse(JSON.stringify(changed));
+                        forged.claims.compiled = true;
+                        ui.renderSketchReview(document, forged);
+                    } catch { forgedPositiveClaimRejected = true; }
+                    return {
+                        lessonsChecked,
+                        changedStatus: changed.status,
+                        changedLines: changed.changes.changedLines,
+                        changedClaimsFalse: falseClaims.every(key => changed.claims?.[key] === false),
+                        boundary: changed.boundaries,
+                        uiStatusRole: section.querySelector('[data-sketch-review-status-label]')?.getAttribute('role'),
+                        uiStatusLive: section.querySelector('[data-sketch-review-status-label]')?.getAttribute('aria-live'),
+                        uiBoundary: section.querySelector('[data-sketch-review-boundary]')?.textContent || '',
+                        uiInteractiveControls: section.querySelectorAll('button,input,textarea,select').length,
+                        invalidLessonRejected,
+                        unknownFieldRejected,
+                        bidiRejected,
+                        forgedPositiveClaimRejected,
+                    };
+                }""")
+                check("post-v16-sketch-review-bounded-provenance-contract",
+                      len(sketch_review["lessonsChecked"]) == 16
+                      and all(
+                          row["lessonId"] == index
+                          and row["status"] == "reference"
+                          and row["provenance"]["reference"] == "lesson-reference"
+                          and row["provenance"]["draft"] == "editor-draft"
+                          and row["claimsFalse"]
+                          and row["frozen"]
+                          for index, row in enumerate(sketch_review["lessonsChecked"], start=1)
+                      )
+                      and sketch_review["changedStatus"] == "changed"
+                      and sketch_review["changedLines"] > 0
+                      and sketch_review["changedClaimsFalse"]
+                      and sketch_review["boundary"]["compilesCpp"] is False
+                      and sketch_review["boundary"]["executesFirmware"] is False
+                      and sketch_review["boundary"]["provesLearnerCompletion"] is False
+                      and sketch_review["uiStatusRole"] == "status"
+                      and sketch_review["uiStatusLive"] == "polite"
+                      and "không biên dịch Arduino C++" in sketch_review["uiBoundary"]
+                      and sketch_review["uiInteractiveControls"] == 0
+                      and sketch_review["invalidLessonRejected"]
+                      and sketch_review["unknownFieldRejected"]
+                      and sketch_review["bidiRejected"]
+                      and sketch_review["forgedPositiveClaimRejected"],
+                      json.dumps(sketch_review, ensure_ascii=False))
                 # Timer1 is a strict direct peripheral model contract only.
                 # Do NOT attach it to stock bundled Arduino-core firmware: the
                 # current model intentionally fails closed outside Normal WGM0.
@@ -714,6 +1053,22 @@ def main() -> None:
                       and dc_network_contracts["passed"] == len(dc_network_contracts["checks"])
                       and dc_network_contracts["total"] == 51,
                       f"{dc_network_contracts['passed']}/{dc_network_contracts['total']} standalone linear-resistor checks; no lesson/3D/sensor linkage")
+                resistive_ui_contracts = run_page_contract(
+                    page, "./tests/resistive-study-ui-contracts.js",
+                    "runResistiveStudyUiContracts")
+                check("post-v16-resistive-visual-study-direct-contracts",
+                      resistive_ui_contracts["passed"] == resistive_ui_contracts["total"]
+                      and resistive_ui_contracts["passed"] == len(resistive_ui_contracts["checks"])
+                      and resistive_ui_contracts["total"] == 18,
+                      f"{resistive_ui_contracts['passed']}/{resistive_ui_contracts['total']} source-verified visual-study checks")
+                bb_session_contracts = run_page_contract(
+                    page, "./tests/breadboard-placement-session-contracts.js",
+                    "runBreadboardPlacementSessionContracts")
+                check("post-v16-breadboard-placement-session-direct-contracts",
+                      bb_session_contracts["passed"] == bb_session_contracts["total"]
+                      and bb_session_contracts["passed"] == len(bb_session_contracts["checks"])
+                      and bb_session_contracts["total"] == 22,
+                      f"{bb_session_contracts['passed']}/{bb_session_contracts['total']} authored-session checks")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -883,10 +1238,18 @@ def main() -> None:
                 # Every lesson must update title and quiz without dropping canvas.
                 for lesson_id in range(1, 17):
                     page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
+                    sketch_review_region = page.locator(
+                        "#sketchReviewMount [data-sketch-review]"
+                    )
                     check(f"lesson-{lesson_id:02d}-render",
                           page.locator("#sceneMount canvas").count() == 1
                           and page.locator("#quizChoices input").count() >= 3
-                          and len(page.locator("#codeViewer").inner_text()) > 30)
+                          and len(page.locator("#codeViewer").inner_text()) > 30
+                          and sketch_review_region.count() == 1
+                          and sketch_review_region.get_attribute(
+                              "data-sketch-review-lesson") == str(lesson_id)
+                          and sketch_review_region.get_attribute(
+                              "data-sketch-review-status") == "reference")
 
                 # v1.5 editor/coach are lesson-scoped. Lesson 01 intentionally
                 # has no external wiring editor; all lessons still get local,
@@ -1380,11 +1743,37 @@ def main() -> None:
                 ).locator("circle").click()
                 readonly_first_terminal = explorer.get_attribute(
                     "data-explorer-selected-terminal")
+                readonly_first_scene_inspection = canvas.get_attribute(
+                    "data-lab-inspected-terminal")
                 explorer.locator(
                     f'.lab-explorer-schematic-svg [data-explorer-terminal="{first_reference_wire["to"]}"]'
                 ).locator("circle").click()
                 readonly_second_terminal = explorer.get_attribute(
                     "data-explorer-selected-terminal")
+                readonly_second_scene_inspection = canvas.get_attribute(
+                    "data-lab-inspected-terminal")
+                check("post-v16-explorer-readonly-inspection-projects-to-3d",
+                      readonly_first_scene_inspection == first_reference_wire["from"]
+                      and readonly_second_scene_inspection == first_reference_wire["to"]
+                      # Default read-only scene has no mounted edit layout:
+                      # report a textual label, never a fake 3D pin halo.
+                      and canvas.get_attribute("data-lab-inspection-feedback") == "label"
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and page.locator("#labEditToggle").get_attribute("aria-pressed") == "false"
+                      and page.locator("#sceneInspectionStatus").is_visible()
+                      and page.locator("#sceneInspectionStatus").get_attribute("role") == "status"
+                      and page.locator("#sceneInspectionStatus").get_attribute("aria-live") == "polite"
+                      and first_reference_wire["to"] in
+                          page.locator("#sceneInspectionStatus").inner_text()
+                      and "không xác nhận lỗ cắm vật lý" in
+                          page.locator("#sceneInspectionStatus").inner_text(),
+                      json.dumps({
+                          "first": readonly_first_scene_inspection,
+                          "second": readonly_second_scene_inspection,
+                          "feedback": canvas.get_attribute("data-lab-inspection-feedback"),
+                          "wires": canvas.get_attribute("data-lab-wire-count"),
+                          "status": page.locator("#sceneInspectionStatus").inner_text(),
+                      }, ensure_ascii=False))
                 check("v16-explorer-readonly-inspection-does-not-enter-edit-or-wire",
                       readonly_component_state["stage"] == "true"
                       and readonly_component_state["editorHidden"]
@@ -1698,6 +2087,19 @@ def main() -> None:
                 explorer.locator("[data-explorer-connect-from]").select_option(first_reference_wire["from"])
                 explorer.locator("[data-explorer-connect-to]").select_option(first_reference_wire["to"])
                 explorer.locator("[data-explorer-connect]").click()
+                page.locator("#infoTabPractice").click()
+                check("post-v16-explorer-real-canonical-wire-records-session-event-not-mastery",
+                      "connect-wire" in page.locator(
+                          "#learningCoach [data-practice-observation] "
+                          "[data-observation-recorded]").inner_text()
+                      and "không đo mastery" in page.locator(
+                          "#learningCoach [data-observation-boundary]").inner_text()
+                      and page.locator("#completeButton").is_hidden()
+                      and explorer.locator(
+                          '[data-explorer-panel="schematic"] '
+                          '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                      ).count() == 1)
+                page.locator("#infoTabOverview").click()
                 canvas = page.locator("#sceneMount canvas")
                 before_study_scene_wires = canvas.get_attribute("data-lab-wire-count")
                 page.locator("#stageTabWiring").click()
@@ -1714,21 +2116,29 @@ def main() -> None:
                       and page.locator('#bbTopologyDiagram [data-bb-hole="A1"][data-bb-selected]').count() == 1
                       and page.locator('#bbTopologyDiagram [data-bb-hole="E1"][data-bb-selected]').count() == 1
                       and page.locator("#bbTopologyDiagram").get_attribute("data-profile")
-                          == "generic-63x10-terminal-strips")
+                          == "generic-63x10-terminal-strips"
+                      and "cùng nhóm tiếp xúc" in page.locator("#bbResult").inner_text()
+                      and "không phải đo mạch thực" in page.locator("#bbResult").inner_text())
                 page.locator("#bbHoleB").fill("F1")
                 page.locator("#bbCompare").click()
                 check("v16-breadboard-study-generic-center-gap-separate",
                       page.locator("#bbResult").get_attribute("data-result") == "separate"
                       and page.locator('#bbTopologyDiagram [data-bb-strip-node="strip:1:left"]').count() == 1
                       and page.locator('#bbTopologyDiagram [data-bb-strip-node="strip:1:right"]').count() == 1
-                      and "hai nhóm khác nhau" in page.locator("#bbResult").inner_text())
+                      and "hai nhóm tiếp xúc khác nhau" in page.locator("#bbResult").inner_text()
+                      and "jumper hoặc netlist bên ngoài không được kiểm tra" in
+                          page.locator("#bbResult").inner_text())
                 page.locator("#bbHoleA").fill("P1+1")
                 page.locator("#bbHoleB").fill("P1+50")
                 page.locator("#bbCompare").click()
                 check("v16-breadboard-study-generic-rail-remains-unknown",
                       page.locator("#bbResult").get_attribute("data-result") == "unknown"
-                      and "không kết luận" in page.locator("#bbResult").inner_text()
-                      and "rail chưa được mô hình hóa" in
+                      and "chưa đủ bằng chứng" in page.locator("#bbResult").inner_text().lower()
+                      and "không kết luận đã nối hay chưa nối" in
+                          page.locator("#bbResult").inner_text().lower()
+                      and "nhóm rail chưa được mô hình hóa" in
+                          page.locator("#bbTopologyDiagram").inner_text().lower()
+                      and "không suy chúng liên thông" in
                           page.locator("#bbTopologyDiagram").inner_text().lower())
                 page.locator("#bbProfile").select_option("busboard-bb830-rev7")
                 page.locator("#bbCompare").click()
@@ -1736,7 +2146,17 @@ def main() -> None:
                       page.locator("#bbResult").get_attribute("data-result") == "connected"
                       and page.locator("#bbTopologyDiagram").get_attribute("data-profile")
                           == "busboard-bb830-rev7"
-                      and "cùng nhóm tiếp xúc" in page.locator("#bbResult").inner_text())
+                      and "cùng nhóm tiếp xúc" in page.locator("#bbResult").inner_text()
+                      and "không phải đo mạch thực" in page.locator("#bbResult").inner_text()
+                      # BB830's manufacturer-backed four 50-hole rails are
+                      # separate rail nodes but each is continuous end-to-end.
+                      # Never collapse this into a generic unknown/split rail.
+                      and "4 rail riêng biệt" in
+                          page.locator("#bbTopologyDiagram").inner_text().lower()
+                      and "dải liên tục 50 lỗ" in
+                          page.locator("#bbTopologyDiagram").inner_text().lower()
+                      and "profile đã xác minh" in
+                          page.locator("#bbTopologyDiagram").inner_text().lower())
                 for bad_hole in ("Z999", "A0"):
                     page.locator("#bbHoleA").fill(bad_hole)
                     page.locator("#bbHoleB").fill("A1")
@@ -1751,6 +2171,83 @@ def main() -> None:
                       and "không phải" in
                           (page.locator("#bbTopologyDiagram").get_attribute("aria-label") or "").lower()
                       and page.locator("#bbTopologyDiagram [data-bb-diagram='conceptual-strips']").count() == 1)
+                page.locator("#bbProfile").select_option("generic-63x10-terminal-strips")
+                page.locator("#bbTerminal").select_option("D13")
+                page.locator("#bbPlaceHole").fill("a12")
+                page.locator("#bbAssignHole").click()
+                check("post-v16-breadboard-authored-hole-ui-canonical-session-only",
+                      page.locator("#bbPlaceHole").input_value() == "A12"
+                      and page.locator("#bbPlaceHole").get_attribute("aria-invalid") == "false"
+                      and page.locator("#bbPlacementStatus").get_attribute("data-result") == "assigned"
+                      and "D13 → A12" in page.locator("#bbPlacedList").inner_text()
+                      and "không tạo dây circuit-router" in page.locator("#bbPlacementStatus").inner_text()
+                      and page.locator("#bbMappingWarning").get_attribute("data-mapped") == "session-authored"
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
+                      page.locator("#bbPlacementStatus").inner_text())
+                page.locator("#bbTerminal").select_option("R1:A")
+                page.locator("#bbPlaceHole").fill("P1+1")
+                page.locator("#bbAssignHole").click()
+                check("post-v16-breadboard-authored-generic-unknown-rail-fails-closed",
+                      page.locator("#bbPlacementStatus").get_attribute("data-result") == "error"
+                      and page.locator("#bbPlaceHole").get_attribute("aria-invalid") == "true"
+                      and "D13 → A12" in page.locator("#bbPlacedList").inner_text()
+                      and "R1:A →" not in page.locator("#bbPlacedList").inner_text()
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires,
+                      page.locator("#bbPlacementStatus").inner_text())
+                page.locator("#bbProfile").select_option("busboard-bb830-rev7")
+                check("post-v16-breadboard-authored-profile-change-resets-draft",
+                      page.locator("#bbPlacementStatus").get_attribute("data-result") == "reset"
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                      and page.locator("#bbPlacedList [data-bb-placement-empty]").count() == 1
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires)
+                page.locator("#bbTerminal").select_option("D13")
+                page.locator("#bbPlaceHole").fill("P1+1")
+                page.locator("#bbAssignHole").click()
+                page.locator("#bbTerminal").select_option("R1:A")
+                page.locator("#bbPlaceHole").fill("P1+50")
+                page.locator("#bbAssignHole").click()
+                check("post-v16-breadboard-authored-bb830-known-rail-profile",
+                      page.locator("#bbPlacementStatus").get_attribute("data-result") == "assigned"
+                      and "D13 → P1+1" in page.locator("#bbPlacedList").inner_text()
+                      and "R1:A → P1+50" in page.locator("#bbPlacedList").inner_text()
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 2
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires)
+                page.locator('.lesson-link[data-lesson="3"]').click()
+                check("post-v16-breadboard-authored-lesson-change-resets-and-refreshes-terminals",
+                      page.locator("#bbPlacementStatus").get_attribute("data-result") == "reset"
+                      and page.locator("#bbPlacedList [data-bb-placement-item]").count() == 0
+                      and page.locator("#bbTerminal option").count() == page.evaluate(
+                          "() => import('./src/circuit-router.js').then(m => m.listTerminals(3).length)"
+                      )
+                      and canvas.get_attribute("data-lab-wire-count") == "0")
+                page.locator('.lesson-link[data-lesson="1"]').click()
+                check("post-v16-breadboard-authored-lesson01-integrated-led-disables-controls",
+                      page.locator("#bbTerminal").is_disabled()
+                      and page.locator("#bbPlaceHole").is_disabled()
+                      and page.locator("#bbAssignHole").is_disabled()
+                      and page.locator("#bbRemoveHole").is_disabled()
+                      and page.locator("#bbPlacementStatus").get_attribute("data-result") == "disabled"
+                      and "LED L tích hợp" in page.locator("#bbPlacementStatus").inner_text())
+                page.locator('.lesson-link[data-lesson="2"]').click()
+                # The added authored-hole regressions switch lessons 02 -> 03
+                # -> 01 -> 02. A lesson switch deliberately exits 3D edit mode,
+                # so the conceptual 3D overlay is hidden even though the learner
+                # netlist persists. First prove the graph is intact while the
+                # editor is off, then explicitly re-enable it to restore the
+                # historical 3D/2D parity precondition; never pretend a scene
+                # overlay is an electrical source or silently enable editing.
+                check("post-v16-breadboard-lesson-switch-preserves-learner-graph-viewonly",
+                      page.locator("#labEditToggle").get_attribute("aria-pressed") == "false"
+                      and canvas.get_attribute("data-lab-wire-count") == "0"
+                      and explorer.locator(
+                          '[data-explorer-panel="schematic"] '
+                          '.lab-explorer-wire-list:not(.lab-explorer-reference-list) [data-explorer-wire]'
+                      ).count() == 1)
+                page.locator("#labEditToggle").click()
+                check("post-v16-breadboard-explicit-3d-editor-restores-same-learner-graph",
+                      page.locator("#labEditToggle").get_attribute("aria-pressed") == "true"
+                      and canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires
+                      and canvas.get_attribute("data-lab-wire-count") == "1")
                 check("v16-breadboard-study-never-mutates-canonical-netlist",
                       canvas.get_attribute("data-lab-wire-count") == before_study_scene_wires
                       and explorer.locator(
@@ -1794,6 +2291,27 @@ def main() -> None:
                       json.dumps({
                           "status": page.locator("#resistiveResult").inner_text(),
                           "rows": resistive_rows,
+                      }, ensure_ascii=False))
+                resistive_visual = page.locator("#resistiveDetails [data-resistive-presentation='verified']")
+                resistive_svg = resistive_visual.locator("[data-resistive-divider-visual] svg")
+                resistive_assumptions = resistive_visual.locator("[data-resistive-assumptions]").inner_text()
+                check("post-v16-resistive-visual-divider-source-verified-presentation",
+                      resistive_visual.get_attribute("data-resistive-origin") == "ideal-dc-resistor-model"
+                      and resistive_svg.get_attribute("role") == "img"
+                      and all(token in (resistive_svg.get_attribute("aria-label") or "")
+                              for token in ("VCC", "R1", "MID", "R2", "GND"))
+                      and ("2,5 V" in (resistive_svg.get_attribute("aria-label") or "")
+                           or "2.5 V" in (resistive_svg.get_attribute("aria-label") or ""))
+                      and page.locator("#resistiveDetails [data-resistive-divider-table]").count() == 1
+                      and len(resistive_rows) == 2
+                      and "nguồn DC lý tưởng do người học khai báo" in resistive_assumptions
+                      and "kết quả toán học của solver" in resistive_assumptions
+                      and "không phải phần cứng Arduino hoặc phép đo" in resistive_assumptions,
+                      json.dumps({
+                          "origin": resistive_visual.get_attribute("data-resistive-origin"),
+                          "svgRole": resistive_svg.get_attribute("role"),
+                          "svgName": resistive_svg.get_attribute("aria-label"),
+                          "assumptions": resistive_assumptions,
                       }, ensure_ascii=False))
                 page.locator("#resistiveR1").fill("0")
                 page.locator("#resistiveSolve").click()
@@ -1869,13 +2387,29 @@ def main() -> None:
 
                 # Review, edit and export real .ino bytes. No code executed.
                 page.locator('.lesson-link[data-lesson="3"]').click()
+                progress_before_sketch_review = page.locator("#progressText").inner_text()
                 check("avr-panel-follows-lesson",
                       "bài 03" in page.locator("#avrLoad").inner_text()
                       and "Chưa nạp HEX bài 03" in page.locator("#avrStatus").inner_text())
+                check("post-v16-sketch-review-starts-from-reference",
+                      page.locator("#sketchReviewMount [data-sketch-review]").get_attribute(
+                          "data-sketch-review-lesson") == "3"
+                      and page.locator("#sketchReviewMount [data-sketch-review]").get_attribute(
+                          "data-sketch-review-status") == "reference"
+                      and "không biên dịch Arduino C++" in page.locator(
+                          "#sketchReviewMount [data-sketch-review-boundary]").inner_text())
                 page.locator("#editCode").click()
                 page.locator("#codeEditor").fill("void setup() {}\nvoid loop() {}\n")
                 check("edit-is-explicitly-draft",
                       "Mã đã sửa" in page.locator("#codeEditStatus").inner_text())
+                check("post-v16-sketch-review-edited-draft-never-completes-lesson",
+                      page.locator("#sketchReviewMount [data-sketch-review]").get_attribute(
+                          "data-sketch-review-status") == "changed"
+                      and int(page.locator(
+                          "#sketchReviewMount [data-sketch-review]").get_attribute(
+                              "data-sketch-review-changed-lines") or "0") > 0
+                      and page.locator("#progressText").inner_text() == progress_before_sketch_review
+                      and page.locator("#completeButton").is_hidden())
                 check("avr-panel-draft-disclosure",
                       "Mã đã sửa" in page.locator("#avrDraftNote").inner_text()
                       and "chưa được biên dịch" in page.locator("#avrDraftNote").inner_text())
@@ -1888,6 +2422,10 @@ def main() -> None:
                 page.locator("#restoreCode").click()
                 check("ino-restore", "pinMode(BUTTON, INPUT)" in
                       page.locator("#codeViewer").inner_text())
+                check("post-v16-sketch-review-restore-reference-no-progress-side-effect",
+                      page.locator("#sketchReviewMount [data-sketch-review]").get_attribute(
+                          "data-sketch-review-status") == "reference"
+                      and page.locator("#progressText").inner_text() == progress_before_sketch_review)
                 check("avr-panel-restored-sample-disclosure",
                       "Mã đã sửa" not in page.locator("#avrDraftNote").inner_text()
                       and "mã mẫu" in page.locator("#avrDraftNote").inner_text())
@@ -2197,9 +2735,12 @@ def main() -> None:
                               json.dumps(explorer_mobile, ensure_ascii=False))
                         breadboard_mobile = small.evaluate("""() => {
                             const section = document.querySelector('#breadboardStudy');
-                            const controls = ['#bbProfile','#bbHoleA','#bbHoleB','#bbCompare']
+                            const controls = [
+                              '#bbProfile','#bbHoleA','#bbHoleB','#bbCompare',
+                              '#bbTerminal','#bbPlaceHole','#bbAssignHole','#bbRemoveHole'
+                            ]
                               .map(selector => document.querySelector(selector))
-                              .filter(Boolean);
+                              .filter(node => node && !node.disabled);
                             const rows = controls.map(node => {
                               const rect = node.getBoundingClientRect();
                               return {id: node.id, width: rect.width, height: rect.height};
@@ -2208,17 +2749,26 @@ def main() -> None:
                             return {
                               exists: Boolean(section),
                               right: rect?.right ?? null,
+                              controlCount: rows.length,
                               minimumHeight: Math.min(...rows.map(row => row.height)),
                               tooSmall: rows.filter(row => row.width < 24 || row.height < 40),
                               mapped: document.querySelector('#bbMappingWarning')?.dataset.mapped || '',
+                              authoredStatusRole: document.querySelector('#bbPlacementStatus')?.getAttribute('role') || '',
+                              authoredStatusLive: document.querySelector('#bbPlacementStatus')?.getAttribute('aria-live') || '',
+                              authoredBoundary: document.querySelector('#bbAuthoredBoundary')?.textContent || '',
                             };
                         }""")
                         check("v16-mobile-breadboard-study-touch-boundary-375",
                               breadboard_mobile["exists"]
                               and breadboard_mobile["right"] <= 376
+                              and breadboard_mobile["controlCount"] >= 8
                               and breadboard_mobile["minimumHeight"] >= 40
                               and not breadboard_mobile["tooSmall"]
-                              and breadboard_mobile["mapped"] == "false",
+                              and breadboard_mobile["mapped"] == "false"
+                              and breadboard_mobile["authoredStatusRole"] == "status"
+                              and breadboard_mobile["authoredStatusLive"] == "polite"
+                              and "do người dùng khai báo trong phiên" in
+                                  breadboard_mobile["authoredBoundary"],
                               json.dumps(breadboard_mobile, ensure_ascii=False))
                         small.locator("#resistiveSolve").click()
                         resistive_mobile = small.evaluate("""() => {
@@ -2242,6 +2792,9 @@ def main() -> None:
                               result: document.querySelector('#resistiveResult')?.dataset.result || '',
                               detailsClientWidth: results?.clientWidth ?? 0,
                               detailsScrollWidth: results?.scrollWidth ?? 0,
+                              visual: Boolean(document.querySelector('[data-resistive-divider-visual]')),
+                              svgRole: document.querySelector('[data-resistive-divider-visual] svg')?.getAttribute('role') || '',
+                              svgName: document.querySelector('[data-resistive-divider-visual] svg')?.getAttribute('aria-label') || '',
                             };
                         }""")
                         check("v16-mobile-resistive-study-no-document-overflow-375",
@@ -2251,6 +2804,10 @@ def main() -> None:
                               and resistive_mobile["minimumHeight"] >= 40
                               and not resistive_mobile["tooSmall"]
                               and resistive_mobile["result"] == "calculated"
+                              and resistive_mobile["visual"]
+                              and resistive_mobile["svgRole"] == "img"
+                              and all(token in resistive_mobile["svgName"]
+                                      for token in ("VCC", "R1", "MID", "R2", "GND"))
                               and resistive_mobile["detailsScrollWidth"] >=
                                   resistive_mobile["detailsClientWidth"],
                               json.dumps(resistive_mobile, ensure_ascii=False))
@@ -2269,6 +2826,8 @@ def main() -> None:
                     capture_console(practice_page)
                     practice_page.goto(base, wait_until="domcontentloaded", timeout=20000)
                     ready(practice_page)
+                    observation_ui_failures = []
+                    observation_ui_seen = 0
                     for lesson_id in range(1, 17):
                         practice_page.locator(
                             f'.lesson-link[data-lesson="{lesson_id}"]'
@@ -2278,25 +2837,125 @@ def main() -> None:
                             "#learningCoach [data-practice-evidence]")
                         status = evidence.get_attribute("data-practice-status")
                         scope = evidence.get_attribute("data-practice-scope")
+                        checkpoint_kind = evidence.get_attribute(
+                            "data-practice-checkpoint-kind")
+                        checkpoint_id = evidence.get_attribute(
+                            "data-practice-checkpoint-id")
+                        provenance = evidence.get_attribute(
+                            "data-practice-provenance")
+                        manual_checkpoint = checkpoint_kind == "manual"
                         check(f"post-v16-practice-lesson-{lesson_id:02d}-truthful-empty-evidence",
                               evidence.count() == 1
                               and evidence.get_attribute("data-practice-lesson") == str(lesson_id)
                               and evidence.get_attribute("data-practice-step") == "0"
                               and evidence.get_attribute("data-practice-matched") == "0"
+                              and checkpoint_id == f"lesson-{lesson_id:02d}-step-01"
+                              and provenance == "human-authored-from-lesson-text"
+                              and evidence.locator(
+                                  "[data-practice-provenance-note]").count() == 1
                               and (
-                                  scope == "manual" and status == "manual-checkpoint"
-                                  if lesson_id == 1 else
-                                  status == "not-attempted"
+                                  scope == "manual"
+                                  and status == "manual-checkpoint"
+                                  and evidence.locator(
+                                      "[data-practice-grouping-note]").count() == 0
+                                  if manual_checkpoint else
+                                  scope in ("topology", "signal-only")
+                                  and status == "not-attempted"
                                   and "Ứng dụng chưa ghi nhận bản tự đấu" in evidence.inner_text()
-                                  and evidence.locator("[data-practice-grouping-note]").count() == 1
-                                  and "không phải yêu cầu đấu dây theo bước" in evidence.inner_text()
-                                  and "Chưa có thao tác đấu dây của người học" not in evidence.inner_text()
+                                  and evidence.locator(
+                                      "[data-practice-grouping-note]").count() == 1
                               )
+                              and "không phải xác nhận của giáo viên" in evidence.inner_text()
                               and practice_page.locator("#completeButton").is_hidden(),
-                              json.dumps({"lesson": lesson_id, "status": status, "scope": scope},
+                              json.dumps({
+                                  "lesson": lesson_id,
+                                  "status": status,
+                                  "scope": scope,
+                                  "checkpointKind": checkpoint_kind,
+                                  "checkpointId": checkpoint_id,
+                                  "provenance": provenance,
+                              },
                                          ensure_ascii=False))
+                        for step_index in range(3):
+                            observation = practice_page.locator(
+                                "#learningCoach [data-practice-observation]")
+                            observation_text = observation.inner_text()
+                            observation_ok = (
+                                observation.count() == 1
+                                and observation.get_attribute("data-observation-lesson") == str(lesson_id)
+                                and observation.get_attribute("data-observation-step") == str(step_index)
+                                and observation.get_attribute("data-observation-checkpoint") ==
+                                    f"lesson-{lesson_id:02d}-step-{step_index + 1:02d}"
+                                and observation.get_attribute("role") == "status"
+                                and observation.get_attribute("aria-live") == "polite"
+                                and observation.get_attribute("data-observation-status") in (
+                                    "no-lesson-event-overlap", "no-editorial-expectation")
+                                and "không lưu stepIndex hay timestamp" in observation_text
+                                and "không đo mastery" in observation_text
+                                and "không tự hoàn thành bài" in observation_text
+                                and "không phải điều kiện để chuyển bước" in observation_text
+                            )
+                            observation_ui_seen += 1
+                            if not observation_ok:
+                                observation_ui_failures.append({
+                                    "lesson": lesson_id,
+                                    "step": step_index,
+                                    "status": observation.get_attribute("data-observation-status"),
+                                    "checkpoint": observation.get_attribute("data-observation-checkpoint"),
+                                    "text": observation_text[:240],
+                                })
+                            if step_index < 2:
+                                practice_page.locator("#coachNext").click()
+                        practice_page.locator("#coachPrevious").click()
+                        practice_page.locator("#coachPrevious").click()
+                    check("post-v16-practice-observation-all-48-step-ui-bounded",
+                          observation_ui_seen == 48 and not observation_ui_failures,
+                          json.dumps({
+                              "seen": observation_ui_seen,
+                              "failures": observation_ui_failures[:4],
+                          }, ensure_ascii=False))
                     practice_page.locator('.lesson-link[data-lesson="2"]').click()
                     practice_page.locator("#infoTabPractice").click()
+                    observation_before_handler = practice_page.locator(
+                        "#learningCoach [data-practice-observation]")
+                    observation_before_status = observation_before_handler.get_attribute(
+                        "data-observation-status")
+                    observation_graph_before = practice_page.locator(
+                        "#sceneMount canvas").get_attribute("data-lab-wire-count")
+                    practice_page.locator(
+                        "#learningCoach [data-practice-open-wiring]").click()
+                    observation_after_handler = practice_page.locator(
+                        "#learningCoach [data-practice-observation]")
+                    observation_handler_text = observation_after_handler.inner_text()
+                    check("post-v16-practice-observation-real-view-wiring-handler-no-graph-mutation",
+                          observation_before_status == "no-lesson-event-overlap"
+                          and observation_after_handler.get_attribute(
+                              "data-observation-status") == "lesson-event-overlap"
+                          and observation_after_handler.get_attribute(
+                              "data-observation-lesson-events") == "1"
+                          and observation_after_handler.get_attribute(
+                              "data-observation-matching-events") == "1"
+                          and "view-wiring" in observation_handler_text
+                          and "không chứng minh event đã xảy ra tại bước hiện tại" in
+                              observation_handler_text
+                          and "không đo mastery" in observation_handler_text
+                          and "không tự hoàn thành bài" in observation_handler_text
+                          and practice_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-wire-count") == observation_graph_before == "0"
+                          and practice_page.locator(".wire-connected").count() == 0
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          json.dumps({
+                              "before": observation_before_status,
+                              "after": observation_after_handler.get_attribute(
+                                  "data-observation-status"),
+                              "lessonEvents": observation_after_handler.get_attribute(
+                                  "data-observation-lesson-events"),
+                              "matchingEvents": observation_after_handler.get_attribute(
+                                  "data-observation-matching-events"),
+                              "sceneWires": practice_page.locator(
+                                  "#sceneMount canvas").get_attribute("data-lab-wire-count"),
+                          }, ensure_ascii=False))
+                    practice_page.locator("#stageTab3d").click()
                     # A half-completed 3D terminal gesture must be cancelled
                     # when the learner navigates to 2D through Practice. The
                     # first click after returning to 3D must not create a
@@ -2366,21 +3025,65 @@ def main() -> None:
                               "#learningCoach [data-practice-evidence]").get_attribute(
                                   "data-practice-step") == "1"
                           and "BƯỚC 2/" in practice_page.locator(".coach-progress").inner_text())
+                    check("post-v16-authored-manual-step-does-not-inherit-topology-score",
+                          practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-status") == "manual-checkpoint"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-checkpoint-kind") == "manual"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-grouping-note]").count() == 0
+                          and "topology dây không được dùng làm điều kiện" in
+                              practice_page.locator(
+                                  "#learningCoach [data-practice-evidence]").inner_text()
+                          and practice_page.locator(".wire-connected").count() == 1
+                          and practice_page.locator("#completeButton").is_hidden())
                     check("post-v16-practice-incomplete-step-is-not-pedagogy-verified",
                           practice_page.locator(
                               "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-checkpoint-kind") == "manual"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-provenance") ==
+                              "human-authored-from-lesson-text"
+                          and "không phải xác nhận của giáo viên" in
+                              practice_page.locator(
+                                  "#learningCoach [data-practice-provenance-note]").inner_text()
+                          and "không phải điều kiện để chuyển bước" in
+                              practice_page.locator(
+                                  "#learningCoach [data-practice-provenance-note]").inner_text()
+                          and practice_page.locator("#completeButton").is_hidden())
+                    practice_page.locator("#coachPrevious").click()
+                    check("post-v16-return-to-authored-wiring-step-restores-wire-evidence",
+                          practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-step") == "0"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-checkpoint-kind") == "wiring"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
                                   "data-practice-status") == "incomplete"
                           and practice_page.locator(
-                              "#learningCoach [data-practice-grouping-note]").count() == 1
-                          and "không phải yêu cầu đấu dây theo bước" in
-                              practice_page.locator(
-                                  "#learningCoach [data-practice-grouping-note]").inner_text())
+                              "#learningCoach [data-practice-grouping-note]").count() == 1)
                     practice_page.locator(".wire-actions .wire-action").first.click()
                     evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
-                    check("post-v16-reference-copied-graph-is-only-sample-group-match",
-                          evidence.get_attribute("data-practice-status") in
-                              ("step-sample-match", "topology-match")
+                    check("post-v16-reference-copied-graph-is-only-authored-topology-match",
+                          evidence.get_attribute("data-practice-status") == "topology-match"
+                          and evidence.get_attribute(
+                              "data-practice-checkpoint-kind") == "wiring"
                           and int(evidence.get_attribute("data-practice-required") or "0") > 0
+                          and practice_page.locator("#completeButton").is_hidden(),
+                          evidence.inner_text()[:450])
+                    check("post-v16-reference-copied-graph-is-only-sample-group-match",
+                          evidence.get_attribute("data-practice-status") == "topology-match"
+                          and evidence.get_attribute(
+                              "data-practice-provenance") ==
+                              "human-authored-from-lesson-text"
+                          and evidence.locator("[data-practice-grouping-note]").count() == 1
+                          and "không phải xác nhận của giáo viên" in evidence.inner_text()
+                          and "không chứng minh người học" in evidence.inner_text()
                           and practice_page.locator("#completeButton").is_hidden(),
                           evidence.inner_text()[:450])
                     for _ in range(16):
@@ -2388,10 +3091,21 @@ def main() -> None:
                             break
                         practice_page.locator("#coachNext").click()
                     evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
-                    check("post-v16-reference-copied-full-topology-does-not-complete-quiz",
-                          evidence.get_attribute("data-practice-status") == "topology-match"
+                    check("post-v16-reference-copied-full-topology-manual-step-does-not-complete-quiz",
+                          evidence.get_attribute("data-practice-status") == "manual-checkpoint"
+                          and evidence.get_attribute(
+                              "data-practice-checkpoint-kind") == "manual"
                           and practice_page.locator("#completeButton").is_hidden()
                           and practice_page.locator("#quizFeedback").get_attribute("data-result") is None,
+                          evidence.inner_text()[:450])
+                    check("post-v16-reference-copied-full-topology-does-not-complete-quiz",
+                          practice_page.locator(".wire-connected").count() ==
+                              practice_page.evaluate(
+                                  "() => import('./src/circuit-router.js').then(m => m.createSampleCircuit(2).wires.length)")
+                          and practice_page.locator("#completeButton").is_hidden()
+                          and practice_page.locator("#quizFeedback").get_attribute("data-result") is None
+                          and "không tự xác nhận" in evidence.inner_text()
+                          and "hoàn thành bài học" in evidence.inner_text(),
                           evidence.inner_text()[:450])
                     practice_page.locator("#learningCoach [data-practice-recheck]").click()
                     check("post-v16-practice-recheck-preserves-canonical-wire-count",
@@ -2400,6 +3114,17 @@ def main() -> None:
                                   "() => import('./src/circuit-router.js').then(m => m.createSampleCircuit(2).wires.length)")
                           and practice_page.locator(
                               "#learningCoach [data-practice-recheck]").count() == 1)
+                    for _ in range(16):
+                        if practice_page.locator("#coachPrevious").is_disabled():
+                            break
+                        practice_page.locator("#coachPrevious").click()
+                    check("post-v16-negative-topology-check-runs-on-authored-wiring-step",
+                          practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-step") == "0"
+                          and practice_page.locator(
+                              "#learningCoach [data-practice-evidence]").get_attribute(
+                                  "data-practice-checkpoint-kind") == "wiring")
                     practice_page.locator(".wire-actions .wire-action").nth(1).click()
                     practice_page.locator('[data-terminal="D13"]').click()
                     practice_page.locator('[data-terminal="GND"]').click()
@@ -2416,15 +3141,21 @@ def main() -> None:
                         practice_page.locator(
                             "#learningCoach [data-practice-open-wiring]").click()
                         practice_page.locator(".wire-actions .wire-action").first.click()
-                        for _ in range(16):
-                            if practice_page.locator("#coachNext").is_disabled():
-                                break
-                            practice_page.locator("#coachNext").click()
                         evidence = practice_page.locator(
                             "#learningCoach [data-practice-evidence]")
+                        expected_status = (
+                            "manual-checkpoint" if signal_lesson == 10
+                            else "signal-topology-match"
+                        )
+                        expected_scope = "manual" if signal_lesson == 10 else "signal-only"
+                        expected_kind = "manual" if signal_lesson == 10 else "wiring"
                         check(f"post-v16-practice-signal-only-{signal_lesson:02d}-never-functional",
-                              evidence.get_attribute("data-practice-status") == "signal-topology-match"
-                              and evidence.get_attribute("data-practice-scope") == "signal-only"
+                              evidence.get_attribute("data-practice-status") == expected_status
+                              and evidence.get_attribute("data-practice-scope") == expected_scope
+                              and evidence.get_attribute(
+                                  "data-practice-checkpoint-kind") == expected_kind
+                              and evidence.locator(
+                                  ".practice-evidence-signal-note").count() == 1
                               and practice_page.locator(".wire-activate").is_disabled()
                               and practice_page.locator("#completeButton").is_hidden(),
                               evidence.inner_text()[:450])
@@ -2447,7 +3178,7 @@ def main() -> None:
                     }""")
                     check("post-v16-practice-mobile375-no-overflow-touch-targets",
                           mobile_evidence["documentWidth"] <= mobile_evidence["innerWidth"]
-                          and mobile_evidence["buttons"] >= 2
+                          and mobile_evidence["buttons"] >= 3
                           and mobile_evidence["smallButtons"] == 0,
                           json.dumps(mobile_evidence, ensure_ascii=False))
                 finally:
@@ -2726,6 +3457,61 @@ def main() -> None:
                 check("post-v16-practice-modules-and-css-available-offline",
                       all(practice_offline.values()),
                       json.dumps(practice_offline, ensure_ascii=False))
+                authored_lab_offline = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [uno, checkpoints, placement, sketch, sketchUi, appCss] =
+                      await Promise.all([
+                        import(new URL('./src/uno-reference.js', baseUrl).href),
+                        import(new URL('./src/practice-checkpoints.js', baseUrl).href),
+                        import(new URL('./src/breadboard-placement.js', baseUrl).href),
+                        import(new URL('./src/sketch-review.js', baseUrl).href),
+                        import(new URL('./src/sketch-review-ui.js', baseUrl).href),
+                        fetch(new URL('./styles/app.css', baseUrl), {cache:'no-store'}),
+                      ]);
+                    const cssText = appCss.ok ? await appCss.text() : '';
+                    return {
+                        uno: typeof uno.listUnoPinReferences === 'function'
+                            && uno.UNO_REFERENCE_CLAIMS?.source === 'official-arduino-uno-r3-pinout',
+                        checkpoints: typeof checkpoints.getPracticeCheckpoint === 'function'
+                            && checkpoints.PRACTICE_CHECKPOINT_PROVENANCE?.teacherValidated === false,
+                        placement: typeof placement.createBreadboardPlacement === 'function'
+                            && placement.BREADBOARD_PLACEMENT_MODEL ===
+                                'explicit-authored-breadboard-placement-v2',
+                        sketch: typeof sketch.inspectSketchDraft === 'function'
+                            && sketch.SKETCH_REVIEW_BOUNDARIES?.compilesCpp === false
+                            && sketch.SKETCH_REVIEW_BOUNDARIES?.provesLearnerCompletion === false,
+                        sketchUi: typeof sketchUi.renderSketchReview === 'function',
+                        css: appCss.ok
+                            && cssText.includes('.uno-pin-reference')
+                            && cssText.includes('.sketch-review'),
+                    };
+                }""")
+                check("post-v16-authored-lab-five-runtime-modules-available-offline",
+                      all(authored_lab_offline.values()),
+                      json.dumps(authored_lab_offline, ensure_ascii=False))
+                interaction_offline = app.evaluate("""async () => {
+                    const baseUrl = document.baseURI;
+                    const [model, ui, session, observationDoc, resistiveDoc] = await Promise.all([
+                        import(new URL('./src/practice-observation.js', baseUrl).href),
+                        import(new URL('./src/practice-observation-ui.js', baseUrl).href),
+                        import(new URL('./src/breadboard-placement-session.js', baseUrl).href),
+                        fetch(new URL('./docs/PRACTICE_OBSERVATION_NEXT.md', baseUrl)),
+                        fetch(new URL('./docs/RESISTIVE_VISUAL_STUDY_NEXT.md', baseUrl)),
+                    ]);
+                    return {
+                        model: typeof model.createPracticeObservationJournal === 'function'
+                            && typeof model.inspectPracticeObservation === 'function'
+                            && model.PRACTICE_OBSERVATION_MAX_ENTRIES === 128,
+                        ui: typeof ui.renderPracticeObservation === 'function'
+                            && ui.renderObservation === ui.renderPracticeObservation,
+                        session: typeof session.createBreadboardPlacementSession === 'function',
+                        observationDoc: observationDoc.ok,
+                        resistiveDoc: resistiveDoc.ok,
+                    };
+                }""")
+                check("post-v16-interaction-runtime-and-docs-available-offline",
+                      all(interaction_offline.values()),
+                      json.dumps(interaction_offline, ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

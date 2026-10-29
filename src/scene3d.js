@@ -16,6 +16,8 @@ const LAB_EDIT_ARIA = "Chế độ chỉnh bố trí 3D đang bật. Click hoặ
 const LAB_WORLD_SCALE = .72;
 const SCENE_QUALITY_PROFILE = "v16";
 const SCENE_LOD_BREAKPOINT = 560;
+const LAB_TERMINAL_HIT_RADIUS = .20;
+const LAB_TOUCH_TAP_THRESHOLD = 12;
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
   checked: 0x188b80,
@@ -34,6 +36,18 @@ const createSharedMaterials = () => ({
   collarMat: material(0x6d7877, { roughness: .66 }),
   holeMat: material(0x9caead, { roughness: .82 }),
   railHoleMat: material(0xa6b4b0, { roughness: .82 }),
+  terminalMat: new T.MeshBasicMaterial({ color: 0x405a58 }),
+  terminalHaloMat: new T.MeshBasicMaterial({
+    color: palette.teal, transparent: true, opacity: .40,
+    depthWrite: false, side: T.DoubleSide,
+  }),
+  inspectionTerminalHaloMat: new T.MeshBasicMaterial({
+    color: 0x6274d9, transparent: true, opacity: .76,
+    depthWrite: false, side: T.DoubleSide,
+  }),
+  hitMat: new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  selectionLineMat: new T.LineBasicMaterial({ color: palette.amber, transparent: true, opacity: .96 }),
+  focusLineMat: new T.LineBasicMaterial({ color: palette.teal, transparent: true, opacity: .92 }),
 });
 
 function box(parent, size, colorOrMaterial, pos = [0,0,0], extras = {}) {
@@ -59,13 +73,20 @@ function canvasLabel(parent, text, x, y, z, width = 1.6, fontSize = 46, color = 
   context.font = `700 ${fontSize}px sans-serif`;
   context.textBaseline = "middle";
   context.textAlign = "center";
+  context.shadowColor = "rgba(13, 42, 38, .28)";
+  context.shadowBlur = 3;
+  context.shadowOffsetY = 1;
   context.fillText(text, 256, 54, 495);
   const texture = new T.CanvasTexture(canvas);
   texture.colorSpace = T.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = T.LinearFilter;
+  texture.magFilter = T.LinearFilter;
   const mesh = new T.Mesh(new T.PlaneGeometry(width, width * 108 / 512),
     new T.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: T.DoubleSide }));
   mesh.position.set(x,y,z);
   if (!horizontal) mesh.rotation.x = -Math.PI / 2;
+  mesh.userData = { kind: "scene-label", physicalVerified: false };
   parent.add(mesh);
   return mesh;
 }
@@ -275,10 +296,17 @@ function labComponentHeight(kind) {
   return .48;
 }
 
-function labSelectionFrame(parent, width, depth, componentId) {
+function outlineBoxGeometry(width, height, depth) {
+  const source = new T.BoxGeometry(width, height, depth);
+  const edges = new T.EdgesGeometry(source);
+  source.dispose();
+  return edges;
+}
+
+function labSelectionFrame(parent, width, depth, componentId, shared) {
   const frame = new T.LineSegments(
-    new T.EdgesGeometry(new T.BoxGeometry(width + .12, .08, depth + .12)),
-    new T.LineBasicMaterial({ color: palette.amber, transparent: true, opacity: .95 }),
+    outlineBoxGeometry(width + .14, .08, depth + .14),
+    shared.selectionLineMat,
   );
   frame.position.y = .08;
   frame.visible = false;
@@ -287,10 +315,22 @@ function labSelectionFrame(parent, width, depth, componentId) {
   return frame;
 }
 
-function labHitProxy(parent, width, depth, height, componentId) {
+function labFocusFrame(parent, width, depth, componentId, shared) {
+  const frame = new T.LineSegments(
+    outlineBoxGeometry(width + .30, .06, depth + .30),
+    shared.focusLineMat,
+  );
+  frame.position.y = .12;
+  frame.visible = false;
+  frame.userData = { kind: "lab-focus-frame", componentId, physicalLocation: false };
+  parent.add(frame);
+  return frame;
+}
+
+function labHitProxy(parent, width, depth, height, componentId, shared) {
   const proxy = new T.Mesh(
     new T.BoxGeometry(Math.max(.24, width), Math.max(.3, height + .35), Math.max(.24, depth)),
-    new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+    shared.hitMat,
   );
   proxy.position.y = Math.max(.2, height / 2);
   proxy.userData = { kind: "lab-component-hit", componentId, physicalLocation: false };
@@ -307,7 +347,7 @@ function makeLabArduinoVisual(parent, width, depth, shared) {
   const bottomZ = -depth * .39;
   box(parent,[width * .76,.22,.30],shared.plasticMat,[-width * .02,.35,topZ]);
   box(parent,[width * .62,.22,.30],shared.plasticMat,[width * .12,.35,bottomZ]);
-  canvasLabel(parent,"ARDUINO UNO",0,.285,.02,Math.max(1.5,width*.58),38);
+  canvasLabel(parent,"ARDUINO UNO R3",0,.285,.02,Math.max(1.6,width*.62),38);
   canvasLabel(parent,"DIGITAL D0–D13",0,.505,topZ - .30,Math.max(1.55,width*.58),29);
   canvasLabel(parent,"ANALOG A0–A5",width*.05,.505,bottomZ + .30,Math.max(1.5,width*.54),29);
   canvasLabel(parent,"5V · 3V3 · GND",width*.27,.505,depth*.16,Math.max(1.3,width*.42),27);
@@ -321,6 +361,7 @@ function makeLabArduinoVisual(parent, width, depth, shared) {
     fineDetail(cylinder(parent,.035,.035,.026,shared.socketMat,[px,.485,bottomZ],8));
   }
   fineDetail(canvasLabel(parent,"HEADER VISUAL · KHÔNG PHẢI PIN MAP",0,.515,depth*.47,Math.max(1.8,width*.74),20,"#d9eee8"));
+  fineDetail(canvasLabel(parent,"PWM ~ 3 · 5 · 6 · 9 · 10 · 11",0,.515,-depth*.47,Math.max(1.9,width*.78),18,"#c7e8df"));
   fineDetail(box(parent,[width*.15,.08,depth*.10],0x486c6f,[width*.31,.31,-depth*.10]));
   fineDetail(canvasLabel(parent,"RESET",width*.31,.52,-depth*.10,.60,20,"#d9eee8"));
 }
@@ -330,15 +371,20 @@ function makeLabBreadboardVisual(parent, width, depth, shared) {
   base.userData={kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
   box(parent,[width*.90,.012,.025],0xd77b65,[0,.285,-depth*.37]);
   box(parent,[width*.90,.012,.025],0x65a9d5,[0,.285,depth*.37]);
-  box(parent,[.12,.014,depth*.74],0xe0e6e3,[0,.292,0]);
+  box(parent,[width*.84,.014,depth*.07],0xe0e6e3,[0,.292,0]);
   box(parent,[width*.86,.012,.026],0xd77b65,[0,.285,-depth*.44]);
   box(parent,[width*.86,.012,.026],0x65a9d5,[0,.285,depth*.44]);
-  const columns = 12, rows = 6;
+  const columns = 12, bankRows = 5;
   for (let i = 0; i < columns; i += 1) {
     const x=-width*.39+i*(width*.78/(columns-1));
-    for (let j = 0; j < rows; j += 1) {
-      const z=-depth*.25+j*(depth*.50/(rows-1));
-      fineDetail(cylinder(parent,.025,.025,.014,shared.holeMat,[x,.292,z],7));
+    for (const side of [-1,1]) {
+      for (let j = 0; j < bankRows; j += 1) {
+        const z=side*(depth*.08+j*(depth*.19/(bankRows-1)));
+        fineDetail(cylinder(parent,.025,.025,.014,shared.holeMat,[x,.292,z],7));
+      }
+    }
+    for (const railZ of [-depth*.405,depth*.405]) {
+      fineDetail(cylinder(parent,.022,.022,.013,shared.railHoleMat,[x,.292,railZ],7));
     }
   }
   fineDetail(canvasLabel(parent,"VISUAL GRID · KHÔNG CÓ HOLE MAP",0,.305,depth*.31,Math.max(1.5,width*.72),18,"#7a8f89"));
@@ -484,6 +530,8 @@ function makeBoard(scene, shared) {
   box(board,[.9,.58,.55],0x263238,[-3.81,.8,-1.12]);
   cylinder(board,.48,.48,.76,plasticMat,[-3.68,.78,1.41],26,Math.PI/2);
   cylinder(board,.20,.20,.78,metallicMat,[-3.67,.78,1.41],26,Math.PI/2);
+  fineDetail(canvasLabel(board,"USB-B",-3.22,.49,-1.12,.78,21,"#dceee8"));
+  fineDetail(canvasLabel(board,"DC IN",-3.05,.49,1.41,.82,21,"#dceee8"));
   // Header rows are visually grouped for readability; they are not a verified pin map.
   const headers = [
     [-1.68,2.36,8,"D0–D7"],
@@ -536,13 +584,15 @@ function makeBreadboard(scene, shared) {
   base.userData={kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
   scene.add(base);
   box(base,[5.25,.33,5.03],0xffffff,[0,.3,0]);
-  box(base,[.19,.012,4.28],0xe2e6e5,[-.10,.48,0]);
-  for (let row=0;row<11;row++) {
-    const x=-2.17+row*.43;
-    for (let col=0;col<10;col++) {
-      const z=-2.0+col*.425;
-      const hole=fineDetail(cylinder(base,.037,.037,.014,shared.holeMat,[x,.476,z],8));
-      hole.userData={...hole.userData,kind:"breadboard-visual-hole",breadboardHoleMapping:false};
+  box(base,[4.55,.012,.18],0xe2e6e5,[0,.48,0]);
+  for (let column=0;column<11;column++) {
+    const x=-2.15+column*(4.30/10);
+    for(const side of [-1,1]){
+      for(let row=0;row<5;row++){
+        const z=side*(.38+row*(1.36/4));
+        const hole=fineDetail(cylinder(base,.037,.037,.014,shared.holeMat,[x,.476,z],8));
+        hole.userData={...hole.userData,kind:"breadboard-visual-hole",breadboardHoleMapping:false};
+      }
     }
   }
   for (const z of [-2.28,2.28]) {
@@ -677,9 +727,11 @@ export function mountScene(host, onSelect = () => {}) {
   let theta=.45,phi=.88,zoom=1,raf=0,disposed=false,contextLost=false,moved=false,drag=null;
   let activeModule=null,activeWiringLayer=null,board=null,breadboard=null,renderer,currentLessonId=null;
   let activeLabLayer=null,activeLabLayout=null,lastWiringModel=null,selectedLabComponentId=null;
+  let inspectedLabTerminalId=null,inspectedLabTerminalMode="none",inspectionBadge=null;
   let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0;
   let labWireLayer=null;
-  const labComponents=new Map(),labTerminals=new Map(),labWireObjects=[];
+  let lodInitialized=false,lastViewportWidth=0,lastViewportHeight=0;
+  const labComponents=new Map(),labTerminals=new Map(),labWireObjects=[],labPickables=[];
   let labEdit={enabled:false,onSelectComponent:null,onMoveComponent:null,onTerminalSelect:null};
   const raycaster=new T.Raycaster(),pointerNdc=new T.Vector2(),dragPlane=new T.Plane(new T.Vector3(0,1,0),0);
   const minZoom=.42,maxZoom=2.25;
@@ -735,8 +787,9 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function draw(){raf=0;if(disposed||contextLost||document.hidden)return;updateCamera();renderer.render(scene,camera);}
   function invalidate(){if(!raf && !disposed && !contextLost && !document.hidden) raf=requestAnimationFrame(draw);}
-  function applySceneLod(w,h){
+  function applySceneLod(w,h,force=false){
     const nextLod=(w<SCENE_LOD_BREAKPOINT||h<340)?"reduced":"full";
+    const lodChanged=!lodInitialized||nextLod!==currentLod;
     currentLod=nextLod;
     const nextPixelRatio=Math.min(window.devicePixelRatio||1,nextLod==="reduced"?1.25:1.7);
     if(Math.abs(nextPixelRatio-rendererPixelRatio)>1e-6){
@@ -745,12 +798,15 @@ export function mountScene(host, onSelect = () => {}) {
     }
     renderer.shadowMap.enabled=nextLod==="full";
     sun.castShadow=nextLod==="full";
-    fineDetailCount=0;
-    scene.traverse(child=>{
-      if(child?.userData?.sceneDetail!=="fine")return;
-      fineDetailCount+=1;
-      child.visible=nextLod==="full";
-    });
+    if(force||lodChanged){
+      fineDetailCount=0;
+      scene.traverse(child=>{
+        if(child?.userData?.sceneDetail!=="fine")return;
+        fineDetailCount+=1;
+        child.visible=nextLod==="full";
+      });
+    }
+    lodInitialized=true;
     if(renderer.domElement){
       renderer.domElement.dataset.sceneQuality=SCENE_QUALITY_PROFILE;
       renderer.domElement.dataset.sceneLod=nextLod;
@@ -759,21 +815,53 @@ export function mountScene(host, onSelect = () => {}) {
       renderer.domElement.dataset.scenePhysicalMap="none";
     }
   }
-  function resize(){
+  function resize(force=false){
     if(disposed||contextLost)return;
+    const forceResize=force===true;
     const w=Math.max(1,host.clientWidth),h=Math.max(1,host.clientHeight);
-    camera.aspect=w/h;camera.updateProjectionMatrix();
-    applySceneLod(w,h);
-    renderer.setSize(w,h,false);invalidate();
+    const sizeChanged=forceResize||w!==lastViewportWidth||h!==lastViewportHeight;
+    if(sizeChanged){
+      lastViewportWidth=w;lastViewportHeight=h;
+      camera.aspect=w/h;camera.updateProjectionMatrix();
+    }
+    applySceneLod(w,h,forceResize);
+    if(sizeChanged)renderer.setSize(w,h,false);
+    invalidate();
   }
   const observer = new ResizeObserver(resize);observer.observe(host);
   const canvas=renderer.domElement;
+  canvas.dataset.sceneContext="ready";
   const baseShortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home Enter Space";
+  function updateInspectionBadge(){
+    const show=inspectedLabTerminalMode==="read-only-label"&&inspectedLabTerminalId!==null;
+    if(show&&!inspectionBadge){
+      inspectionBadge=document.createElement("div");
+      inspectionBadge.dataset.sceneInspectionBadge="read-only";
+      inspectionBadge.setAttribute("aria-hidden","true");
+      inspectionBadge.style.cssText=[
+        "position:absolute","left:14px","bottom:56px","z-index:3","pointer-events:none",
+        "max-width:min(78%,360px)","padding:7px 10px","border:1px solid rgba(98,116,217,.58)",
+        "border-radius:8px","background:rgba(20,37,42,.88)","color:#eef1ff",
+        "font:700 12px/1.35 system-ui,sans-serif","letter-spacing:.02em",
+        "box-shadow:0 4px 14px rgba(0,0,0,.20)",
+      ].join(";");
+      host.append(inspectionBadge);
+    }
+    if(inspectionBadge){
+      inspectionBadge.hidden=!show;
+      inspectionBadge.textContent=show
+        ? `Đang xem terminal: ${inspectedLabTerminalId} · nhãn read-only`
+        : "";
+    }
+  }
   function refreshCanvasAccessibility() {
     const parts=[BASE_SCENE_ARIA];
     if(canvas.dataset.wiringMode && canvas.dataset.wiringMode!=="none")parts.push(CONCEPTUAL_WIRING_ARIA);
     if(activeLabLayout)parts.push("Bố trí component và terminal dùng tọa độ khái niệm, không phải vị trí lỗ breadboard được xác minh.");
     if(labEdit.enabled)parts.push(LAB_EDIT_ARIA);
+    if(inspectedLabTerminalId){
+      parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
+    }
     canvas.setAttribute("aria-label",parts.join(" "));
     canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
       ? baseShortcuts+" W A S D Q E Escape"
@@ -799,6 +887,13 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labElectricalPower="false";
     canvas.dataset.labSelectedComponent="";
     canvas.dataset.labEdit=labEdit.enabled?"on":"off";
+    canvas.dataset.labSelectionFeedback="none";
+    canvas.dataset.labFocusFeedback="none";
+    canvas.dataset.labTerminalFeedback="base";
+    canvas.dataset.labTerminalHighlightCount="0";
+    canvas.dataset.labInspectedTerminal="";
+    canvas.dataset.labInspectionFeedback="none";
+    updateInspectionBadge();
   }
   resetLabMetadata();
   resetWiringMetadata();
@@ -857,6 +952,35 @@ export function mountScene(host, onSelect = () => {}) {
   function canonicalLabComponent(componentId){
     return activeLabLayout?.components?.find(item=>item.id===componentId)||null;
   }
+  function refreshLabInteractionFeedback(){
+    let highlightedTerminals=0;
+    for(const [id,entry] of labComponents){
+      entry.selection.visible=id===selectedLabComponentId;
+      if(entry.focus)entry.focus.visible=id===focusedLabComponentId;
+    }
+    const haloInspection=inspectedLabTerminalMode==="lab-halo"&&
+      inspectedLabTerminalId!==null&&labTerminals.has(inspectedLabTerminalId);
+    if(inspectedLabTerminalMode==="lab-halo"&&!haloInspection){
+      inspectedLabTerminalId=null;
+      inspectedLabTerminalMode="none";
+    }
+    for(const [terminalId,item] of labTerminals){
+      const highlighted=labEdit.enabled&&item.componentId===selectedLabComponentId;
+      const inspected=haloInspection&&terminalId===inspectedLabTerminalId;
+      if(item.halo)item.halo.visible=highlighted;
+      if(item.inspectionHalo)item.inspectionHalo.visible=inspected;
+      item.marker.scale.setScalar(inspected?1.32:highlighted?1.18:1);
+      if(highlighted)highlightedTerminals+=1;
+    }
+    canvas.dataset.labSelectionFeedback=selectedLabComponentId?"outline":"none";
+    canvas.dataset.labFocusFeedback=focusedLabComponentId?"outline":"none";
+    canvas.dataset.labTerminalFeedback=highlightedTerminals?"selected-component":"base";
+    canvas.dataset.labTerminalHighlightCount=String(highlightedTerminals);
+    canvas.dataset.labInspectedTerminal=inspectedLabTerminalId||"";
+    canvas.dataset.labInspectionFeedback=inspectedLabTerminalMode==="lab-halo"
+      ? "highlight" : inspectedLabTerminalMode==="read-only-label" ? "label" : "none";
+    updateInspectionBadge();
+  }
   function setLabVisualTransform(entry,x,z,quarterTurns){
     entry.x=x;entry.z=z;entry.quarterTurns=((quarterTurns%4)+4)%4;
     entry.root.position.set(x*LAB_WORLD_SCALE,0,z*LAB_WORLD_SCALE);
@@ -871,8 +995,8 @@ export function mountScene(host, onSelect = () => {}) {
   function selectLabComponent(componentId,source="api",emit=false){
     if(componentId!==null&&!labComponents.has(componentId))throw new RangeError("Không có component trong lab layout: "+componentId);
     selectedLabComponentId=componentId;
-    for(const [id,entry] of labComponents)entry.selection.visible=id===componentId;
     canvas.dataset.labSelectedComponent=componentId||"";
+    refreshLabInteractionFeedback();
     if(emit&&labEdit.onSelectComponent){
       const component=componentId===null?null:canonicalLabComponent(componentId);
       labEdit.onSelectComponent(componentId,Object.freeze({
@@ -893,7 +1017,8 @@ export function mountScene(host, onSelect = () => {}) {
       activeLabLayer=null;
     }
     activeLabLayout=null;
-    labComponents.clear();labTerminals.clear();selectedLabComponentId=null;focusedLabComponentId=null;
+    labComponents.clear();labTerminals.clear();labPickables.length=0;selectedLabComponentId=null;focusedLabComponentId=null;
+    inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
     if(hadFocus)zoom=1;
     if(board?.board)board.board.visible=true;
     if(breadboard)breadboard.visible=true;
@@ -901,6 +1026,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(activeWiringLayer)activeWiringLayer.visible=true;
     resetLabMetadata();
     refreshCanvasAccessibility();
+    if(redraw&&!contextLost){
+      applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
+    }
     if(redraw)invalidate();
     return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
   }
@@ -952,6 +1080,7 @@ export function mountScene(host, onSelect = () => {}) {
       focusedLabComponentId=null;
       zoom=1;
       canvas.dataset.labFocusedComponent="";
+      refreshLabInteractionFeedback();
       invalidate();
       return getLabViewState();
     }
@@ -962,8 +1091,55 @@ export function mountScene(host, onSelect = () => {}) {
     const logicalSpan=Math.max(entry.component.width,entry.component.depth);
     zoom=Math.max(.42,Math.min(.58,.40+logicalSpan*.02));
     canvas.dataset.labFocusedComponent=componentId;
+    refreshLabInteractionFeedback();
     invalidate();
     return getLabViewState();
+  }
+  function setInspectedTerminal(terminalId,layout=null){
+    if(disposed)return Object.freeze({terminalId:null,active:false,mode:"none",physicalVerified:false});
+    if(terminalId===null){
+      inspectedLabTerminalId=null;
+      inspectedLabTerminalMode="none";
+      refreshLabInteractionFeedback();
+      refreshCanvasAccessibility();
+      invalidate();
+      return Object.freeze({terminalId:null,active:false,mode:"none",physicalVerified:false});
+    }
+    if(typeof terminalId!=="string"||!terminalId||terminalId.trim()!==terminalId){
+      throw new TypeError("terminalId inspection phải là ID canonical không rỗng hoặc null");
+    }
+    if(terminalId.length>80)throw new RangeError("terminalId inspection vượt giới hạn 80 ký tự");
+    let nextMode="none";
+    if(activeLabLayout){
+      if(!labTerminals.has(terminalId)){
+        throw new RangeError("Terminal không thuộc lab layout bài học đang hiển thị: "+terminalId);
+      }
+      nextMode="lab-halo";
+    }else{
+      if(!layout)throw new RangeError("Không có lab layout canonical để xác minh terminal inspection");
+      const validation=validateLabLayout(layout,layout?.terminals);
+      if(!validation.ok){
+        throw new RangeError("Lab layout inspection không hợp lệ: "+validation.errors.join("; "));
+      }
+      if(currentLessonId!==null&&Number.isFinite(currentLessonId)&&layout.lessonId!==currentLessonId){
+        throw new RangeError("Lab layout inspection không thuộc bài học đang hiển thị");
+      }
+      if(!layout.terminals.some(item=>item?.id===terminalId)){
+        throw new RangeError("Terminal không thuộc lab layout inspection: "+terminalId);
+      }
+      nextMode="read-only-label";
+    }
+    inspectedLabTerminalId=terminalId;
+    inspectedLabTerminalMode=nextMode;
+    refreshLabInteractionFeedback();
+    refreshCanvasAccessibility();
+    invalidate();
+    return Object.freeze({
+      terminalId:inspectedLabTerminalId,
+      active:inspectedLabTerminalId!==null,
+      mode:inspectedLabTerminalMode,
+      physicalVerified:false,
+    });
   }
   function setLabLayout(layout){
     if(disposed)return Object.freeze({mode:"none",componentCount:0,terminalCount:0,physicalVerified:false});
@@ -1004,16 +1180,20 @@ export function mountScene(host, onSelect = () => {}) {
       activeLabLayer.add(root);
       const visual=makeLabGenericVisual(root,component,sharedMaterials);
       const selection=labSelectionFrame(
-        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,component.id
+        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,component.id,sharedMaterials
+      );
+      const focus=labFocusFrame(
+        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,component.id,sharedMaterials
       );
       const hit=labHitProxy(
-        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,visual.height,component.id
+        root,component.width*LAB_WORLD_SCALE,component.depth*LAB_WORLD_SCALE,visual.height,component.id,sharedMaterials
       );
       const entry={
-        component,root,selection,hit,
+        component,root,selection,focus,hit,
         x:component.x,z:component.z,quarterTurns:component.quarterTurns
       };
       labComponents.set(component.id,entry);
+      labPickables.push(hit);
       for(const terminalId of component.terminalIds){
         const anchor=labTerminalAnchor(layout,terminalId);
         const localRotated={x:anchor.x-component.x,z:anchor.z-component.z};
@@ -1021,8 +1201,8 @@ export function mountScene(host, onSelect = () => {}) {
           localRotated.x,localRotated.z,component.quarterTurns
         );
         const marker=new T.Mesh(
-          new T.CylinderGeometry(.065,.065,.11,12),
-          new T.MeshBasicMaterial({color:0x405a58}),
+          new T.CylinderGeometry(.075,.075,.13,12),
+          sharedMaterials.terminalMat,
         );
         marker.position.set(
           local.x*LAB_WORLD_SCALE,visual.height+.10,local.z*LAB_WORLD_SCALE
@@ -1033,9 +1213,33 @@ export function mountScene(host, onSelect = () => {}) {
           physicalLocation:false,physicalVerified:false,
         };
         root.add(marker);
+        const halo=new T.Mesh(
+          new T.RingGeometry(.10,.17,20),
+          sharedMaterials.terminalHaloMat,
+        );
+        halo.rotation.x=-Math.PI/2;
+        halo.position.set(marker.position.x,marker.position.y+.075,marker.position.z);
+        halo.visible=false;
+        halo.userData={
+          kind:"lab-terminal-affordance",terminalId,componentId:component.id,
+          physicalLocation:false,physicalVerified:false,
+        };
+        root.add(halo);
+        const inspectionHalo=new T.Mesh(
+          new T.RingGeometry(.19,.28,24),
+          sharedMaterials.inspectionTerminalHaloMat,
+        );
+        inspectionHalo.rotation.x=-Math.PI/2;
+        inspectionHalo.position.set(marker.position.x,marker.position.y+.082,marker.position.z);
+        inspectionHalo.visible=false;
+        inspectionHalo.userData={
+          kind:"lab-terminal-inspection-affordance",terminalId,componentId:component.id,
+          physicalLocation:false,physicalVerified:false,readOnly:true,
+        };
+        root.add(inspectionHalo);
         const terminalHit=new T.Mesh(
-          new T.SphereGeometry(.15,10,8),
-          new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}),
+          new T.SphereGeometry(LAB_TERMINAL_HIT_RADIUS,10,8),
+          sharedMaterials.hitMat,
         );
         terminalHit.position.copy(marker.position);
         terminalHit.userData={
@@ -1044,11 +1248,12 @@ export function mountScene(host, onSelect = () => {}) {
           physicalLocation:false,physicalVerified:false,
         };
         root.add(terminalHit);
+        labPickables.push(terminalHit);
         canvasLabel(
           root,terminalId.slice(0,22),
           marker.position.x,visual.height+.12,marker.position.z+.09,.72,23,"#355f4b"
         );
-        labTerminals.set(terminalId,{marker,hit:terminalHit,componentId:component.id,anchor});
+        labTerminals.set(terminalId,{marker,halo,inspectionHalo,hit:terminalHit,componentId:component.id,anchor});
       }
       setLabVisualTransform(entry,component.x,component.z,component.quarterTurns);
     }
@@ -1068,13 +1273,14 @@ export function mountScene(host, onSelect = () => {}) {
       focusedLabComponentId=null;
       canvas.dataset.labFocusedComponent="";
     }
+    refreshLabInteractionFeedback();
     canvas.dataset.labLayoutMode="conceptual-layout";
     canvas.dataset.labComponentCount=String(layout.components.length);
     canvas.dataset.labTerminalCount=String(layout.terminals.length);
     canvas.dataset.labPhysicalVerified="false";
     canvas.dataset.labBreadboardHoleMapping="false";
     canvas.dataset.labElectricalPower="false";
-    applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight));
+    applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     refreshCanvasAccessibility();
     invalidate();
     return Object.freeze({
@@ -1098,8 +1304,17 @@ export function mountScene(host, onSelect = () => {}) {
     validateLabEditCallback(options.onSelectComponent,"onSelectComponent");
     validateLabEditCallback(options.onMoveComponent,"onMoveComponent");
     validateLabEditCallback(options.onTerminalSelect,"onTerminalSelect");
+    const hasSelected=Object.prototype.hasOwnProperty.call(options,"selectedComponentId");
+    const requestedSelected=hasSelected
+      ? (options.selectedComponentId==null?null:String(options.selectedComponentId))
+      : undefined;
+    if(hasSelected&&requestedSelected!==null&&!labComponents.has(requestedSelected)){
+      throw new RangeError("Không có component trong lab layout: "+requestedSelected);
+    }
+    const nextEditEnabled=Boolean(options.enabled);
+    const editTransition=nextEditEnabled!==labEdit.enabled;
     labEdit={
-      enabled:Boolean(options.enabled),
+      enabled:nextEditEnabled,
       onSelectComponent:options.onSelectComponent===undefined
         ? labEdit.onSelectComponent : options.onSelectComponent,
       onMoveComponent:options.onMoveComponent===undefined
@@ -1107,16 +1322,17 @@ export function mountScene(host, onSelect = () => {}) {
       onTerminalSelect:options.onTerminalSelect===undefined
         ? labEdit.onTerminalSelect : options.onTerminalSelect,
     };
+    if(editTransition){inspectedLabTerminalId=null;inspectedLabTerminalMode="none";}
     canvas.dataset.labEdit=labEdit.enabled?"on":"off";
     canvas.style.touchAction=labEdit.enabled?"none":"";
     canvas.style.cursor=labEdit.enabled?"grab":"";
-    if(Object.prototype.hasOwnProperty.call(options,"selectedComponentId")){
-      const id=options.selectedComponentId==null?null:String(options.selectedComponentId);
-      selectLabComponent(id,"api",false);
+    if(hasSelected){
+      selectLabComponent(requestedSelected,"api",false);
     }else if(!labEdit.enabled){
       if(selectedLabComponentId)restoreLabComponent(selectedLabComponentId);
       selectLabComponent(null,"api",false);
     }
+    refreshLabInteractionFeedback();
     refreshCanvasAccessibility();
     return Object.freeze({
       enabled:labEdit.enabled,
@@ -1165,11 +1381,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(!activeLabLayout)return null;
     if(!pointerRay(event))return null;
     scene.updateMatrixWorld(true);
-    const pickables=[
-      ...[...labTerminals.values()].map(item=>item.hit),
-      ...[...labComponents.values()].map(item=>item.hit),
-    ];
-    const hits=raycaster.intersectObjects(pickables,false);
+    const hits=raycaster.intersectObjects(labPickables,false);
     if(!hits.length)return null;
     const terminal=hits.find(hit=>hit.object.userData.kind==="lab-terminal");
     return terminal||hits[0];
@@ -1181,8 +1393,8 @@ export function mountScene(host, onSelect = () => {}) {
     return ray.intersectPlane(dragPlane,result)?result:null;
   }
   function pointerTapThreshold(pointerType){
-    if(pointerType==="touch")return 10;
-    if(pointerType==="pen")return 6;
+    if(pointerType==="touch")return LAB_TOUCH_TAP_THRESHOLD;
+    if(pointerType==="pen")return 7;
     return 4;
   }
   function pointerDragBase(event,extra={}){
@@ -1343,6 +1555,7 @@ export function mountScene(host, onSelect = () => {}) {
       defaultPosition();
       focusedLabComponentId=null;
       canvas.dataset.labFocusedComponent="";
+      refreshLabInteractionFeedback();
     }
     else if(labEdit.enabled&&activeLabLayout&&["w","a","s","d"].includes(event.key.toLowerCase())){
       const entry=labComponents.get(selectedLabComponentId);
@@ -1385,7 +1598,10 @@ export function mountScene(host, onSelect = () => {}) {
   };
   const onContextLost=event=>{
     event.preventDefault();
+    if(contextLost)return;
     contextLost=true;
+    canvas.dataset.sceneContext="lost";
+    canvas.setAttribute("aria-busy","true");
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     if(raf){cancelAnimationFrame(raf);raf=0;}
@@ -1398,7 +1614,10 @@ export function mountScene(host, onSelect = () => {}) {
   const onContextRestored=()=>{
     if(disposed)return;
     contextLost=false;
-    resize();
+    canvas.dataset.sceneContext="ready";
+    canvas.removeAttribute("aria-busy");
+    refreshLabInteractionFeedback();
+    resize(true);
   };
   canvas.addEventListener("pointerdown",down);
   canvas.addEventListener("pointermove",move);
@@ -1420,6 +1639,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     activeModule=createModule(scene, lesson.id===1?"board":
       ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
+    if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
   function setWiring(circuit,terminals=[],analysis=null){
@@ -1496,11 +1716,12 @@ export function mountScene(host, onSelect = () => {}) {
       defaultPosition();
       focusedLabComponentId=null;
       canvas.dataset.labFocusedComponent="";
+      refreshLabInteractionFeedback();
     }
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -1530,10 +1751,16 @@ export function mountScene(host, onSelect = () => {}) {
     }
     labComponents.clear();
     labTerminals.clear();
+    labPickables.length=0;
     labWireObjects.length=0;
     labWireLayer=null;
     activeLabLayout=null;
     focusedLabComponentId=null;
+    inspectedLabTerminalId=null;
+    inspectedLabTerminalMode="none";
+    canvas.dataset.labInspectedTerminal="";
+    canvas.dataset.labInspectionFeedback="none";
+    if(inspectionBadge){inspectionBadge.remove();inspectionBadge=null;}
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     if(board){scene.remove(board.board);disposeTree(board.board,sharedMaterialSet);}

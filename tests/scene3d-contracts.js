@@ -17,6 +17,22 @@ export async function runScene3DContracts() {
     results.push({ name, status: "PASS" });
   };
 
+  const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
+  const inspectionStart = sceneSource.indexOf("function setInspectedTerminal");
+  const inspectionEnd = sceneSource.indexOf("function setLabLayout", inspectionStart);
+  const inspectionSource = inspectionStart >= 0 && inspectionEnd > inspectionStart
+    ? sceneSource.slice(inspectionStart, inspectionEnd)
+    : "";
+  check("inspection-source-validates-read-only-layout",
+    /setInspectedTerminal\(terminalId,layout=null\)/.test(inspectionSource) &&
+    /validateLabLayout\(layout,layout\?\.terminals\)/.test(inspectionSource) &&
+    /layout\.terminals\.some/.test(inspectionSource));
+  check("inspection-source-does-not-mount-or-position-read-only-layout",
+    !/setLabLayout\(/.test(inspectionSource) &&
+    !/labTerminalAnchor\(/.test(inspectionSource) &&
+    /read-only-label/.test(inspectionSource) &&
+    /lab-halo/.test(inspectionSource));
+
   const detached = document.createElement("div");
   let detachedRejected = false;
   try { mountScene(detached); } catch (error) { detachedRejected = /3D/.test(error.message); }
@@ -66,6 +82,7 @@ export async function runScene3DContracts() {
     check("canvas-keyboard-help", /mũi tên/i.test(canvas.getAttribute("aria-label") || "") && /Enter/i.test(canvas.getAttribute("aria-label") || ""));
     check("canvas-keyshortcuts", /ArrowLeft/.test(canvas.getAttribute("aria-keyshortcuts") || "") && /Home/.test(canvas.getAttribute("aria-keyshortcuts") || ""));
     check("touch-preserves-page-scroll", getComputedStyle(canvas).touchAction === "pan-y");
+    check("context-ready-metadata", canvas.dataset.sceneContext === "ready" && !canvas.hasAttribute("aria-busy"));
 
     canvas.focus();
     const arrow = new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true });
@@ -103,6 +120,167 @@ export async function runScene3DContracts() {
     canvas.dispatchEvent(new PointerEvent("pointerup", { button: 0, pointerId: 42, pointerType: "touch", clientX: 10, clientY: 10, bubbles: true }));
     check("touch-tap-selects", selected === beforeCancel + 1);
 
+    const beforeJitter = selected;
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 43, pointerType: "touch", clientX: 10, clientY: 10, bubbles: true }));
+    canvas.dispatchEvent(new PointerEvent("pointermove", { pointerId: 43, pointerType: "touch", clientX: 21, clientY: 10, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { button: 0, pointerId: 43, pointerType: "touch", clientX: 21, clientY: 10, bubbles: true }));
+    check("touch-11px-jitter-still-selects", selected === beforeJitter + 1);
+
+    const beforeTrueDrag = selected;
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 44, pointerType: "touch", clientX: 10, clientY: 10, bubbles: true }));
+    canvas.dispatchEvent(new PointerEvent("pointermove", { pointerId: 44, pointerType: "touch", clientX: 24, clientY: 10, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { button: 0, pointerId: 44, pointerType: "touch", clientX: 24, clientY: 10, bubbles: true }));
+    check("touch-14px-drag-does-not-select", selected === beforeTrueDrag);
+
+    const [{ createLabLayout }, { listTerminals }] = await Promise.all([
+      import("../src/lab-layout.js"),
+      import("../src/circuit-router.js"),
+    ]);
+    mounted.setLesson({ id: 2 });
+    const terminals = listTerminals(2);
+    const layout = createLabLayout(2, terminals);
+    check("public-inspected-terminal-api", typeof mounted.setInspectedTerminal === "function");
+
+    let noLayoutProofRejected = false;
+    try { mounted.setInspectedTerminal("D13"); }
+    catch (error) { noLayoutProofRejected = error instanceof RangeError; }
+    check("inspection-no-layout-no-proof-rejected",
+      noLayoutProofRejected &&
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+
+    const beforeReadOnlyInspection = mounted.getLabViewState();
+    const readOnlyInspection = mounted.setInspectedTerminal("D13", layout);
+    const afterReadOnlyInspection = mounted.getLabViewState();
+    const readOnlyBadge = host.querySelector('[data-scene-inspection-badge="read-only"]');
+    check("inspection-read-only-label-mode",
+      readOnlyInspection.active === true &&
+      readOnlyInspection.terminalId === "D13" &&
+      readOnlyInspection.mode === "read-only-label" &&
+      readOnlyInspection.physicalVerified === false &&
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "label" &&
+      readOnlyBadge instanceof HTMLElement &&
+      readOnlyBadge.hidden === false &&
+      /D13/.test(readOnlyBadge.textContent || "") &&
+      /D13/.test(canvas.getAttribute("aria-label") || ""));
+    check("inspection-read-only-label-does-not-mount-or-move-scene",
+      beforeReadOnlyInspection.mode === "legacy" &&
+      afterReadOnlyInspection.mode === "legacy" &&
+      afterReadOnlyInspection.focusedComponentId === beforeReadOnlyInspection.focusedComponentId &&
+      afterReadOnlyInspection.selectedComponentId === beforeReadOnlyInspection.selectedComponentId &&
+      JSON.stringify(afterReadOnlyInspection.camera) === JSON.stringify(beforeReadOnlyInspection.camera) &&
+      canvas.dataset.labWireCount === "0" &&
+      afterReadOnlyInspection.claims.physicalVerified === false &&
+      afterReadOnlyInspection.claims.breadboardHoleMapping === false &&
+      afterReadOnlyInspection.claims.electricalPower === false);
+
+    let readOnlyUnknownRejected = false;
+    try { mounted.setInspectedTerminal("NOT_A_TERMINAL", layout); }
+    catch (error) { readOnlyUnknownRejected = error instanceof RangeError; }
+    check("inspection-read-only-unknown-id-is-transactional",
+      readOnlyUnknownRejected &&
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "label");
+
+    mounted.setLabLayout(layout);
+    check("layout-mount-clears-read-only-label",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none" &&
+      readOnlyBadge.hidden === true);
+
+    const beforeInspectionState = mounted.getLabViewState();
+    const wireCountBeforeInspection = canvas.dataset.labWireCount;
+    const inspected = mounted.setInspectedTerminal("D13");
+    const afterInspectionState = mounted.getLabViewState();
+    check("inspection-read-only-dataset",
+      inspected.active === true &&
+      inspected.terminalId === "D13" &&
+      inspected.mode === "lab-halo" &&
+      inspected.physicalVerified === false &&
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "highlight");
+    check("inspection-does-not-focus-or-select",
+      afterInspectionState.focusedComponentId === beforeInspectionState.focusedComponentId &&
+      afterInspectionState.selectedComponentId === beforeInspectionState.selectedComponentId &&
+      JSON.stringify(afterInspectionState.camera) === JSON.stringify(beforeInspectionState.camera));
+    check("inspection-does-not-create-wire-or-electrical-claim",
+      canvas.dataset.labWireCount === wireCountBeforeInspection &&
+      afterInspectionState.claims.physicalVerified === false &&
+      afterInspectionState.claims.breadboardHoleMapping === false &&
+      afterInspectionState.claims.electricalPower === false);
+
+    let unknownInspectionRejected = false;
+    try { mounted.setInspectedTerminal("NOT_A_TERMINAL"); }
+    catch (error) { unknownInspectionRejected = error instanceof RangeError; }
+    check("inspection-unknown-id-is-transactional",
+      unknownInspectionRejected &&
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "highlight");
+
+    let oversizedInspectionRejected = false;
+    try { mounted.setInspectedTerminal("X".repeat(81)); }
+    catch (error) { oversizedInspectionRejected = error instanceof RangeError; }
+    check("inspection-id-is-bounded",
+      oversizedInspectionRejected && canvas.dataset.labInspectedTerminal === "D13");
+
+    const clearedInspection = mounted.setInspectedTerminal(null);
+    check("inspection-null-clears",
+      clearedInspection.active === false &&
+      clearedInspection.terminalId === null &&
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+
+    mounted.setInspectedTerminal("D13");
+    mounted.setLabLayout(layout);
+    check("layout-refresh-clears-inspection",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+
+    const editTerminalEvents = [];
+    mounted.setInspectedTerminal("D13");
+    mounted.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onTerminalSelect: id => editTerminalEvents.push(id),
+    });
+    check("edit-transition-clears-inspection",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+    check("lab-selection-feedback-metadata",
+      canvas.dataset.labSelectionFeedback === "outline" &&
+      canvas.dataset.labTerminalFeedback === "selected-component" &&
+      Number(canvas.dataset.labTerminalHighlightCount) > 0);
+    mounted.setInspectedTerminal("D13");
+    check("inspection-feedback-distinct-from-edit-feedback",
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "highlight" &&
+      canvas.dataset.labTerminalFeedback === "selected-component" &&
+      canvas.dataset.labSelectedComponent === "arduino" &&
+      editTerminalEvents.length === 0);
+    mounted.focusLabComponent("arduino");
+    check("lab-focus-feedback-metadata", canvas.dataset.labFocusFeedback === "outline");
+
+    let invalidSelectionRejected = false;
+    try { mounted.setLabEdit({ enabled: false, selectedComponentId: "missing-component" }); }
+    catch (error) { invalidSelectionRejected = error instanceof RangeError; }
+    check("invalid-selection-is-transactional",
+      invalidSelectionRejected &&
+      canvas.dataset.labEdit === "on" &&
+      canvas.dataset.labSelectedComponent === "arduino");
+    mounted.focusLabComponent(null);
+    check("lab-focus-feedback-clears", canvas.dataset.labFocusFeedback === "none");
+    mounted.setLabEdit({ enabled: false });
+    check("edit-exit-clears-inspection",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+    mounted.setLabLayout(null);
+    const readOnlyBeforeContext = mounted.setInspectedTerminal("D13", layout);
+    check("read-only-label-before-context-loss",
+      readOnlyBeforeContext.mode === "read-only-label" &&
+      canvas.dataset.labInspectionFeedback === "label" &&
+      readOnlyBadge.hidden === false);
+
     flushFrames();
     const gl = canvas.getContext("webgl2");
     const contextExtension = gl?.getExtension("WEBGL_lose_context");
@@ -111,6 +289,12 @@ export async function runScene3DContracts() {
     else canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
     const lost = await lostPromise;
     check("context-loss-cancelled", lost.defaultPrevented);
+    check("context-loss-accessibility-state",
+      canvas.dataset.sceneContext === "lost" && canvas.getAttribute("aria-busy") === "true");
+    check("context-loss-preserves-read-only-inspection",
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "label" &&
+      readOnlyBadge.hidden === false);
     mounted.control("left");
     check("context-loss-pauses-render", queuedFrames.size === 0);
     // Restoration is only allowed after the cancelable context-lost event has
@@ -121,12 +305,40 @@ export async function runScene3DContracts() {
     else canvas.dispatchEvent(new Event("webglcontextrestored"));
     await restoredPromise;
     check("context-restore-invalidates", queuedFrames.size === 1);
+    check("context-restore-accessibility-state",
+      canvas.dataset.sceneContext === "ready" && !canvas.hasAttribute("aria-busy"));
+    check("context-restore-preserves-read-only-inspection",
+      canvas.dataset.labInspectedTerminal === "D13" &&
+      canvas.dataset.labInspectionFeedback === "label" &&
+      readOnlyBadge.hidden === false);
     flushFrames();
+
+    mounted.setLesson({ id: 3 });
+    check("lesson-change-clears-inspection",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+    const layout3 = createLabLayout(3, listTerminals(3));
+    let staleInspectionRejected = false;
+    try { mounted.setInspectedTerminal("D13", layout); }
+    catch (error) { staleInspectionRejected = error instanceof RangeError; }
+    check("stale-terminal-rejected-after-lesson-layout-change",
+      staleInspectionRejected &&
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none");
+    const lesson3ReadOnly = mounted.setInspectedTerminal("D2", layout3);
+    check("new-lesson-read-only-layout-accepted",
+      lesson3ReadOnly.mode === "read-only-label" &&
+      canvas.dataset.labInspectedTerminal === "D2" &&
+      canvas.dataset.labInspectionFeedback === "label");
 
     mounted.dispose();
     mounted = null;
     check("dispose-removes-canvas", !canvas.isConnected && !host.querySelector("canvas"));
     check("dispose-cancels-render", queuedFrames.size === 0);
+    check("dispose-clears-inspection-metadata",
+      canvas.dataset.labInspectedTerminal === "" &&
+      canvas.dataset.labInspectionFeedback === "none" &&
+      !readOnlyBadge.isConnected);
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     check("dispose-detaches-context-listeners", queuedFrames.size === 0);
 

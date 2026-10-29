@@ -11,6 +11,7 @@ import {
   listTerminals,
   supportedWiringLessons,
 } from "./circuit-router.js";
+import { getPracticeCheckpoint } from "./practice-checkpoints.js";
 
 const MAX_WIRES = 64;
 const MAX_ISSUES = 32;
@@ -247,28 +248,16 @@ function normalizeIssues(analysis) {
   })));
 }
 
-function stepGroupBounds(totalEdges, totalSteps, step) {
-  const base = Math.floor(totalEdges / totalSteps);
-  const remainder = totalEdges % totalSteps;
-  const size = base + (step < remainder ? 1 : 0);
-  const start = step * base + Math.min(step, remainder);
-  return { start, end: start + size };
-}
-
-function cumulativeRequired(referenceWires, stepIndex, stepCount) {
-  let end = 0;
-  for (let step = 0; step <= stepIndex; step += 1) {
-    end = stepGroupBounds(referenceWires.length, stepCount, step).end;
-  }
-  return referenceWires.slice(0, end);
-}
-
-function claims(scope) {
+function claims(scope, checkpoint, signalOnly = false) {
   return Object.freeze({
     origin: "learner-circuit-vs-reference-sample",
     electricalAuthority: "circuit-router",
-    sampleEdgeGrouping: "deterministic-balanced-contiguous-cumulative",
+    sampleEdgeGrouping: "human-authored-step-checkpoint",
+    checkpointEditorialProvenance: checkpoint.provenance.scheme,
+    checkpointKind: checkpoint.kind,
     sampleGroupingPedagogyVerified: false,
+    teacherValidated: false,
+    checkpointPrerequisiteForAdvance: false,
     sampleCopiedDoesNotProveAction: true,
     learnerActionProven: false,
     physicalVerified: false,
@@ -277,7 +266,7 @@ function claims(scope) {
     autoCompletion: false,
     lessonCompleted: false,
     functionalHardware: false,
-    signalOnly: scope === "signal-only",
+    signalOnly: signalOnly || scope === "signal-only",
   });
 }
 
@@ -285,7 +274,7 @@ function result(value) {
   return deepFreeze(value);
 }
 
-function manualEvidence(lesson, stepIndex) {
+function manualEvidence(lesson, stepIndex, checkpoint, signalOnly = false) {
   return result({
     lessonId: lesson.id,
     stepIndex,
@@ -296,23 +285,27 @@ function manualEvidence(lesson, stepIndex) {
     missingPairs: [],
     extraPairs: [],
     issues: [],
-    summary: "Bước này không có netlist ngoài để đối chiếu; cần quan sát/thao tác thủ công theo nội dung bài.",
-    nextAction: lesson.steps[stepIndex],
-    claims: claims("manual"),
+    summary: "Checkpoint này được biên tập là bước quan sát/mô phỏng; không gán yêu cầu netlist cho bước hiện tại.",
+    nextAction: checkpoint.guidance,
+    guidance: checkpoint.guidance,
+    checkpoint,
+    claims: claims("manual", checkpoint, signalOnly),
   });
 }
 
 /**
  * Inspect step-specific learner wiring evidence.
  *
- * The result is evidence of agreement with deterministic groups of the
- * circuit-router sample only. It is never evidence that the learner physically
+ * The result is evidence of agreement with human-authored step checkpoints
+ * bounded to edges in the circuit-router sample. Editorial mapping is not
+ * teacher validation and is never evidence that the learner physically
  * performed the action, mastered the lesson, or built a real circuit.
  */
 export function inspectPracticeEvidence(input) {
   const source = requireInput(input);
   const lesson = requireLesson(source.lesson);
   const stepIndex = requireStepIndex(source.stepIndex, lesson);
+  const checkpoint = getPracticeCheckpoint(lesson, stepIndex);
   if (typeof source.hasLearnerDraft !== "boolean") {
     throw new TypeError("hasLearnerDraft phải là boolean.");
   }
@@ -326,7 +319,7 @@ export function inspectPracticeEvidence(input) {
     ) {
       throw new RangeError("Bài 01 không có external wiring evidence.");
     }
-    return manualEvidence(lesson, stepIndex);
+    return manualEvidence(lesson, stepIndex, checkpoint);
   }
 
   if (!supportedWiringLessons().includes(lesson.id)) {
@@ -369,12 +362,19 @@ export function inspectPracticeEvidence(input) {
   }
 
   const canonicalAnalysis = requireAnalysis(source.analysis, lesson.id, source.circuit);
-  const scope = canonicalAnalysis.scope === "signal-only" ? "signal-only" : "topology";
-  const requiredWires = cumulativeRequired(
-    canonicalReference.wires,
-    stepIndex,
-    lesson.steps.length,
-  );
+  const circuitScope = canonicalAnalysis.scope === "signal-only" ? "signal-only" : "topology";
+  if (checkpoint.kind === "manual") {
+    return manualEvidence(lesson, stepIndex, checkpoint, circuitScope === "signal-only");
+  }
+
+  const referenceByKey = new Map(canonicalReference.wires.map(wire => [wire.key, wire]));
+  const requiredWires = checkpoint.requiredPairs.map(pair => {
+    const wire = referenceByKey.get(pairKey(pair[0], pair[1]));
+    if (!wire) {
+      throw new RangeError("Authored checkpoint chứa edge không thuộc canonical reference sample.");
+    }
+    return wire;
+  });
   const requiredKeys = new Set(requiredWires.map(wire => wire.key));
   const matched = requiredWires.filter(wire => learner.pairKeys.has(wire.key)).length;
   const missingPairs = requiredWires
@@ -390,7 +390,6 @@ export function inspectPracticeEvidence(input) {
     });
   const analysisIssues = normalizeIssues(canonicalAnalysis);
   const hasError = analysisIssues.some(item => item.severity === "error");
-  const finalStep = stepIndex === lesson.steps.length - 1;
   const fullReferenceMatch =
     learner.pairKeys.size === canonicalReference.pairKeys.size &&
     sameSet(learner.pairKeys, canonicalReference.pairKeys);
@@ -400,34 +399,34 @@ export function inspectPracticeEvidence(input) {
   let nextAction;
   if (!source.hasLearnerDraft) {
     status = "not-attempted";
-    summary = "Ứng dụng chưa ghi nhận bản tự đấu trong phiên hiện tại; mạch mẫu chỉ là reference và không được tính là cạnh trong bản thảo.";
-    nextAction = lesson.steps[stepIndex];
+    summary = "Ứng dụng chưa ghi nhận bản tự đấu trong phiên hiện tại; checkpoint chỉ là ánh xạ biên tập từ nội dung bước sang reference sample và không chứng minh người học chưa thao tác ở nơi khác.";
+    nextAction = checkpoint.guidance;
   } else if (extraPairs.length || hasError) {
     status = "needs-correction";
-    summary = "Bản tự đấu có edge ngoài sample hoặc issue mức lỗi; không đạt evidence của bước.";
+    summary = "Bản tự đấu có edge ngoài sample hoặc issue mức lỗi khi đối chiếu với canonical circuit-router; đây không phải đánh giá mastery hay xác nhận của giáo viên.";
     nextAction = extraPairs.length
       ? "Gỡ/đối chiếu các edge không thuộc sample trước khi kiểm tra lại."
-      : (analysisIssues.find(item => item.severity === "error")?.message || lesson.steps[stepIndex]);
+      : (analysisIssues.find(item => item.severity === "error")?.message || checkpoint.guidance);
   } else if (missingPairs.length) {
     status = "incomplete";
-    summary = "Bản tự đấu chưa khớp đủ sample-edge group tích lũy của bước hiện tại.";
-    nextAction = "Đối chiếu các cặp còn thiếu với mạch mẫu, rồi kiểm tra lại.";
-  } else if (finalStep && fullReferenceMatch) {
-    status = scope === "signal-only" ? "signal-topology-match" : "topology-match";
-    summary = scope === "signal-only"
-      ? "Bản tự đấu khớp sample tín hiệu/GND; nguồn công suất/tải và phần cứng thật vẫn ngoài phạm vi."
-      : "Bản tự đấu khớp toàn bộ reference sample topology; đây không phải bằng chứng thao tác vật lý hay mastery.";
-    nextAction = "Tiếp tục checkpoint học tập; không tự động đánh dấu hoàn thành bài.";
+    summary = "Bản tự đấu chưa khớp đủ các reference edge được biên tập cho bước này; checkpoint không phải điều kiện để chuyển bước.";
+    nextAction = checkpoint.guidance;
+  } else if (fullReferenceMatch) {
+    status = circuitScope === "signal-only" ? "signal-topology-match" : "topology-match";
+    summary = circuitScope === "signal-only"
+      ? "Bản tự đấu khớp toàn bộ sample tín hiệu/GND; nguồn công suất/tải, xác nhận giáo viên và phần cứng thật vẫn ngoài phạm vi."
+      : "Bản tự đấu khớp toàn bộ reference sample topology; checkpoint biên tập không chứng minh thao tác vật lý, xác nhận giáo viên hay mastery.";
+    nextAction = "Tiếp tục nội dung bài theo hướng dẫn; kết quả này không tự động đánh dấu hoàn thành hay cho phép/chặn chuyển bước.";
   } else {
-    status = scope === "signal-only" ? "signal-step-match" : "step-sample-match";
-    summary = "Bản tự đấu khớp sample-edge group tích lũy của bước này; grouping chỉ là phép chia deterministic, không phải mapping sư phạm đã kiểm chứng.";
-    nextAction = lesson.steps[Math.min(stepIndex + 1, lesson.steps.length - 1)];
+    status = circuitScope === "signal-only" ? "signal-step-match" : "step-sample-match";
+    summary = "Bản tự đấu khớp các reference edge được biên tập cho bước này; mapping đến từ nội dung lesson, không phải xác nhận giáo viên và không phải điều kiện chuyển bước.";
+    nextAction = "Tiếp tục nội dung bước theo hướng dẫn; checkpoint chỉ là evidence tham chiếu.";
   }
 
   return result({
     lessonId: lesson.id,
     stepIndex,
-    scope,
+    scope: circuitScope,
     status,
     matched,
     required: requiredKeys.size,
@@ -436,6 +435,8 @@ export function inspectPracticeEvidence(input) {
     issues: analysisIssues,
     summary,
     nextAction,
-    claims: claims(scope),
+    guidance: checkpoint.guidance,
+    checkpoint,
+    claims: claims(circuitScope, checkpoint, circuitScope === "signal-only"),
   });
 }

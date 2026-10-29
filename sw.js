@@ -43,7 +43,17 @@ const ASSETS = [
   "./src/dc-resistor-network.js", "./src/resistive-study-ui.js",
   "./docs/DC_RESISTOR_NETWORK_V16.md",
   "./src/practice-evidence.js", "./src/practice-evidence-ui.js",
-  "./styles/practice-evidence.css", "./docs/PRACTICE_EVIDENCE_NEXT.md"
+  "./styles/practice-evidence.css", "./docs/PRACTICE_EVIDENCE_NEXT.md",
+  "./src/uno-reference.js", "./src/practice-checkpoints.js",
+  "./src/breadboard-placement.js", "./src/sketch-review.js",
+  "./src/sketch-review-ui.js", "./docs/UNO_REFERENCE_NEXT.md",
+  "./docs/AUTHORED_PRACTICE_CHECKPOINTS.md",
+  "./docs/BREADBOARD_PHYSICAL_MAPPING_NEXT.md",
+  "./docs/SCENE_NEXT_3D_QA.md", "./docs/SKETCH_REVIEW_NEXT.md",
+  "./src/practice-observation.js", "./src/practice-observation-ui.js",
+  "./src/breadboard-placement-session.js",
+  "./docs/PRACTICE_OBSERVATION_NEXT.md",
+  "./docs/RESISTIVE_VISUAL_STUDY_NEXT.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

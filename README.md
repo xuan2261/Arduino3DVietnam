@@ -2,7 +2,7 @@
 
 **Phòng thực hành Arduino Uno R3 bằng tiếng Việt**, với 16 bài học, mô hình 3D, sơ đồ chân, điều khiển tương tác, mã Arduino tham khảo và câu hỏi kiểm tra.
 
-> **Phiên bản công khai đã xác minh: v1.6.0** — commit `341449b12d50c681be3f04d6e291965bf6015d99`, compiler 16/16, Chromium 289/289, release preflight và [Pages run 40797526796](https://github.com/xuan2261/Arduino3DVietnam/actions/runs/40797526796) cùng SHA PASS, HTTPS **83/83** asset khớp byte với CI, Chrome live smoke đủ 16 bài/WebGL/offline/mobile, backup an toàn và annotated tag đã lưu. V1.6 bổ sung inspector/schematic/minimap, breadboard topology có profile, hình học Three.js/LOD, Timer2 Normal standalone và mạng điện trở DC giới hạn. **Nhánh `feature/post-v16-practice-evidence` đang thử nghiệm kiểm tra thực hành theo bước, chưa phát hành trên Pages.** Các mốc v1.3/v1.4/v1.5 và backup giữ nguyên. **Đây chưa phải mô phỏng đầy đủ Uno, compiler cho Sketch tự chỉnh hoặc kiểm chứng phần cứng thực.**
+> **Phiên bản công khai đã xác minh: v1.6.0** — commit `341449b12d50c681be3f04d6e291965bf6015d99`, compiler 16/16, Chromium 289/289, release preflight và [Pages run 40797526796](https://github.com/xuan2261/Arduino3DVietnam/actions/runs/40797526796) cùng SHA PASS, HTTPS **83/83** asset khớp byte với CI, Chrome live smoke đủ 16 bài/WebGL/offline/mobile, backup an toàn và annotated tag đã lưu. V1.6 bổ sung inspector/schematic/minimap, breadboard topology có profile, hình học Three.js/LOD, Timer2 Normal standalone và mạng điện trở DC giới hạn. **Nhánh `feature/post-v16-practice-evidence` đã commit/push và PASS ba GitHub Actions tại SHA `7e1276cfcc41a6d3917b8c972c1093b3fc283ec0` nhưng chưa phát hành trên Pages. Nhánh tiếp theo `feature/post-v16-authored-lab-checkpoints` đang triển khai các checkpoint được biên tập, pinout có nguồn, mô hình BB830 và Sketch review, chưa phát hành.** Các mốc v1.3/v1.4/v1.5 và backup giữ nguyên. **Đây chưa phải mô phỏng đầy đủ Uno, compiler cho Sketch tự chỉnh hoặc kiểm chứng phần cứng thực.**
 
 **Mở website:** [Arduino 3D Việt Nam](https://xuan2261.github.io/Arduino3DVietnam/) · **Mã nguồn:** [GitHub Public](https://github.com/xuan2261/Arduino3DVietnam/). Chế độ ngoại vi AVR là tùy chọn, mặc định tắt; không thay kết quả 3D và Serial Monitor của phần mô phỏng bài học.
 
@@ -22,6 +22,19 @@ python scripts/serve.py --port 8091
 
 Trên macOS/Linux: `python3 scripts/serve.py --port 8091`.
 Không nhấp mở trực tiếp `index.html` với `file://` vì ES Modules thường yêu cầu HTTP.
+
+## Nhánh phát triển hậu v1.6 đang được kiểm chứng
+
+Ứng viên `feature/post-v16-authored-lab-checkpoints` tách biệt khỏi website v1.6.0, bổ sung bảng chú giải pin Uno R3 từ Arduino A000066, 48 checkpoint cho 16 bài biên tập từ nội dung lesson (không phải xác nhận của giáo viên), bộ chẩn đoán breadboard/placement với profile và ranh giới vật lý chặt chẽ, thao tác/nhãn Three.js và review bản nháp Sketch chỉ theo văn bản. Các cải tiến này **chưa nằm trong production**; xem `docs/AUTHORED_PRACTICE_CHECKPOINTS.md`, `docs/BREADBOARD_PHYSICAL_MAPPING_NEXT.md`, `docs/UNO_REFERENCE_NEXT.md`, `docs/SCENE_NEXT_3D_QA.md` và `docs/SKETCH_REVIEW_NEXT.md`. Chúng không tự biên dịch C++, xác nhận dòng/điện áp hay thay đổi tiến độ học chỉ vì khớp dây.
+
+### Nâng cấp tương tác đang được kiểm chứng trong nhánh hậu v1.6
+
+- **Đối chiếu thực hành 16 bài:** 48 checkpoint biên tập theo đúng nội dung bài, bên cạnh journal sự kiện trong phiên ở cấp bài học (chỉ báo loại sự kiện ứng dụng nhận, không biết thời điểm thực hiện từng bước, không xác nhận mastery/hoàn thành).
+- **Chân/lỗ breadboard:** tra cứu vùng A–E/F–J, so sánh rail BB830 được nhà sản xuất xác nhận liên tục và rail generic giữ trạng thái unknown. Thử gán lỗ vào một đầu terminal/jumper bằng thao tác riêng; validator từ chối profile lạ, lỗ trùng, trạng thái giả. Gán lỗ không thêm dây vào circuit-router, không chứng minh lỗ cắm thực.
+- **3D và inspector:** lựa chọn read-only trong Lab Explorer hiển thị nhãn đang xem trên vùng 3D, không tự bật editor hoặc vẽ điểm cắm ở vị trí không có bằng chứng CAD; ở bàn chỉnh sửa khái niệm có halo terminal riêng.
+- **Sơ đồ điện lý tưởng:** phép giải divider R1/R2 hiện có thêm SVG VCC—R1—MID—R2—GND cùng bảng tương đương, chỉ hiển thị số khi nguồn kết quả từ dc-resistor-network được kiểm tra provenance và tính hữu hạn.
+
+Những nội dung này thuộc **ứng viên chưa phát hành**, không ảnh hưởng production v1.6.0 hoặc firmware HEX đã ghim; chưa có C++ compiler cho Sketch tự sửa, mô hình tải motor/pump toàn diện, hay ánh xạ scene 3D sang lỗ breadboard vật lý đã xác minh.
 
 ## Có những gì?
 

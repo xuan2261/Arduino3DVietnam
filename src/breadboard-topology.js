@@ -18,6 +18,14 @@ const PLACEMENT_VALIDATOR = "breadboard-topology-v1";
 const TERMINAL_HOLE_RE = /^([A-J])([1-9]|[1-5][0-9]|6[0-3])$/;
 const RAIL_HOLE_RE = /^(P[12][+-])([1-9]|[1-4][0-9]|50)$/;
 const TOPOLOGY_INSTANCES = new WeakSet();
+const DIGILENT_FIVE_POINT_SOURCE =
+  "https://digilent.com/shop/solderless-breadboard-kit-small-solderless-breadboard-with-two-power-rails/";
+const SPARKFUN_BREADBOARD_SOURCE =
+  "https://learn.sparkfun.com/tutorials/how-to-use-a-breadboard/anatomy-of-a-breadboard";
+const BB830_PRODUCT_SOURCE = "https://www.busboard.com/BB830";
+const BB830_DATASHEET_SOURCE =
+  "https://www.busboard.com/documents/datasheets/BPS-DAT-%28BB830%29-Datasheet.pdf";
+const SB830_MATCHING_PATTERN_SOURCE = "https://www.busboard.com/SB830";
 
 const PROFILE_DEFINITIONS = Object.freeze({
   [DEFAULT_PROFILE_ID]: Object.freeze({
@@ -26,10 +34,28 @@ const PROFILE_DEFINITIONS = Object.freeze({
     terminalColumns: TERMINAL_COLUMNS,
     railModel: "unknown-unmodeled",
     rails: Object.freeze([]),
+    overallDimensionsMm: null,
+    holePitchMm: null,
     evidence: Object.freeze({
       terminalStrips: "verified-common-five-point-node",
       centerGap: "verified-isolated",
       rails: "not-profile-verified",
+      confidence: "reference-bounded-generic",
+    }),
+    provenance: Object.freeze({
+      scope: "generic-terminal-field-only",
+      sources: Object.freeze([
+        Object.freeze({
+          url: DIGILENT_FIVE_POINT_SOURCE,
+          supports: "630 tie-point prototyping field configured into 5-point nodes",
+          authority: "manufacturer-product-documentation",
+        }),
+        Object.freeze({
+          url: SPARKFUN_BREADBOARD_SOURCE,
+          supports: "five-hole groups and centerline isolation as a breadboard teaching model",
+          authority: "technical-education-reference",
+        }),
+      ]),
     }),
   }),
   [BB830_PROFILE_ID]: Object.freeze({
@@ -43,10 +69,45 @@ const PROFILE_DEFINITIONS = Object.freeze({
       Object.freeze({ id: "P2+", holes: 50 }),
       Object.freeze({ id: "P2-", holes: 50 }),
     ]),
+    overallDimensionsMm: Object.freeze({
+      length: 165.1,
+      width: 54.6,
+      height: 8.5,
+    }),
+    holePitchMm: 2.54,
     evidence: Object.freeze({
       terminalStrips: "verified-common-five-point-node",
       centerGap: "verified-isolated",
       rails: "busboard-bb830-four-50-tie-point-power-rails",
+      confidence: "manufacturer-profile-plus-standard-five-point-terminal-field",
+    }),
+    provenance: Object.freeze({
+      scope: "bb830-rev7-profile",
+      sources: Object.freeze([
+        Object.freeze({
+          url: BB830_PRODUCT_SOURCE,
+          supports:
+            "830 total tie points; 630 tie-point IC area; four 50 tie-point power rails; 165.1 x 54.6 x 8.5 mm overall",
+          authority: "manufacturer-product-page",
+        }),
+        Object.freeze({
+          url: BB830_DATASHEET_SOURCE,
+          supports:
+            "Rev 7 BB830 identity; 630 tie-point IC area; two 100 tie-point distribution strips providing four power rails; overall dimensions",
+          authority: "manufacturer-datasheet",
+        }),
+        Object.freeze({
+          url: SB830_MATCHING_PATTERN_SOURCE,
+          supports:
+            "SB830 has the same pattern and spacing as BB830, uses standard 5-hole strips, and its holes are on 0.1 in (2.54 mm) centers",
+          authority: "manufacturer-matching-pattern-product-documentation",
+        }),
+        Object.freeze({
+          url: DIGILENT_FIVE_POINT_SOURCE,
+          supports: "630 tie-point breadboard terminal field configured into 5-point nodes",
+          authority: "manufacturer-product-documentation",
+        }),
+      ]),
     }),
   }),
 });
@@ -68,7 +129,9 @@ function profileDefinition(profile) {
     return PROFILE_DEFINITIONS[DEFAULT_PROFILE_ID];
   }
   if (typeof profile === "string") {
-    const found = PROFILE_DEFINITIONS[profile];
+    const found = Object.hasOwn(PROFILE_DEFINITIONS, profile)
+      ? PROFILE_DEFINITIONS[profile]
+      : null;
     if (!found) throw new RangeError("Breadboard profile không được hỗ trợ: " + profile);
     return found;
   }
@@ -152,6 +215,10 @@ export function createBreadboardTopology(profile) {
       leftRows: [...LEFT_ROWS],
       rightRows: [...RIGHT_ROWS],
       centerGapBetween: ["E", "F"],
+      overallDimensionsMm: definition.overallDimensionsMm
+        ? { ...definition.overallDimensionsMm }
+        : null,
+      holePitchMm: definition.holePitchMm,
     },
     claims: {
       fiveHoleTerminalStrips: true,
@@ -160,8 +227,14 @@ export function createBreadboardTopology(profile) {
       automaticCircuitRouterInjection: false,
       conceptualAnchorImpliesHole: false,
       physicalPlacementVerified: false,
+      overallDimensionsVerified: definition.overallDimensionsMm !== null,
+      holePitchVerified: definition.holePitchMm !== null,
     },
     evidence: { ...definition.evidence },
+    provenance: {
+      scope: definition.provenance.scope,
+      sources: definition.provenance.sources.map(source => ({ ...source })),
+    },
     sections: [
       {
         id: "terminal-left",
@@ -200,6 +273,65 @@ export function areBreadboardHolesConnected(a, b, profile) {
   const first = nodeForHole(canonicalHoleId(a), definition);
   const second = nodeForHole(canonicalHoleId(b), definition);
   return !!first && !!second && first.id === second.id;
+}
+
+export function diagnoseBreadboardHole(holeId, profile) {
+  const definition = profileDefinition(profile);
+  const hole = canonicalHoleId(holeId);
+  const node = nodeForHole(hole, definition);
+  if (!node) {
+    return freezeDeep({
+      status: "unknown",
+      holeId: hole,
+      profileId: definition.id,
+      nodeId: null,
+      nodeKind: null,
+      reason: RAIL_HOLE_RE.test(hole)
+        ? "profile-power-rail-unmodeled"
+        : "profile-hole-unmodeled",
+      confidence: "unverified-for-selected-profile",
+    });
+  }
+  return freezeDeep({
+    status: "known",
+    holeId: hole,
+    profileId: definition.id,
+    nodeId: node.id,
+    nodeKind: node.kind,
+    reason: "profile-internal-contact-node",
+    confidence: definition.evidence.confidence,
+  });
+}
+
+export function diagnoseBreadboardHolePair(a, b, profile) {
+  const definition = profileDefinition(profile);
+  const first = diagnoseBreadboardHole(a, definition.id);
+  const second = diagnoseBreadboardHole(b, definition.id);
+  if (first.status !== "known" || second.status !== "known") {
+    return freezeDeep({
+      status: "unknown",
+      profileId: definition.id,
+      a: first,
+      b: second,
+      connected: null,
+      reason: "at-least-one-hole-is-unmodeled-for-profile",
+      externalConnectionInspected: false,
+      circuitRouterInspected: false,
+    });
+  }
+  const connected = first.nodeId === second.nodeId;
+  return freezeDeep({
+    status: connected ? "connected" : "separate",
+    profileId: definition.id,
+    a: first,
+    b: second,
+    connected,
+    reason: connected
+      ? "same-profile-internal-contact-node"
+      : "different-profile-internal-contact-nodes",
+    externalConnectionInspected: false,
+    circuitRouterInspected: false,
+  });
 }
 
 function layoutTerminalIds(layout) {

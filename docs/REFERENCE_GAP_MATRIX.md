@@ -113,3 +113,31 @@ v1.6.0 đã được công bố ở SHA `341449b12d50c681be3f04d6e291965bf6015d9
 | R3 — Button KR (socket/touch lesson) | Các thao tác canvas đã có nhưng cần phản hồi hiện trạng thao tác cho cả 16 bài thay vì duy nhất bài button | Cùng màn hình học tiếng Việt phản hồi ngay khi nối/gỡ dây; HTML/keyboard và mobile375 có regression | Chưa có socket-to-breadboard physical-hole placement verified; không copy hard-coded validator hoặc code/assets từ R3 |
 
 Phạm vi QA: Bun pure 47/47, DOM 14/14, Python 90/90, local Chromium 320/320 và dist 87+marker=88 đã có bằng chứng. Đã sửa P1 chọn chân 3D còn treo khi chuyển stage, giới hạn nhận định về hoạt động của người học ở **bản thảo trong ứng dụng** và cảnh báo nhóm cạnh deterministic cho mọi trạng thái. **Chưa có CI/release/deploy SHA mới**, nên không ghi nhận đây là tính năng website công khai. Mapping physical hole, compile user Sketch, PWM/USART RX và hardware vẫn là các P1/P2 độc lập.
+
+
+## 9. Hậu v1.6 — checkpoint có tác giả và ranh giới BB830 (ứng viên chưa phát hành)
+
+Từ nhánh hậu v1.6 SHA `7e1276cfcc41a6d3917b8c972c1093b3fc283ec0`, đợt này làm rõ các khoảng thiếu mà mục 8 ghi nhận theo **mốc lịch sử** (cơ chế chia deterministic ở mục 8 là tính năng trước đợt này, không còn là implementation hiện tại của candidate mới). `main`/v1.6.0 production vẫn bảo toàn SHA `341449b12d50c681be3f04d6e291965bf6015d99`.
+
+| Nguồn tham khảo | Cải tiến thực tế trong candidate | Ranh giới còn thiếu |
+| --- | --- | --- |
+| R1 `codex-howto/guided` — từng bước + evidence | 48 checkpoint biên tập trực tiếp theo nội dung `lesson.steps`, đánh dấu rõ wiring/manual, đối chiếu edge subset cho bước có dây, action điều hướng 2D/3D | Mới là editorial provenance, chưa có xác nhận giáo viên; không chứng minh hành động hay mastery; không khóa chuyển bước |
+| R2/R4 `learn-arduino-red`/`learn-microcontroller` — inspector/schematic/minimap thuộc cùng họ | Giữ chia sẻ `circuit-router` giữa 3D và 2D; tăng nhãn chức năng pin A000066 theo tài liệu Arduino, phản hồi trạng thái chọn/focus trong 3D và giữ projection trong Explorer | Không xác nhận footprint/CAD, cơ cấu jumper hay nguồn điện thật; R2/R4 không được đếm như hai sản phẩm khác biệt |
+| R3 `learn-arduino-button-kr` — tap/socket | Tăng halo điểm chọn/chân và vùng pick của 3D cho cảm ứng; breadboard tri-state `connected/separate/unknown`, authored pin→hole/jumper-end association có validator profile | Không có transform lỗ breadboard ↔ scene 3D theo CAD, không suy dây/nối điện từ gần nhau và không sao chép validator/assets R3 |
+| Hướng học Sketch và thử nghiệm | Bộ review văn bản draft vs sample với thay đổi dòng, nhận diện setup/loop/ngoặc heuristic, cảnh báo an toàn đầu vào | Không compile user C++, không thực thi HEX của bản sửa, không kết luận hợp lệ về cú pháp C++ hoặc phần cứng |
+
+Đợt mới chỉ là candidate và cần Chromium/CI cùng SHA cuối để đánh giá; không thay đổi thực tế Pages, tag, backup, Draft Release hay LICENSE. Dải BB830 được nguồn hãng xác nhận nội bộ nhưng **không** cho phép biểu diễn lỗ scene 3D chính xác về cơ khí nếu chưa có CAD/transform.
+
+
+## 10. Tương tác theo phiên, gán lỗ tường minh và phản hồi 3D đọc-only (ứng viên)
+
+Phần này ghi **source candidate**, không tuyên bố đã xuất bản lên Pages và không hồi tố QA của commit `7e1276c...`.
+
+| Nguồn tham khảo | Thay đổi tích hợp cụ thể | Ranh giới chấp nhận |
+| --- | --- | --- |
+| R1 (guided) | `practice-observation.js` ghi các event category do UI chuyển tới ở cấp lesson, `practice-observation-ui.js` báo loại trùng với expectation biên tập từ 48 checkpoint; UI 3D/2D/điều khiển/Sketch cập nhật khi có thao tác | Không có stepIndex/timestamp, không chứng minh tác giả thao tác ngoài ứng dụng, không kết luận đạt điểm, tự chuyển bước hoặc hoàn thành |
+| R2/R4 (Learn Arduino cùng họ) | `scene3d.js` hiển thị terminal read-only do Explorer chọn; `app.js` cập nhật nhãn 3D, giữ netlist chung từ `circuit-router`, tránh tạo dây khi chỉ inspect | Khi layout 3D chưa bật, chỉ nhãn/ARIA chứ không vẽ halo ở tọa độ giả; không có authority điện từ hình ảnh |
+| R3 (Button KR, tương tác pin/socket) | `breadboard-placement-session.js` + study UI cho phép khai báo terminal→hole trên một profile với kiểm tra trùng lỗ, đổi bài/profile reset; HTML/nút/phím Enter và 375 px | Đầu Arduino là nguồn logic của đầu jumper, không phải header pin cắm thẳng vào breadboard; generic rail unknown; vị trí 3D/CAD chưa xác thực |
+| Bounded DC learning | `resistive-study-ui.js` dựng SVG/bảng truy cập được từ đúng kết quả Gaussian resistor solver R1/R2 có provenance; không tự tính từ mạng 3D | Dòng/áp/công suất đều là mô hình lý tưởng; không phải đo thực, không áp dụng cho motor, bơm, servo hoặc firmware |
+
+BusBoard BB830 Rev7 và manufacturer FAQ: 630 tie points vùng IC, 4 rail × 50 tie-points; rail của BusBoard không bị chia đôi, trong khi nhiều mẫu breadboard khác có rail tách ở giữa. Không suy cấu hình rail của một breadboard generic không có model. Sources: https://www.busboard.com/documents/datasheets/BPS-DAT-%28BB830%29-Datasheet.pdf và https://busboard.com/faq . Không sao chép tài sản hình học/ mã tham khảo vào bản public.

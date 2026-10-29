@@ -161,10 +161,35 @@
 .practice-evidence-button:focus-visible { outline: 3px solid #11887b; outline-offset: 2px; }
 .practice-evidence-button:disabled { cursor: not-allowed; opacity: .52; }
 
+/* A session-scoped observation is not a pass/fail grade. Keep this visually
+   separate from the canonical topology evidence and from lesson completion. */
+.practice-observation {
+  min-width: 0;
+  max-width: 100%;
+  margin: 12px 0 3px;
+  padding: 13px 14px;
+  border: 1px solid #cbded7;
+  border-radius: 9px;
+  background: #f7faf9;
+  color: #34574e;
+  overflow-wrap: anywhere;
+}
+.practice-observation-heading { margin: 0 0 8px; font-size: 13px; color: #2b6455; }
+.practice-observation p { margin: 6px 0; font-size: 11.5px; line-height: 1.6; }
+.practice-observation-status { font-weight: 760; }
+.practice-observation-events { margin-top: 10px; padding-top: 8px; border-top: 1px solid #deebe4; }
+.practice-observation-subheading { margin: 0 0 4px; font-size: 11.5px; font-weight: 780; color: #385c52; }
+.practice-observation-list { margin: 5px 0; padding-left: 19px; line-height: 1.6; font-size: 11.5px; }
+.practice-observation-list li { padding: 3px 0; }
+.practice-observation-empty { color: #5b726a; }
+.practice-observation-attribution,
+.practice-observation-boundary { padding: 8px 10px; border-left: 3px solid #8ea499; background: #eff5f1; }
+
 @media (max-width: 580px) {
   .practice-evidence { padding: 12px; }
   .practice-evidence-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .practice-evidence-button { width: 100%; }
+  .practice-observation { padding: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

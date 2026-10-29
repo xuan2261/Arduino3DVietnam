@@ -10,12 +10,12 @@ const STATUS_PRESENTATION = Object.freeze({
   "manual-checkpoint": Object.freeze({
     label: "Checkpoint thủ công",
     tone: "manual",
-    detail: "Bước này cần người học tự quan sát và đối chiếu hướng dẫn; không có bằng chứng dây ngoài để chấm tự động.",
+    detail: "Bước này dùng quan sát, mô phỏng hoặc tự đối chiếu; topology dây không được dùng để chấm tự động cho bước hiện tại.",
   }),
   "not-attempted": Object.freeze({
     label: "Chưa có bản tự đấu",
     tone: "neutral",
-    detail: "Ứng dụng chưa ghi nhận bản tự đấu trong phiên này để so sánh với nhóm cạnh lấy từ mạch mẫu; không suy ra học viên đã hay chưa thao tác ở nơi khác.",
+    detail: "Ứng dụng chưa ghi nhận bản tự đấu trong phiên này để so sánh với checkpoint wiring đã biên tập; không suy ra học viên đã hay chưa thao tác ở nơi khác.",
   }),
   "needs-correction": Object.freeze({
     label: "Cần sửa topology",
@@ -23,19 +23,19 @@ const STATUS_PRESENTATION = Object.freeze({
     detail: "Bản tự đấu có cạnh khác mẫu hoặc issue topology cần xem lại khi so với mạch mẫu tham chiếu.",
   }),
   "incomplete": Object.freeze({
-    label: "Chưa khớp hết nhóm cạnh mẫu",
+    label: "Chưa khớp hết checkpoint wiring",
     tone: "neutral",
-    detail: "Đã có bản tự đấu, nhưng nhóm cạnh mẫu đang hiển thị vẫn có cạnh chưa xuất hiện trong topology hiện tại.",
+    detail: "Đã có bản tự đấu, nhưng checkpoint wiring đã biên tập vẫn có cạnh chưa xuất hiện trong topology hiện tại.",
   }),
   "step-sample-match": Object.freeze({
-    label: "Khớp nhóm cạnh mẫu của bước",
+    label: "Khớp checkpoint wiring của bước",
     tone: "match",
-    detail: "Nhóm cạnh mẫu được gán xác định cho bước hiện tại đang khớp trong topology tham chiếu.",
+    detail: "Các cạnh reference được biên tập cho bước hiện tại đang khớp trong topology của bản tự đấu.",
   }),
   "signal-step-match": Object.freeze({
-    label: "Khớp nhóm cạnh tín hiệu của bước",
+    label: "Khớp checkpoint tín hiệu của bước",
     tone: "signal",
-    detail: "Nhóm cạnh tín hiệu/GND được gán cho bước hiện tại đang khớp; nguồn, tải và chức năng thiết bị vẫn ngoài phạm vi bằng chứng này.",
+    detail: "Các cạnh tín hiệu/GND được biên tập cho bước hiện tại đang khớp; nguồn, tải và chức năng thiết bị vẫn ngoài phạm vi bằng chứng này.",
   }),
   "topology-match": Object.freeze({
     label: "Khớp sample topology tham chiếu",
@@ -161,11 +161,13 @@ function appendPairBlock(doc, section, {
  */
 export function renderPracticeEvidence(doc, evidence, {
   onOpenWiring,
+  onOpen3D,
   onRecheck,
 } = {}) {
   requireDocument(doc);
   requireEvidence(evidence);
   requireCallback(onOpenWiring, "onOpenWiring");
+  requireCallback(onOpen3D, "onOpen3D");
   requireCallback(onRecheck, "onRecheck");
 
   const lessonId = Number.isInteger(evidence.lessonId) && evidence.lessonId >= 1 && evidence.lessonId <= 16
@@ -187,13 +189,25 @@ export function renderPracticeEvidence(doc, evidence, {
   const matched = safeCount(evidence.matched);
   const required = safeCount(evidence.required);
   const isManual = lessonId === 1 || scope === "manual" || status === "manual-checkpoint";
-  const isSignalOnly = status === "signal-step-match" || status === "signal-topology-match" || scope === "signal-only";
+  const isSignalOnly = status === "signal-step-match" || status === "signal-topology-match" ||
+    scope === "signal-only" || evidence?.claims?.signalOnly === true;
+  const checkpoint = evidence.checkpoint && typeof evidence.checkpoint === "object" && !Array.isArray(evidence.checkpoint)
+    ? evidence.checkpoint
+    : null;
+  const checkpointKind = checkpoint?.kind === "wiring" || checkpoint?.kind === "manual"
+    ? checkpoint.kind
+    : (isManual ? "manual" : "unknown");
+  const provenanceScheme = safeText(checkpoint?.provenance?.scheme, "unknown");
+  const hasExternalWiring = lessonId !== 1;
 
   const section = make(doc, "section", "practice-evidence");
   section.setAttribute("data-practice-evidence", "");
   section.setAttribute("data-practice-tone", presentation.tone);
   section.setAttribute("data-practice-scope", scope);
   section.setAttribute("data-practice-status", status);
+  section.setAttribute("data-practice-checkpoint-kind", checkpointKind);
+  section.setAttribute("data-practice-provenance", provenanceScheme);
+  if (checkpoint?.id) section.setAttribute("data-practice-checkpoint-id", String(checkpoint.id));
   if (lessonId !== null) section.setAttribute("data-practice-lesson", String(lessonId));
   section.setAttribute("data-practice-step", String(stepIndex));
   if (matched !== null) section.setAttribute("data-practice-matched", String(matched));
@@ -208,26 +222,33 @@ export function renderPracticeEvidence(doc, evidence, {
   statusNode.setAttribute("aria-live", "polite");
   section.append(statusNode, make(doc, "p", "practice-evidence-detail", presentation.detail));
 
-  if (isManual) {
+  if (isManual && lessonId === 1) {
     section.append(make(
       doc,
       "p",
       "practice-evidence-manual",
       "Bài 01 dùng LED L tích hợp và không yêu cầu dây ngoài. Checkpoint này chỉ hướng dẫn tự kiểm tra theo nội dung bài.",
     ));
+  } else if (isManual) {
+    section.append(make(
+      doc,
+      "p",
+      "practice-evidence-manual",
+      "Bước này được biên tập là checkpoint quan sát/mô phỏng; topology dây không được dùng làm điều kiện để chấm bước này.",
+    ));
   } else if (matched !== null && required !== null) {
     section.append(make(
       doc,
       "p",
       "practice-evidence-count",
-      "So sánh với nhóm cạnh mẫu đang hiển thị: " + matched + "/" + required + " cạnh.",
+      "So sánh với checkpoint wiring đã biên tập: " + matched + "/" + required + " cạnh.",
     ));
   } else {
     section.append(make(
       doc,
       "p",
       "practice-evidence-count",
-      "Model chưa cung cấp đủ số đếm cho nhóm cạnh mẫu đang hiển thị.",
+      "Model chưa cung cấp đủ số đếm cho checkpoint wiring đã biên tập.",
     ));
   }
 
@@ -239,6 +260,13 @@ export function renderPracticeEvidence(doc, evidence, {
       "Tóm tắt: " + safeText(evidence.summary, "Chưa có tóm tắt evidence cho bước này."),
     ),
   );
+
+  const guidance = safeText(evidence.guidance, safeText(checkpoint?.guidance, ""));
+  if (guidance) {
+    const guidanceNode = make(doc, "p", "practice-evidence-guidance", "Gợi ý thực hành: " + guidance);
+    guidanceNode.setAttribute("data-practice-guidance", "");
+    section.append(guidanceNode);
+  }
 
   if (isSignalOnly) {
     const signalNote = make(
@@ -253,23 +281,37 @@ export function renderPracticeEvidence(doc, evidence, {
     section.append(signalNote);
   }
 
-  if (!isManual) {
-    const groupingNote = make(
+  if (checkpoint) {
+    const provenanceNote = make(
       doc,
       "p",
       "practice-evidence-group-note",
-      "Nhóm cạnh đang hiển thị là cách phân nhóm xác định từ mẫu tham chiếu để trình bày evidence theo bước. Nó không chứng minh thứ tự đấu dây này đã được xác minh về mặt sư phạm, không phải yêu cầu đấu dây theo bước đã được bài học xác nhận, không phải điều kiện để chuyển bước, và không chứng minh người học đã thực hiện hoặc hiểu bài.",
+      checkpointKind === "wiring"
+        ? "Checkpoint wiring này được biên tập thủ công từ nội dung bước học và chỉ dùng các cạnh có trong circuit-router sample. Đây không phải xác nhận của giáo viên, không phải yêu cầu bắt buộc để chuyển bước, không chứng minh người học đã thực hiện thao tác hay hiểu bài."
+        : "Checkpoint manual này được biên tập thủ công từ nội dung bước học. Nó không phải xác nhận của giáo viên, không phải điều kiện để chuyển bước và không chứng minh người học đã thực hiện thao tác hay hiểu bài.",
     );
-    groupingNote.setAttribute("data-practice-grouping-note", "");
-    groupingNote.setAttribute("role", "note");
-    section.append(groupingNote);
+    provenanceNote.setAttribute("data-practice-provenance-note", "");
+    if (checkpointKind === "wiring") provenanceNote.setAttribute("data-practice-grouping-note", "");
+    provenanceNote.setAttribute("role", "note");
+    section.append(provenanceNote);
+  } else if (!isManual) {
+    const provenanceNote = make(
+      doc,
+      "p",
+      "practice-evidence-group-note",
+      "Evidence chưa có metadata checkpoint biên tập; chỉ được xem như so sánh reference sample, không phải xác nhận của giáo viên, không phải điều kiện chuyển bước và không chứng minh thao tác hay mastery.",
+    );
+    provenanceNote.setAttribute("data-practice-provenance-note", "");
+    provenanceNote.setAttribute("data-practice-grouping-note", "");
+    provenanceNote.setAttribute("role", "note");
+    section.append(provenanceNote);
   }
 
   appendPairBlock(doc, section, {
     attribute: "data-practice-missing",
     className: "practice-evidence-pairs practice-evidence-missing",
-    title: "Cạnh trong nhóm mẫu chưa thấy",
-    emptyText: isManual ? "Không áp dụng đối chiếu dây ngoài cho checkpoint này." : "Không có cạnh chưa khớp trong nhóm mẫu đang hiển thị.",
+    title: "Cạnh checkpoint chưa thấy",
+    emptyText: isManual ? "Không áp dụng đối chiếu dây cho checkpoint manual này." : "Không có cạnh chưa khớp trong checkpoint wiring hiện tại.",
     pairs: missingPairs,
     originalCount: Array.isArray(evidence.missingPairs) ? evidence.missingPairs.length : 0,
   });
@@ -320,19 +362,39 @@ export function renderPracticeEvidence(doc, evidence, {
   section.append(boundary);
 
   const actions = make(doc, "div", "practice-evidence-actions");
-  const openWiring = make(doc, "button", "practice-evidence-button", isManual
+  const openWiring = make(doc, "button", "practice-evidence-button", lessonId === 1
     ? "Bài 01 không có dây ngoài"
     : "Mở sơ đồ nối dây 2D");
   openWiring.type = "button";
   openWiring.setAttribute("data-practice-open-wiring", "");
-  if (isManual || typeof onOpenWiring !== "function") {
+  if (!hasExternalWiring || typeof onOpenWiring !== "function") {
     openWiring.disabled = true;
     openWiring.setAttribute("aria-disabled", "true");
   } else {
     openWiring.addEventListener("click", () => onOpenWiring());
   }
 
-  const recheck = make(doc, "button", "practice-evidence-button practice-evidence-button-primary", "Kiểm tra lại bản tự đấu");
+  const open3D = make(
+    doc,
+    "button",
+    "practice-evidence-button",
+    lessonId === 1 ? "Mở quan sát 3D" : "Mở mô hình 3D",
+  );
+  open3D.type = "button";
+  open3D.setAttribute("data-practice-open-3d", "");
+  if (typeof onOpen3D !== "function") {
+    open3D.disabled = true;
+    open3D.setAttribute("aria-disabled", "true");
+  } else {
+    open3D.addEventListener("click", () => onOpen3D());
+  }
+
+  const recheck = make(
+    doc,
+    "button",
+    "practice-evidence-button practice-evidence-button-primary",
+    isManual ? "Cập nhật checkpoint" : "Kiểm tra lại bản tự đấu",
+  );
   recheck.type = "button";
   recheck.setAttribute("data-practice-recheck", "");
   if (typeof onRecheck !== "function") {
@@ -342,7 +404,7 @@ export function renderPracticeEvidence(doc, evidence, {
     recheck.addEventListener("click", () => onRecheck());
   }
 
-  actions.append(openWiring, recheck);
+  actions.append(openWiring, open3D, recheck);
   section.append(actions);
   return section;
 }

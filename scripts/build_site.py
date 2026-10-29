@@ -62,6 +62,25 @@ PRACTICE_RELEASE_FILES = [
     "styles/practice-evidence.css",
     "docs/PRACTICE_EVIDENCE_NEXT.md",
 ]
+POST_V16_LAB_FILES = [
+    "src/uno-reference.js",
+    "src/practice-checkpoints.js",
+    "src/breadboard-placement.js",
+    "src/sketch-review.js",
+    "src/sketch-review-ui.js",
+    "docs/UNO_REFERENCE_NEXT.md",
+    "docs/AUTHORED_PRACTICE_CHECKPOINTS.md",
+    "docs/BREADBOARD_PHYSICAL_MAPPING_NEXT.md",
+    "docs/SCENE_NEXT_3D_QA.md",
+    "docs/SKETCH_REVIEW_NEXT.md",
+]
+POST_V16_INTERACTION_FILES = [
+    "src/practice-observation.js",
+    "src/practice-observation-ui.js",
+    "src/breadboard-placement-session.js",
+    "docs/PRACTICE_OBSERVATION_NEXT.md",
+    "docs/RESISTIVE_VISUAL_STUDY_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -112,6 +131,8 @@ FILES = [
     "docs/TIMER1_RUNTIME.md",
     *V16_RELEASE_FILES,
     *PRACTICE_RELEASE_FILES,
+    *POST_V16_LAB_FILES,
+    *POST_V16_INTERACTION_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)
