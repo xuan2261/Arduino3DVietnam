@@ -68,7 +68,15 @@ const ASSETS = [
   "./docs/SCENE_WIRE_INSPECTION_NEXT.md",
   "./docs/RESISTIVE_BRANCH_STUDY_NEXT.md",
   "./docs/UNO_MECHANICAL_REFERENCE_NEXT.md",
-  "./docs/PRACTICE_PAIR_PREVIEW_NEXT.md"
+  "./docs/PRACTICE_PAIR_PREVIEW_NEXT.md",
+  "./src/learner-circuit-history.js",
+  "./src/sketch-pin-evidence.js",
+  "./src/uno-mounting-evidence.js",
+  "./docs/LEARNER_CIRCUIT_HISTORY_NEXT.md",
+  "./docs/SKETCH_PIN_EVIDENCE_NEXT.md",
+  "./docs/UNO_MOUNTING_EVIDENCE_NEXT.md",
+  "./docs/POST_V16_SCENE_COMPONENT_FIDELITY.md",
+  "./docs/AVR_TIMER2_FIDELITY_NEXT.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

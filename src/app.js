@@ -2,6 +2,11 @@ import { lessons, lessonById, defaultControls, validateLessons, NOTES } from "./
 import { simulate, advanceToggleState } from "./simulator.js";
 import { readProgress, saveProgress, normalizeProgress, exportProgress } from "./storage.js";
 import { createCircuit, createSampleCircuit, disconnectCircuit, analyzeCircuit, listTerminals } from "./circuit-router.js";
+import {
+  createLearnerCircuitHistory, recordLearnerCircuitHistory,
+  undoLearnerCircuitHistory, redoLearnerCircuitHistory,
+  inspectLearnerCircuitHistory,
+} from "./learner-circuit-history.js";
 import { mountWiringWorkbench, supportedWiringLessons } from "./wiring-workbench.js";
 import { analyzeElectrical, SUPPORTED_ELECTRICAL_LESSONS } from "./electrical-solver.js";
 import { mountAvrPanel } from "./avr-panel.js";
@@ -15,7 +20,9 @@ import { renderPracticeEvidence } from "./practice-evidence-ui.js";
 import { getPracticeCheckpoint } from "./practice-checkpoints.js";
 import { listUnoPinReferences, UNO_REFERENCE_CLAIMS } from "./uno-reference.js";
 import { getUnoMechanicalOutline } from "./uno-mechanical-reference.js";
+import { getUnoMountingEvidence } from "./uno-mounting-evidence.js";
 import { inspectSketchDraft } from "./sketch-review.js";
+import { inspectSketchPinEvidence } from "./sketch-pin-evidence.js";
 import { renderSketchReview } from "./sketch-review-ui.js";
 import {
   createPracticeObservationJournal,
@@ -43,6 +50,7 @@ const state = {
   serial: [], audio: null, audioTone: null,
   codeDrafts: new Map(), editingCode: false,
   circuitModels: new Map(), activeCircuits: new Set(),
+  circuitHistories: new Map(),
   invalidatedCircuitLessons: new Set(), wiringUI: null,
   avrPanel: null, labEditorUI: null, labExplorerUI: null,
   // Read-only terminal inspection is UI state, NOT a pending wiring gesture.
@@ -96,6 +104,33 @@ function learnerCircuit(lessonId = state.lessonId) {
   // or explicitly load the reference sample into the editable workbench.
   return state.circuitModels.get(lessonId) ?? createCircuit(lessonId);
 }
+function learnerHistory(lessonId=state.lessonId){
+  if(!supportedWiringLessons().includes(lessonId))return null;
+  let session=state.circuitHistories.get(lessonId);
+  if(!session){
+    session=createLearnerCircuitHistory({lessonId,circuit:learnerCircuit(lessonId)});
+    state.circuitHistories.set(lessonId,session);
+  }
+  return session;
+}
+function learnerHistorySnapshot(lessonId=state.lessonId){
+  const session=learnerHistory(lessonId);
+  return session?inspectLearnerCircuitHistory(session):null;
+}
+function refreshLearnerHistoryControls(){
+  const snapshot=learnerHistorySnapshot();
+  state.wiringUI?.setHistoryState?.(snapshot);
+  const editing=state.labEditorUI?.isEditingIn3D?.()===true;
+  const undo=$("labUndoWire"),redo=$("labRedoWire");
+  if(undo){
+    undo.disabled=!editing||snapshot?.canUndo!==true;
+    undo.setAttribute("aria-disabled",String(undo.disabled));
+  }
+  if(redo){
+    redo.disabled=!editing||snapshot?.canRedo!==true;
+    redo.setAttribute("aria-disabled",String(redo.disabled));
+  }
+}
 function displayedCircuit(lessonId = state.lessonId) {
   if (!supportedWiringLessons().includes(lessonId)) return null;
   // Legacy lesson/reference displays retain the sample before a draft exists.
@@ -138,17 +173,35 @@ function refreshLabExplorer(){
   state.labExplorerUI?.update?.();
   state.breadboardUI?.update?.();
 }
-function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,model)) {
+function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,model),historyTransition=null) {
   if(lessonId!==state.lessonId || !supportedWiringLessons().includes(lessonId)){
     throw new RangeError("Chỉ thay đổi netlist của bài học đang mở có hỗ trợ đấu dây.");
   }
   if(!model || model.lessonId!==lessonId || !Array.isArray(model.wires)){
     throw new TypeError("Netlist cần được tạo từ circuit-router của bài hiện tại.");
   }
+  // The history is an immutable observation of router-produced learner graphs,
+  // never a reference-circuit fallback or separate authority. Rewind/redo is
+  // permitted only with a matching module-branded history transition.
+  const oldHistory=learnerHistory(lessonId);
+  let updatedHistory;
+  if(historyTransition!==null){
+    const verified=inspectLearnerCircuitHistory(historyTransition);
+    if(verified.lessonId!==lessonId||verified.circuit!==model){
+      throw new TypeError("Hoàn tác phải áp dụng đúng graph đã xác thực của phiên này.");
+    }
+    updatedHistory=historyTransition;
+  }else{
+    updatedHistory=recordLearnerCircuitHistory(oldHistory,{
+      lessonId,currentCircuit:learnerCircuit(lessonId),nextCircuit:model,
+      expectedRevision:inspectLearnerCircuitHistory(oldHistory).revision,
+    });
+  }
   // A new canonical graph may reuse a wire ID for different endpoints (w1,
   // w2...). Never carry an earlier 3D inspection to a different learner edge.
   // Merely inspecting or refreshing the layout does not call this mutator.
   state.scene?.setHighlightedLabWire?.(null);
+  state.circuitHistories.set(lessonId,updatedHistory);
   state.circuitModels.set(lessonId,model);
   // Canonical mutations from 2D/schematic must not leave a half-completed
   // two-terminal gesture armed in the separate Three.js editor.
@@ -164,6 +217,32 @@ function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,m
   updateSnapshot(true);
   return analysis;
 }
+function moveLearnerHistory(direction,request){
+  if(!supportedWiringLessons().includes(state.lessonId) ||
+     !request||request.lessonId!==state.lessonId){
+    throw new RangeError("Hoàn tác/làm lại chỉ cho bài học hiện tại.");
+  }
+  const session=learnerHistory();
+  const invoke=direction==="undo"?undoLearnerCircuitHistory:redoLearnerCircuitHistory;
+  const result=invoke(session,{
+    lessonId:state.lessonId,
+    currentCircuit:learnerCircuit(),
+    expectedRevision:request.expectedRevision,
+  });
+  const nextAnalysis=analyzeCircuit(state.lessonId,result.circuit);
+  if(state.activeCircuits.delete(state.lessonId)){
+    state.invalidatedCircuitLessons.add(state.lessonId);
+    if(state.running)stopClock();
+    log("Đã thu hồi kích hoạt mạch khi hoàn tác/làm lại; cần tự chọn kích hoạt lại trước khi thử.");
+  }
+  applyCanonicalCircuit(state.lessonId,result.circuit,nextAnalysis,result.session);
+  const label=direction==="undo"?"Đã hoàn tác":"Đã làm lại";
+  log(label+" graph học viên trong ứng dụng; không thay đổi dây vật lý hoặc hoàn thành bài học.");
+  return Object.freeze({lessonId:state.lessonId,mode:direction,
+    circuitRouterMutated:true,physicalVerified:false,lessonCompleted:false});
+}
+function requestLearnerUndo(request){return moveLearnerHistory("undo",request);}
+function requestLearnerRedo(request){return moveLearnerHistory("redo",request);}
 function explorerSelectComponent(id) {
   if(!supportedWiringLessons().includes(state.lessonId)||!state.labEditorUI)return false;
   // Inspector selection never switches stage or enables editing.
@@ -335,6 +414,7 @@ function refreshCircuitViews() {
   if(canonical && state.wiringUI?.getCircuit?.()!==canonical){
     state.wiringUI?.setCircuit?.(canonical,{active:state.activeCircuits.has(state.lessonId)});
   }
+  refreshLearnerHistoryControls();
   if (state.infoTab === "practice") renderInfo();
   refreshLabExplorer();
 }
@@ -407,6 +487,48 @@ function renderUnoMechanicalOutline(){
     svg("text",{x:x+width/2,y:y+height+49,"text-anchor":"middle",fill:"#315d52","font-size":16},`${spec.widthMm.toLocaleString("vi-VN")} mm`),
     svg("text",{x:x+width+22,y:y+height/2,"text-anchor":"middle",fill:"#315d52","font-size":14},`${spec.heightMm.toLocaleString("vi-VN")} mm`),
   );
+  // Partial mechanically dimensioned evidence is shown as a separate table,
+  // not rendered as positioned CAD circles on the simplified rectangle.
+  const holeEvidence=getUnoMountingEvidence();
+  const holeRegion=el("section","uno-mounting-reference");
+  holeRegion.dataset.unoMountingEvidence="partial-dimensioned";
+  holeRegion.dataset.unoHoleSnap="unsupported";
+  holeRegion.setAttribute("role","group");
+  holeRegion.setAttribute("aria-label","Khoảng kích thước đến tâm lỗ bắt vít Uno R3 từ bản vẽ hãng");
+  holeRegion.append(el("h6","",`${holeEvidence.completeXYCount}/4 tâm lỗ có đủ hai trục kích thước`));
+  const tableWrap=el("div","uno-mounting-table-wrap");
+  tableWrap.tabIndex=0;
+  tableWrap.setAttribute("aria-label","Bảng kích thước lỗ bắt vít, cuộn ngang khi màn hình hẹp");
+  const table=el("table","uno-mounting-table");
+  table.dataset.unoMountingTable="source-annotated-only";
+  table.append(el("caption","","X tính từ mép trái, Y từ mép trên của bản vẽ nhìn từ phía trên; đơn vị mm."));
+  const head=el("thead",""),headingRow=el("tr","");
+  for(const title of ["Lỗ bắt vít","X từ trái (mm)","Y từ trên (mm)"]){
+    const cell=el("th","",title);
+    cell.scope="col";
+    headingRow.append(cell);
+  }
+  head.append(headingRow);
+  const body=el("tbody","");
+  for(const hole of holeEvidence.holes){
+    const row=el("tr","");
+    row.dataset.unoMountingHole=hole.id;
+    row.dataset.unoMountingKnownAxes=hole.knownAxes.join(",");
+    const label={"upper-left":"Trên trái","upper-right":"Trên phải",
+      "lower-right":"Dưới phải","lower-left":"Dưới trái"}[hole.id];
+    row.append(
+      el("td","",label),
+      el("td","",hole.xMm===null?"Chưa có kích thước":hole.xMm.toLocaleString("vi-VN")),
+      el("td","",hole.yMm.toLocaleString("vi-VN")),
+    );
+    body.append(row);
+  }
+  table.append(head,body);
+  tableWrap.append(table);
+  const mountingBoundary=el("p","uno-mounting-boundary",
+    "Chỉ ba tâm có đủ tọa độ X/Y từ các mũi tên kích thước; X của tâm dưới trái chưa được nhà sản xuất định lượng tại mục 5.4. Bảng không phải bản vẽ CAD hoàn chỉnh, không định vị chân header và không cho phép snap lỗ hoặc xác nhận lắp ráp vật lý.");
+  mountingBoundary.setAttribute("role","note");
+  holeRegion.append(tableWrap,mountingBoundary);
   const note=el("p","uno-mechanical-boundary",
     "Kích thước 66,04 × 50,80 mm trên bản vẽ mục 5.4 là các khoảng tham chiếu, không phải chiều bao ngoài của bo. Sơ đồ không đặt bốn lỗ vít hay hàng chân vào tọa độ CAD; không thể dùng để snap dây/lỗ breadboard hoặc chứng minh vị trí 3D đã khớp phần cứng.");
   note.setAttribute("role","note");
@@ -418,7 +540,7 @@ function renderUnoMechanicalOutline(){
   source.href=spec.sourceUrl;
   source.target="_blank";
   source.rel="noopener noreferrer";
-  section.append(heading,message,diagram,note,overallSource,source);
+  section.append(heading,message,diagram,holeRegion,note,overallSource,source);
   return section;
 }
 function renderUnoPinReference() {
@@ -660,6 +782,9 @@ function renderStage() {
       state.wiringUI=mountWiringWorkbench(panel,lesson.id,{
         initial:state.circuitModels.get(lesson.id)??createCircuit(lesson.id),
         active:state.activeCircuits.has(lesson.id),
+        historyState:learnerHistorySnapshot(lesson.id),
+        onUndo:requestLearnerUndo,
+        onRedo:requestLearnerRedo,
         onChange(model,analysis){
           applyCanonicalCircuit(lesson.id,model,analysis);
         },
@@ -772,7 +897,10 @@ function updateSketchReview(){
       reference:currentLesson().sketch,
       draft:state.code,
     });
-    host.replaceChildren(renderSketchReview(document,inspection));
+    // Lexical pin evidence uses the CURRENT learner draft, not the reference
+    // Sketch, a compiler, firmware, or any imagined electrical connection.
+    const pinEvidence=inspectSketchPinEvidence({lessonId:state.lessonId,source:state.code});
+    host.replaceChildren(renderSketchReview(document,inspection,{pinEvidence}));
   } catch {
     host.replaceChildren(el("p","sketch-review-boundary",
       "Không thể đối chiếu bản nháp này; ứng dụng không biên dịch hoặc xác nhận mã Arduino C++."));
@@ -1143,6 +1271,16 @@ function wireEvents(){
   });
   $("clearSerial").addEventListener("click",()=>{state.serial=[];$("serialConsole").replaceChildren(el("p","","Đã xóa nhật ký."));});
   $("editCode").addEventListener("click",toggleCodeEditor);
+  $("labUndoWire").addEventListener("click",()=>{
+    if(!state.labEditorUI?.isEditingIn3D?.())return;
+    const history=learnerHistorySnapshot();
+    if(history?.canUndo)requestLearnerUndo({lessonId:state.lessonId,expectedRevision:history.revision});
+  });
+  $("labRedoWire").addEventListener("click",()=>{
+    if(!state.labEditorUI?.isEditingIn3D?.())return;
+    const history=learnerHistorySnapshot();
+    if(history?.canRedo)requestLearnerRedo({lessonId:state.lessonId,expectedRevision:history.revision});
+  });
   $("restoreCode").addEventListener("click",resetCodeDraft);
   $("downloadCode").addEventListener("click",downloadSketch);
   $("codeEditor").addEventListener("input",event=>{
@@ -1227,6 +1365,7 @@ async function init(){
       refreshSceneInspectionNote();
       refresh3DWiring();
       refreshLabExplorer();
+      refreshLearnerHistoryControls();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange:refreshLabExplorer,

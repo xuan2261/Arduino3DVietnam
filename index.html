@@ -70,7 +70,7 @@
                 </fieldset>
                 <fieldset class="lab-editor-group"><legend>02 · Nối chân theo netlist</legend>
                   <div class="lab-wire-fields"><label for="labFromPin">Chân thứ nhất</label><select id="labFromPin"></select><label for="labToPin">Chân thứ hai</label><select id="labToPin"></select></div>
-                  <div class="lab-editor-actions"><button type="button" id="labConnect" class="button button-soft">+ Nối hai chân</button><button type="button" id="labRemoveLastWire">Gỡ dây cuối</button><button type="button" id="labSampleWires">Mạch mẫu</button><button type="button" id="labClearWires">Xóa dây</button></div>
+                  <div class="lab-editor-actions"><button type="button" id="labConnect" class="button button-soft">+ Nối hai chân</button><button type="button" id="labRemoveLastWire">Gỡ dây cuối</button><button type="button" id="labSampleWires">Mạch mẫu</button><button type="button" id="labClearWires">Xóa dây</button><button type="button" id="labUndoWire" aria-label="Hoàn tác trạng thái dây học viên trong ứng dụng" aria-disabled="true" disabled>↶ Hoàn tác</button><button type="button" id="labRedoWire" aria-label="Làm lại trạng thái dây học viên trong ứng dụng" aria-disabled="true" disabled>↷ Làm lại</button></div>
                   <div class="lab-pending-wire-actions" role="group" aria-label="Điều khiển thao tác nối dây đang chờ">
                     <p id="labSelectedTerminal" role="status" aria-live="polite">Chọn hai chân trên mô hình 3D hoặc qua danh sách để nối.</p>
                     <button id="labCancelPendingWire" type="button" class="button button-soft" aria-describedby="labSelectedTerminal" disabled>Hủy chọn chân đầu tiên</button>

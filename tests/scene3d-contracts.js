@@ -126,6 +126,18 @@ export async function runScene3DContracts() {
   check("wire-geometry-revision-resets-on-context-loss",
     /labWireGeometryRevision=0/.test(contextLostSource) &&
     /labWireGeometryRevision="0"/.test(contextLostSource));
+  check("component-fidelity-source-remains-conceptual-and-visual-only",
+    /function conceptualVisualFeature/.test(sceneSource) &&
+    /conceptualFeature: true/.test(sceneSource) &&
+    /physicalVerified: false/.test(sceneSource) &&
+    /electricalAuthority: false/.test(sceneSource) &&
+    /COMPONENT_VISUAL_PROFILE = "conceptual-components-v1"/.test(sceneSource));
+  check("terminal-contrast-source-is-separate-from-electrical-authority",
+    /TERMINAL_FEEDBACK_PROFILE = "contrast-rings-v1"/.test(sceneSource) &&
+    /kind:"lab-terminal-contrast-backdrop"/.test(sceneSource) &&
+    /kind:"lab-terminal-committed-wire-affordance"/.test(sceneSource) &&
+    /kind:"lab-conceptual-wire-highlight-backdrop"/.test(sceneSource) &&
+    /labWireHighlightFeedback/.test(sceneSource));
 
   const detached = document.createElement("div");
   let detachedRejected = false;
@@ -180,8 +192,14 @@ export async function runScene3DContracts() {
     const legacyHeaderSockets = Number(canvas.dataset.sceneUnoHeaderSocketVisualCount);
     const legacyBreadboardHoles = Number(canvas.dataset.sceneBreadboardHoleVisualCount);
     const legacyContactStrips = Number(canvas.dataset.sceneBreadboardContactStripVisualCount);
+    const legacyComponentFeatures = Number(canvas.dataset.sceneComponentVisualFeatureCount);
+    const legacyComponentKinds = Number(canvas.dataset.sceneComponentVisualKindCount);
+    const legacyComponentMarkings = Number(canvas.dataset.sceneComponentMarkingCount);
+    const legacyTerminalContrast = Number(canvas.dataset.sceneTerminalContrastAffordanceCount);
     check("visual-fidelity-conceptual-profile",
       canvas.dataset.sceneVisualProfile === "conceptual-r3-fidelity-v2" &&
+      canvas.dataset.sceneComponentVisualProfile === "conceptual-components-v1" &&
+      canvas.dataset.sceneTerminalFeedbackProfile === "contrast-rings-v1" &&
       canvas.dataset.sceneCadMapping === "none" &&
       canvas.dataset.sceneElectricalAuthority === "none" &&
       legacyHeaderSockets >= 20 &&
@@ -302,10 +320,18 @@ export async function runScene3DContracts() {
       Number(canvas.dataset.sceneUnoHeaderSocketVisualCount) > legacyHeaderSockets &&
       Number(canvas.dataset.sceneBreadboardHoleVisualCount) > legacyBreadboardHoles &&
       Number(canvas.dataset.sceneBreadboardContactStripVisualCount) > legacyContactStrips &&
+      Number(canvas.dataset.sceneComponentVisualFeatureCount) > legacyComponentFeatures &&
+      Number(canvas.dataset.sceneComponentVisualKindCount) > legacyComponentKinds &&
+      Number(canvas.dataset.sceneComponentMarkingCount) > legacyComponentMarkings &&
+      Number(canvas.dataset.sceneTerminalContrastAffordanceCount) === layout.terminals.length &&
+      Number(canvas.dataset.sceneTerminalContrastAffordanceCount) > legacyTerminalContrast &&
       canvas.dataset.sceneCadMapping === "none" &&
       canvas.dataset.sceneElectricalAuthority === "none" &&
       canvas.dataset.labHoveredTerminal === "" &&
-      canvas.dataset.labTerminalLabelFeedback === "none");
+      canvas.dataset.labTerminalLabelFeedback === "none" &&
+      canvas.dataset.labTerminalContrastFeedback === "none" &&
+      canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
+      canvas.dataset.labWireHighlightFeedback === "none");
 
     let highlightWithoutWiringRejected = false;
     try { mounted.setHighlightedLabWire("w1"); }
@@ -332,6 +358,9 @@ export async function runScene3DContracts() {
       highlightedWire.mode === "committed-wire-highlight" &&
       highlightedWire.physicalVerified === false &&
       canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 2 &&
+      /committed/.test(canvas.dataset.labTerminalContrastFeedback) &&
       canvas.dataset.labWireCount === wireCountBeforeHighlight &&
       canvas.dataset.labPendingWireTerminal === "" &&
       canvas.dataset.labPendingWirePreview === "none" &&
@@ -375,6 +404,8 @@ export async function runScene3DContracts() {
       (resistorAfterLayoutMove.x !== resistorBeforeLayoutMove.x ||
         resistorAfterLayoutMove.z !== resistorBeforeLayoutMove.z) &&
       canvas.dataset.labHighlightedWire === committedWireId &&
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 2 &&
       canvas.dataset.labWireRouteMode === "elevated-multisegment" &&
       canvas.dataset.labWireRoutePointCount === "8" &&
       revisionAfterLayoutMove > revisionBeforeLayoutMove);
@@ -420,12 +451,21 @@ export async function runScene3DContracts() {
       clearedWireHighlight.active === false &&
       clearedWireHighlight.mode === "none" &&
       canvas.dataset.labHighlightedWire === "");
+    mounted.setWiring(sampleCircuit, terminals);
+    mounted.setHighlightedLabWire(committedWireId);
+    check("wiring-clear-fixture-has-committed-endpoint-feedback",
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 2 &&
+      /committed/.test(canvas.dataset.labTerminalContrastFeedback));
     mounted.setWiring(null);
     check("clearing-wiring-clears-committed-route-metadata",
       canvas.dataset.labWireCount === "0" &&
       canvas.dataset.labWireRouteMode === "none" &&
       canvas.dataset.labWireRoutePointCount === "0" &&
-      canvas.dataset.labHighlightedWire === "");
+      canvas.dataset.labHighlightedWire === "" &&
+      canvas.dataset.labWireHighlightFeedback === "none" &&
+      canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
+      canvas.dataset.labTerminalContrastFeedback === "none");
 
     let pendingOutsideEditRejected = false;
     try { mounted.setPendingWireTerminal("D13"); }
@@ -514,6 +554,9 @@ export async function runScene3DContracts() {
       canvas.dataset.labPendingWireTerminal === "D13" &&
       canvas.dataset.labPendingWirePreview === "none" &&
       canvas.dataset.labTerminalLabelFeedback === "pending" &&
+      /pending/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      !/committed/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 0 &&
       /D13/.test(canvas.getAttribute("aria-label") || "") &&
       /chưa tạo dây/i.test(canvas.getAttribute("aria-label") || ""));
     check("pending-wire-prompt-is-visual-only",
@@ -532,7 +575,9 @@ export async function runScene3DContracts() {
     check("pending-wire-invalid-id-is-transactional",
       invalidPendingRejected &&
       canvas.dataset.labPendingWireTerminal === "D13" &&
-      canvas.dataset.labPendingWirePreview === "none");
+      canvas.dataset.labPendingWirePreview === "none" &&
+      /pending/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 0);
 
     mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
     check("pending-wire-survives-same-edit-state-refresh",
@@ -549,7 +594,9 @@ export async function runScene3DContracts() {
     mounted.setPendingWireTerminal(null);
     check("inspection-terminal-label-feedback-after-pending-clears",
       canvas.dataset.labInspectedTerminal === "D13" &&
-      canvas.dataset.labTerminalLabelFeedback === "inspection");
+      canvas.dataset.labTerminalLabelFeedback === "inspection" &&
+      /inspection/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      !/committed/.test(canvas.dataset.labTerminalContrastFeedback));
     mounted.setPendingWireTerminal("D13");
     mounted.focusLabComponent("arduino");
     check("lab-focus-feedback-metadata", canvas.dataset.labFocusFeedback === "outline");
@@ -575,6 +622,11 @@ export async function runScene3DContracts() {
     mounted.setWiring(sampleCircuit, terminals);
     mounted.setHighlightedLabWire(committedWireId);
     mounted.setPendingWireTerminal("D13");
+    check("pending-and-committed-feedback-compose-before-stage-clear",
+      /pending/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      /committed/.test(canvas.dataset.labTerminalContrastFeedback) &&
+      canvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      Number(canvas.dataset.labCommittedWireEndpointFeedbackCount) === 2);
     mounted.setLabLayout(null);
     check("layout-stage-clear-resets-pending-wire-preview",
       canvas.dataset.labPendingWireTerminal === "" &&
@@ -584,7 +636,10 @@ export async function runScene3DContracts() {
       canvas.dataset.labHighlightedWire === "" &&
       canvas.dataset.labWireRouteMode === "none" &&
       canvas.dataset.labWireRoutePointCount === "0" &&
-      canvas.dataset.labWireGeometryRevision === "0");
+      canvas.dataset.labWireGeometryRevision === "0" &&
+      canvas.dataset.labWireHighlightFeedback === "none" &&
+      canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
+      canvas.dataset.labTerminalContrastFeedback === "none");
     let highlightAfterStageClearRejected = false;
     try { mounted.setHighlightedLabWire(committedWireId); }
     catch (error) { highlightAfterStageClearRejected = error instanceof RangeError; }
@@ -664,7 +719,10 @@ export async function runScene3DContracts() {
       canvas.dataset.labHighlightedWire === "" &&
       canvas.dataset.labWireRouteMode === "none" &&
       canvas.dataset.labWireRoutePointCount === "0" &&
-      canvas.dataset.labWireGeometryRevision === "0");
+      canvas.dataset.labWireGeometryRevision === "0" &&
+      canvas.dataset.labWireHighlightFeedback === "none" &&
+      canvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
+      canvas.dataset.labTerminalContrastFeedback === "none");
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     check("dispose-detaches-context-listeners", queuedFrames.size === 0);
 
@@ -703,6 +761,10 @@ export async function runScene3DContracts() {
       lossCanvas.dataset.labPendingWireTerminal === "D13" &&
       lossCanvas.dataset.labPendingWirePreview === "none" &&
       lossCanvas.dataset.labHighlightedWire === committedWireId &&
+      lossCanvas.dataset.labWireHighlightFeedback === "contrast-line+endpoints" &&
+      Number(lossCanvas.dataset.labCommittedWireEndpointFeedbackCount) === 2 &&
+      /pending/.test(lossCanvas.dataset.labTerminalContrastFeedback) &&
+      /committed/.test(lossCanvas.dataset.labTerminalContrastFeedback) &&
       lossCanvas.dataset.labWireRouteMode === "elevated-multisegment" &&
       revisionBeforeContextLoss > 0);
     const lossGl = lossCanvas.getContext("webgl2");
@@ -719,6 +781,9 @@ export async function runScene3DContracts() {
     check("context-reset-clears-highlighted-wire",
       lossCanvas.dataset.labHighlightedWire === "" &&
       lossCanvas.dataset.labWireGeometryRevision === "0" &&
+      lossCanvas.dataset.labWireHighlightFeedback === "none" &&
+      lossCanvas.dataset.labCommittedWireEndpointFeedbackCount === "0" &&
+      lossCanvas.dataset.labTerminalContrastFeedback === "none" &&
       !/Dây đang được đánh dấu/.test(lossCanvas.getAttribute("aria-label") || ""));
     lossDispose.dispose();
     check("dispose-while-context-lost-removes-canvas", !lossCanvas.isConnected && !host.querySelector("canvas"));

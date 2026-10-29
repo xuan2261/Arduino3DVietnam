@@ -19,6 +19,8 @@ export const AVR_TIMER2_BITS = Object.freeze({
   TOIE2: 0x01,
   OCF2A: 0x02,
   OCF2B: 0x04,
+  OCIE2A: 0x02,
+  OCIE2B: 0x04,
   AS2: 0x20,
   EXCLK: 0x40,
 });
@@ -33,7 +35,8 @@ export const AVR_TIMER2_CAPABILITIES = Object.freeze({
   internalPrescalers: Object.freeze([1, 8, 32, 64, 128, 256, 1024]),
   ctc: false,
   pwm: false,
-  compareMatch: false,
+  compareMatch: true,
+  compareInterrupts: true,
   outputComparePins: false,
   asynchronousClock: false,
   externalClock: false,
@@ -44,6 +47,8 @@ export const AVR_TIMER2_CAPABILITIES = Object.freeze({
 });
 
 const DIVIDERS = Object.freeze([0, 1, 8, 32, 64, 128, 256, 1024]);
+const COMPARE_A_VECTOR = 0x0e;
+const COMPARE_B_VECTOR = 0x10;
 const OVERFLOW_VECTOR = 0x12;
 const TCCR2A_WGM_MASK = 0x03;
 const TCCR2B_WGM_MASK = 0x08;
@@ -129,6 +134,20 @@ export function createAvrTimer2(cpu) {
     enableRegister: R.TIMSK2,
     enableMask: B.TOIE2,
   });
+  const compareAInterrupt = Object.freeze({
+    address: COMPARE_A_VECTOR,
+    flagRegister: R.TIFR2,
+    flagMask: B.OCF2A,
+    enableRegister: R.TIMSK2,
+    enableMask: B.OCIE2A,
+  });
+  const compareBInterrupt = Object.freeze({
+    address: COMPARE_B_VECTOR,
+    flagRegister: R.TIFR2,
+    flagMask: B.OCF2B,
+    enableRegister: R.TIMSK2,
+    enableMask: B.OCIE2B,
+  });
 
   let disposed = false;
   let counter = cpu.data[R.TCNT2] & 0xff;
@@ -136,6 +155,14 @@ export function createAvrTimer2(cpu) {
   let pendingDivider = divider;
   let dividerUpdatePending = false;
   let lastCycle = cpu.cycles;
+
+  function compareReached(previous, ticks, compareValue) {
+    if (ticks <= 0) return false;
+    if (ticks >= 0x100) return true;
+    const wrappedDistance = (compareValue - previous + 0x100) & 0xff;
+    const nextDistance = wrappedDistance === 0 ? 0x100 : wrappedDistance;
+    return nextDistance <= ticks;
+  }
 
   function ensureActive() {
     if (disposed) throw new Error("Timer2 đã dispose.");
@@ -150,6 +177,8 @@ export function createAvrTimer2(cpu) {
     const previous = counter;
     counter = (counter + ticks) & 0xff;
     cpu.data[R.TCNT2] = counter;
+    if (compareReached(previous, ticks, cpu.data[R.OCR2A])) cpu.setInterruptFlag(compareAInterrupt);
+    if (compareReached(previous, ticks, cpu.data[R.OCR2B])) cpu.setInterruptFlag(compareBInterrupt);
     if (previous + ticks > 0xff) cpu.setInterruptFlag(overflowInterrupt);
   }
 
@@ -239,30 +268,36 @@ export function createAvrTimer2(cpu) {
   const writeTifr2 = value => {
     ensureActive();
     const next = value & 0xff;
-    if (next & ~B.TOV2) {
-      throw new RangeError("Timer2 compare flags OCF2A/OCF2B chưa được hỗ trợ.");
+    const supportedMask = B.TOV2 | B.OCF2A | B.OCF2B;
+    if (next & ~supportedMask) {
+      throw new RangeError("Timer2 TIFR2 reserved/unsupported bits chưa được hỗ trợ.");
     }
     if (next & B.TOV2) cpu.clearInterruptByFlag(overflowInterrupt, B.TOV2);
+    if (next & B.OCF2A) cpu.clearInterruptByFlag(compareAInterrupt, B.OCF2A);
+    if (next & B.OCF2B) cpu.clearInterruptByFlag(compareBInterrupt, B.OCF2B);
     return true;
   };
 
   const writeTimsk2 = value => {
     ensureActive();
     const next = value & 0xff;
-    if (next & ~B.TOIE2) {
-      throw new RangeError("Timer2 compare interrupts OCIE2A/OCIE2B chưa được hỗ trợ.");
+    const supportedMask = B.TOIE2 | B.OCIE2A | B.OCIE2B;
+    if (next & ~supportedMask) {
+      throw new RangeError("Timer2 TIMSK2 reserved/unsupported bits chưa được hỗ trợ.");
     }
     cpu.updateInterruptEnable(overflowInterrupt, next);
+    cpu.updateInterruptEnable(compareAInterrupt, next);
+    cpu.updateInterruptEnable(compareBInterrupt, next);
     // Return undefined so CPU.writeData commits TIMSK2.
   };
 
   const writeOcr2a = () => {
     ensureActive();
-    throw new RangeError("Timer2 OCR2A/compare A chưa được hỗ trợ.");
+    // Immediate in Normal mode; CPU.writeData commits the byte after the hook.
   };
   const writeOcr2b = () => {
     ensureActive();
-    throw new RangeError("Timer2 OCR2B/compare B chưa được hỗ trợ.");
+    // Immediate in Normal mode; CPU.writeData commits the byte after the hook.
   };
   const writeAssr = value => {
     ensureActive();
@@ -296,8 +331,14 @@ export function createAvrTimer2(cpu) {
       clockSelect: cpu.data[R.TCCR2B] & 0x07,
       divider,
       tcnt2: counter,
+      ocr2a: cpu.data[R.OCR2A],
+      ocr2b: cpu.data[R.OCR2B],
       tov2: Boolean(cpu.data[R.TIFR2] & B.TOV2),
       toie2: Boolean(cpu.data[R.TIMSK2] & B.TOIE2),
+      ocf2a: Boolean(cpu.data[R.TIFR2] & B.OCF2A),
+      ocf2b: Boolean(cpu.data[R.TIFR2] & B.OCF2B),
+      ocie2a: Boolean(cpu.data[R.TIMSK2] & B.OCIE2A),
+      ocie2b: Boolean(cpu.data[R.TIMSK2] & B.OCIE2B),
       assr: cpu.data[R.ASSR],
       tickMicroseconds: divider ? (divider / AVR_TIMER2_CPU_HZ) * 1_000_000 : null,
       overflowPeriodMicroseconds: divider
@@ -310,6 +351,8 @@ export function createAvrTimer2(cpu) {
     ensureActive();
     cpu.clearClockEvent(onClockEvent);
     cpu.clearInterrupt(overflowInterrupt, false);
+    cpu.clearInterrupt(compareAInterrupt, false);
+    cpu.clearInterrupt(compareBInterrupt, false);
     cpu.data[R.TCCR2A] = 0;
     cpu.data[R.TCCR2B] = 0;
     cpu.data[R.TCNT2] = 0;
@@ -330,6 +373,8 @@ export function createAvrTimer2(cpu) {
     if (disposed) return;
     cpu.clearClockEvent(onClockEvent);
     cpu.clearInterrupt(overflowInterrupt, false);
+    cpu.clearInterrupt(compareAInterrupt, false);
+    cpu.clearInterrupt(compareBInterrupt, false);
     if (cpu.readHooks[R.TCNT2] === readTcnt2) cpu.readHooks[R.TCNT2] = previousReadHooks.get(R.TCNT2);
     for (const [address, previous] of previousWriteHooks) {
       const current = cpu.writeHooks[address];

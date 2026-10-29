@@ -260,8 +260,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(build_site.POST_V16_LAB_FILES, expected_post_v16_lab)
         self.assertEqual(build_site.POST_V16_INTERACTION_FILES, expected_post_v16_interaction)
         self.assertEqual(build_site.POST_V16_GUIDED_WIRING_FILES, expected_post_v16_guided_wiring)
-        self.assertEqual(len(build_site.FILES), 118,
-                         "candidate must preserve 110 prior paths + 8 guided-inspection assets")
+        self.assertEqual(len(build_site.FILES), 126,
+                         "candidate must preserve 118 existing paths + 8 new study assets")
         self.assertEqual(build_site.FILES[87:97], expected_post_v16_lab)
         self.assertEqual(build_site.FILES[97:102], expected_post_v16_interaction)
         self.assertEqual(build_site.FILES[102:107], expected_post_v16_guided_wiring)
@@ -331,7 +331,7 @@ class ReleaseContractTests(unittest.TestCase):
         ]
         self.assertTrue(hasattr(build_site, "POST_V16_GUIDED_INSPECTION_FILES"))
         self.assertEqual(build_site.POST_V16_GUIDED_INSPECTION_FILES, expected_inspection)
-        self.assertEqual(build_site.FILES[110:], expected_inspection)
+        self.assertEqual(build_site.FILES[110:118], expected_inspection)
         protected_fidelity = sha256(
             ("\n".join(build_site.FILES[:110]) + "\n").encode("utf-8")
         ).hexdigest()
@@ -415,6 +415,51 @@ class ReleaseContractTests(unittest.TestCase):
             expected_assets,
             "service-worker precache must exactly mirror the 118-file release order",
         )
+
+    def test_post_v16_study_extension_suffix_and_runtime_integrity(self):
+        expected = [
+            "src/learner-circuit-history.js",
+            "src/sketch-pin-evidence.js",
+            "src/uno-mounting-evidence.js",
+            "docs/LEARNER_CIRCUIT_HISTORY_NEXT.md",
+            "docs/SKETCH_PIN_EVIDENCE_NEXT.md",
+            "docs/UNO_MOUNTING_EVIDENCE_NEXT.md",
+            "docs/POST_V16_SCENE_COMPONENT_FIDELITY.md",
+            "docs/AVR_TIMER2_FIDELITY_NEXT.md",
+        ]
+        self.assertEqual(build_site.POST_V16_STUDY_EXTENSION_FILES, expected)
+        self.assertEqual(build_site.FILES[118:], expected)
+        self.assertEqual(len(build_site.FILES), 126)
+        self.assertEqual(
+            sha256(("\n".join(build_site.FILES[:118]) + "\n").encode()).hexdigest(),
+            "7e11ef8d5eb085947061ad1f18ce15b2c1042eb2355dcff74b5fedc4b49408b0",
+        )
+        for path in expected:
+            source = build_site._release_source(path)
+            self.assertTrue(source.is_file(), path)
+            self.assertFalse(source.is_symlink(), path)
+            self.assertGreater(source.stat().st_size, 0, path)
+        worker = (ROOT / "sw.js").read_text(encoding="utf-8")
+        self.assertEqual(build_site._service_worker_assets(worker),
+                         ["./", *["./" + name for name in build_site.FILES if name != "sw.js"]])
+        app = (ROOT / "src/app.js").read_text(encoding="utf-8")
+        for module in expected[:3]:
+            self.assertIn('from "./' + Path(module).name + '"', app, module)
+
+    def test_post_v16_study_extension_fails_closed_missing_runtime(self):
+        for missing in build_site.POST_V16_STUDY_EXTENSION_FILES[:3]:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory(
+                prefix="arduino3d-study-extension-missing-"
+            ) as temporary:
+                fixture_root = (Path(temporary) / "site").resolve()
+                fixture_root.mkdir()
+                copy_release_sources(fixture_root)
+                (fixture_root / missing).unlink()
+                with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                    build_site, "DIST", (fixture_root / "dist").resolve()
+                ):
+                    with self.assertRaises(FileNotFoundError):
+                        build_site.build()
 
         with tempfile.TemporaryDirectory(prefix="arduino3d-authored-lab-release-") as temporary:
             fixture_root = (Path(temporary) / "site").resolve()

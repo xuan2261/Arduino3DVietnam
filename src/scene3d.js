@@ -15,6 +15,8 @@ const LAB_LAYOUT_NOTICE = "LAYOUT KHÁI NIỆM · KHÔNG PHẢI TỌA ĐỘ LỖ
 const LAB_EDIT_ARIA = "Chế độ chỉnh bố trí 3D đang bật. Click hoặc chạm để chọn component; kéo component di động trên mặt phẳng bố trí. Các phím W A S D di chuyển component đã chọn theo lưới, Q/E xoay 90 độ, Escape bỏ chọn. Phím mũi tên vẫn điều khiển camera.";
 const LAB_WORLD_SCALE = .72;
 const SCENE_QUALITY_PROFILE = "v16";
+const COMPONENT_VISUAL_PROFILE = "conceptual-components-v1";
+const TERMINAL_FEEDBACK_PROFILE = "contrast-rings-v1";
 const SCENE_LOD_BREAKPOINT = 560;
 const LAB_TERMINAL_HIT_RADIUS = .20;
 const LAB_TOUCH_TAP_THRESHOLD = 12;
@@ -39,25 +41,37 @@ const createSharedMaterials = () => ({
   holeMat: material(0x9caead, { roughness: .82 }),
   railHoleMat: material(0xa6b4b0, { roughness: .82 }),
   terminalMat: new T.MeshBasicMaterial({ color: 0x405a58 }),
+  terminalContrastMat: new T.MeshBasicMaterial({
+    color: 0x10272b, transparent: true, opacity: .92,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
+  }),
   terminalHaloMat: new T.MeshBasicMaterial({
     color: palette.teal, transparent: true, opacity: .40,
-    depthWrite: false, side: T.DoubleSide,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
   }),
   inspectionTerminalHaloMat: new T.MeshBasicMaterial({
     color: 0x6274d9, transparent: true, opacity: .76,
-    depthWrite: false, side: T.DoubleSide,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
   }),
   hoverTerminalHaloMat: new T.MeshBasicMaterial({
-    color: 0xe7c65a, transparent: true, opacity: .68,
-    depthWrite: false, side: T.DoubleSide,
+    color: 0xf7db63, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
   }),
   pendingTerminalHaloMat: new T.MeshBasicMaterial({
-    color: palette.coral, transparent: true, opacity: .88,
-    depthWrite: false, side: T.DoubleSide,
+    color: palette.coral, transparent: true, opacity: .98,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
+  }),
+  committedTerminalHaloMat: new T.MeshBasicMaterial({
+    color: 0xffd36a, transparent: true, opacity: .98,
+    depthWrite: false, depthTest: false, side: T.DoubleSide,
   }),
   pendingWireLineMat: new T.LineBasicMaterial({
-    color: palette.coral, transparent: true, opacity: .56,
-    depthWrite: false,
+    color: palette.coral, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false,
+  }),
+  highlightedWireBackdropMat: new T.LineBasicMaterial({
+    color: 0x10272b, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false,
   }),
   highlightedWireLineMat: new T.LineBasicMaterial({
     color: 0xffd36a, transparent: true, opacity: .96,
@@ -145,6 +159,20 @@ function canvasTag(parent, text, x, y, z, width = .95) {
 function fineDetail(object) {
   if (!object) return object;
   object.userData = { ...object.userData, sceneDetail: "fine", physicalVerified: false };
+  return object;
+}
+function conceptualVisualFeature(object, visualKind, feature, role = "silhouette") {
+  if (!object) return object;
+  object.userData = {
+    ...object.userData,
+    conceptualFeature: true,
+    visualKind,
+    visualFeature: feature,
+    fidelityRole: role,
+    physicalLocation: false,
+    physicalVerified: false,
+    electricalAuthority: false,
+  };
   return object;
 }
 function instancedCylinders(parent, positions, radius, height, materialRef, radial, kind) {
@@ -417,10 +445,24 @@ function labHitProxy(parent, width, depth, height, componentId, shared) {
 function makeLabArduinoVisual(parent, width, depth, shared) {
   // Functional labels follow docs/UNO_REFERENCE_NEXT.md (official Arduino A000066 sources).
   // Header rail/socket geometry remains illustrative logical display geometry, not CAD.
-  const body = box(parent, [width, .18, depth], shared.bodyMat, [0,.15,0]);
+  const body = conceptualVisualFeature(
+    box(parent, [width, .18, depth], shared.bodyMat, [0,.15,0]),
+    "arduino-uno", "board-profile"
+  );
   body.castShadow = true;
-  box(parent,[width * .43,.16,depth * .22],shared.plasticMat,[width * .08,.32,.05]);
-  box(parent,[width * .16,.42,depth * .28],shared.metallicMat,[-width * .43,.38,-depth * .24]);
+  conceptualVisualFeature(
+    box(parent,[width * .43,.16,depth * .22],shared.plasticMat,[width * .08,.32,.05]),
+    "arduino-uno","controller-package"
+  );
+  conceptualVisualFeature(
+    box(parent,[width * .16,.42,depth * .28],shared.metallicMat,[-width * .43,.38,-depth * .24]),
+    "arduino-uno","usb-b-silhouette"
+  );
+  const barrel = conceptualVisualFeature(
+    cylinder(parent,depth*.12,depth*.12,width*.18,shared.plasticMat,[width*.42,.33,depth*.22],20),
+    "arduino-uno","dc-barrel-silhouette"
+  );
+  barrel.rotation.z=Math.PI/2;
   const topZ = depth * .39;
   const bottomZ = -depth * .39;
   const topRail=box(parent,[width * .76,.22,.30],shared.plasticMat,[-width * .02,.35,topZ]);
@@ -429,7 +471,14 @@ function makeLabArduinoVisual(parent, width, depth, shared) {
   bottomRail.userData={kind:"uno-header-rail-visual",group:"power-analog",physicalLocation:false,physicalVerified:false};
   fineDetail(box(parent,[width*.69,.015,.075],0x273236,[-width*.02,.468,topZ]));
   fineDetail(box(parent,[width*.55,.015,.075],0x273236,[width*.12,.468,bottomZ]));
-  canvasLabel(parent,"ARDUINO UNO R3",0,.285,.02,Math.max(1.6,width*.62),38);
+  conceptualVisualFeature(
+    canvasLabel(parent,"ARDUINO UNO R3",0,.285,.02,Math.max(1.6,width*.62),38),
+    "arduino-uno","board-name","marking"
+  );
+  fineDetail(conceptualVisualFeature(
+    canvasLabel(parent,"MCU",width*.08,.435,.05,Math.max(.58,width*.20),20,"#d9eee8"),
+    "arduino-uno","controller-marking","marking"
+  ));
   canvasLabel(parent,"DIGITAL D0–D13",0,.505,topZ - .30,Math.max(1.55,width*.58),29);
   canvasLabel(parent,"ANALOG A0–A5",width*.05,.505,bottomZ + .30,Math.max(1.5,width*.54),29);
   canvasLabel(parent,"5V · 3V3 · GND",width*.27,.505,depth*.16,Math.max(1.3,width*.42),27);
@@ -446,27 +495,42 @@ function makeLabArduinoVisual(parent, width, depth, shared) {
     bottomSockets.push([px,.485,bottomZ]);
   }
   fineDetail(instancedCylinders(parent,bottomSockets,.035,.026,shared.socketMat,8,"uno-header-socket-instances"));
-  fineDetail(canvasLabel(parent,"HEADER VISUAL · KHÔNG PHẢI PIN MAP",0,.515,depth*.47,Math.max(1.8,width*.74),20,"#d9eee8"));
+  fineDetail(conceptualVisualFeature(
+    canvasLabel(parent,"HEADER VISUAL · KHÔNG PHẢI PIN MAP",0,.515,depth*.47,Math.max(1.8,width*.74),20,"#d9eee8"),
+    "arduino-uno","header-nonauthoritative-marking","marking"
+  ));
   fineDetail(canvasLabel(parent,"PWM ~ 3 · 5 · 6 · 9 · 10 · 11",0,.515,-depth*.47,Math.max(1.9,width*.78),18,"#c7e8df"));
   fineDetail(box(parent,[width*.15,.08,depth*.10],0x486c6f,[width*.31,.31,-depth*.10]));
   fineDetail(canvasLabel(parent,"RESET",width*.31,.52,-depth*.10,.60,20,"#d9eee8"));
 }
 
 function makeLabBreadboardVisual(parent, width, depth, shared) {
-  const base=box(parent,[width,.26,depth],0xfdfefd,[0,.14,0]);
-  base.userData={kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
+  const base=conceptualVisualFeature(
+    box(parent,[width,.26,depth],0xfdfefd,[0,.14,0]),
+    "breadboard","body-profile"
+  );
+  base.userData={...base.userData,kind:"breadboard-visual",physicalVerified:false,breadboardHoleMapping:false};
   const leftBank=box(parent,[width*.88,.022,depth*.33],0xf4f7f5,[0,.285,-depth*.18]);
   const rightBank=box(parent,[width*.88,.022,depth*.33],0xf4f7f5,[0,.285,depth*.18]);
   leftBank.userData={kind:"breadboard-contact-bank-visual",breadboardConnectivity:false,physicalVerified:false};
   rightBank.userData={kind:"breadboard-contact-bank-visual",breadboardConnectivity:false,physicalVerified:false};
   box(parent,[width*.90,.012,.025],0xd77b65,[0,.285,-depth*.37]);
   box(parent,[width*.90,.012,.025],0x65a9d5,[0,.285,depth*.37]);
-  const trench=box(parent,[width*.86,.020,depth*.075],0xcbd4d0,[0,.276,0]);
-  trench.userData={kind:"breadboard-center-trench-visual",breadboardConnectivity:false,physicalVerified:false};
+  const trench=conceptualVisualFeature(
+    box(parent,[width*.86,.020,depth*.075],0xcbd4d0,[0,.276,0]),
+    "breadboard","center-trench"
+  );
+  trench.userData={...trench.userData,kind:"breadboard-center-trench-visual",breadboardConnectivity:false,physicalVerified:false};
   fineDetail(box(parent,[width*.84,.012,.012],0x9eaaa6,[0,.295,-depth*.045]));
   fineDetail(box(parent,[width*.84,.012,.012],0x9eaaa6,[0,.295,depth*.045]));
-  box(parent,[width*.86,.012,.026],0xd77b65,[0,.285,-depth*.44]);
-  box(parent,[width*.86,.012,.026],0x65a9d5,[0,.285,depth*.44]);
+  conceptualVisualFeature(
+    box(parent,[width*.86,.012,.026],0xd77b65,[0,.285,-depth*.44]),
+    "breadboard","rail-red","marking"
+  );
+  conceptualVisualFeature(
+    box(parent,[width*.86,.012,.026],0x65a9d5,[0,.285,depth*.44]),
+    "breadboard","rail-blue","marking"
+  );
   const columns = 12, bankRows = 5;
   const bankHoles=[];
   for (let i = 0; i < columns; i += 1) {
@@ -495,8 +559,14 @@ function makeLabBreadboardVisual(parent, width, depth, shared) {
       fineDetail(strip);
     }
   }
-  fineDetail(canvasLabel(parent,"VISUAL GRID · KHÔNG CÓ HOLE MAP",0,.305,depth*.31,Math.max(1.5,width*.72),18,"#7a8f89"));
-  canvasLabel(parent,"BREADBOARD · KHÁI NIỆM",0,.30,-depth*.43,Math.max(1.5,width*.70),25,"#607c74");
+  fineDetail(conceptualVisualFeature(
+    canvasLabel(parent,"VISUAL GRID · KHÔNG CÓ HOLE MAP",0,.305,depth*.31,Math.max(1.5,width*.72),18,"#7a8f89"),
+    "breadboard","hole-map-warning","marking"
+  ));
+  conceptualVisualFeature(
+    canvasLabel(parent,"BREADBOARD · KHÁI NIỆM",0,.30,-depth*.43,Math.max(1.5,width*.70),25,"#607c74"),
+    "breadboard","board-name","marking"
+  );
 }
 
 function makeLabGenericVisual(parent, component, shared) {
@@ -516,48 +586,132 @@ function makeLabGenericVisual(parent, component, shared) {
       body.rotation.z = Math.PI / 2;
       body.position.y = .34;
       parent.add(body);
-      cylinder(body,.10,.10,Math.max(.56,width*.58),0xe7d2a6,[0,0,0],18);
+      const bodyLength=Math.max(.56,width*.58);
+      conceptualVisualFeature(
+        cylinder(body,.10,.10,bodyLength,0xe7d2a6,[0,0,0],18),
+        "resistor","axial-body"
+      );
+      for(const endY of [-bodyLength*.50,bodyLength*.50]){
+        fineDetail(conceptualVisualFeature(
+          cylinder(body,.115,.115,.055,0xd5c29c,[0,endY,0],16),
+          "resistor","end-cap"
+        ));
+      }
       [-.16,-.05,.07,.18].forEach((v,index)=>{
-        fineDetail(cylinder(body,.104,.104,.034,[0xa83d31,0x1a1b1f,0x7d5117,0xc9a64c][index],[0,v,0],16));
+        fineDetail(conceptualVisualFeature(
+          cylinder(body,.104,.104,.034,[0x627d77,0x35514d,0x81968f,0x4b6862][index],[0,v,0],16),
+          "resistor","neutral-identification-band","marking"
+        ));
       });
-      box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,Math.max(.38,width*.48),0]);
-      box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,-Math.max(.38,width*.48),0]);
+      conceptualVisualFeature(
+        box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,Math.max(.38,width*.48),0]),
+        "resistor","lead"
+      );
+      conceptualVisualFeature(
+        box(body,[.018,Math.max(.40,width*.34),.018],metallicMat,[0,-Math.max(.38,width*.48),0]),
+        "resistor","lead"
+      );
       break;
     }
     case "led":
     case "rgb-led": {
       const color = component.visualKind === "rgb-led" ? 0xd86596 : palette.coral;
       const globeMat=material(color,{transparent:true,opacity:.82,roughness:.28});
-      cylinder(parent,Math.min(.30,width*.24),Math.min(.30,width*.24),.42,globeMat,[0,.37,0],24);
-      cylinder(parent,Math.min(.24,width*.19),Math.min(.24,width*.19),.05,metallicMat,[0,.14,0],20);
-      fineDetail(box(parent,[.025,.23,.025],metallicMat,[-Math.min(.10,width*.08),.04,0]));
-      fineDetail(box(parent,[.025,.18,.025],metallicMat,[Math.min(.10,width*.08),.065,0]));
+      const globeRadius=Math.min(.29,width*.23);
+      const globe=new T.Mesh(new T.SphereGeometry(globeRadius,24,16),globeMat);
+      globe.position.set(0,.43,0);
+      globe.castShadow=true;
+      parent.add(globe);
+      conceptualVisualFeature(globe,component.visualKind,"domed-lens");
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.24,width*.19),Math.min(.24,width*.19),.08,0xc7d0cb,[0,.18,0],20),
+        component.visualKind,"lens-base"
+      );
+      fineDetail(conceptualVisualFeature(
+        box(parent,[globeRadius*.58,.035,.035],0xf5e4dd,[globeRadius*.42,.45,0]),
+        component.visualKind,"flat-side-cue","marking"
+      ));
+      const leadCount=component.visualKind==="rgb-led"?4:2;
+      for(let index=0;index<leadCount;index+=1){
+        const span=leadCount===1?0:(index/(leadCount-1)-.5)*Math.min(.34,width*.30);
+        fineDetail(conceptualVisualFeature(
+          box(parent,[.024,index%2===0?.24:.19,.024],metallicMat,[span,index%2===0?.03:.055,0]),
+          component.visualKind,"lead"
+        ));
+      }
+      fineDetail(conceptualVisualFeature(
+        canvasLabel(parent,component.visualKind==="rgb-led"?"RGB":"LED",0,.72,0,Math.max(.54,width*.44),20,"#eef7f2"),
+        component.visualKind,"type-marking","marking"
+      ));
       break;
     }
     case "button":
-      box(parent,[width*.72,.22,depth*.72],plasticMat,[0,.20,0]);
-      cylinder(parent,Math.min(.28,width*.24),Math.min(.28,width*.24),.24,palette.coral,[0,.43,0],22);
+      conceptualVisualFeature(
+        box(parent,[width*.72,.22,depth*.72],plasticMat,[0,.20,0]),
+        "button","square-base"
+      );
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.28,width*.24),Math.min(.28,width*.24),.24,palette.coral,[0,.43,0],22),
+        "button","push-cap"
+      );
       for(const x of [-width*.24,width*.24])for(const z of [-depth*.24,depth*.24]){
-        fineDetail(box(parent,[.024,.17,.024],metallicMat,[x,.045,z]));
+        fineDetail(conceptualVisualFeature(
+          box(parent,[.024,.17,.024],metallicMat,[x,.045,z]),
+          "button","terminal-leg"
+        ));
       }
-      fineDetail(canvasLabel(parent,"PUSH",0,.56,0,Math.max(.55,width*.44),18,"#f7e5df"));
+      fineDetail(conceptualVisualFeature(
+        canvasLabel(parent,"PUSH",0,.56,0,Math.max(.55,width*.44),18,"#f7e5df"),
+        "button","push-marking","marking"
+      ));
       break;
-    case "potentiometer":
-      cylinder(parent,Math.min(.36,width*.27),Math.min(.36,width*.27),.22,0x32444b,[0,.22,0],24);
-      cylinder(parent,Math.min(.24,width*.18),Math.min(.24,width*.18),.28,0xe3e7e1,[0,.47,0],20);
-      for(const x of [-width*.18,0,width*.18])fineDetail(box(parent,[.022,.18,.022],metallicMat,[x,.055,depth*.16]));
+    case "potentiometer": {
+      const knobRadius=Math.min(.24,width*.18);
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.36,width*.27),Math.min(.36,width*.27),.22,0x32444b,[0,.22,0],24),
+        "potentiometer","round-body"
+      );
+      conceptualVisualFeature(
+        cylinder(parent,knobRadius,knobRadius,.28,0xe3e7e1,[0,.47,0],20),
+        "potentiometer","knob"
+      );
+      fineDetail(conceptualVisualFeature(
+        box(parent,[knobRadius*1.15,.025,.045],0x53656a,[0,.62,0]),
+        "potentiometer","knob-slot","marking"
+      ));
+      for(const x of [-width*.18,0,width*.18])fineDetail(conceptualVisualFeature(
+        box(parent,[.022,.18,.022],metallicMat,[x,.055,depth*.16]),
+        "potentiometer","terminal-leg"
+      ));
+      fineDetail(conceptualVisualFeature(
+        canvasLabel(parent,"POT",0,.66,-depth*.18,Math.max(.58,width*.46),19,"#eef7f2"),
+        "potentiometer","type-marking","marking"
+      ));
       break;
+    }
     case "photoresistor": {
-      const disk=cylinder(parent,Math.min(.34,width*.24),Math.min(.34,width*.24),.10,0xb3936f,[0,.24,0],24);
+      const disk=conceptualVisualFeature(
+        cylinder(parent,Math.min(.34,width*.24),Math.min(.34,width*.24),.10,0xb3936f,[0,.24,0],24),
+        "photoresistor","sensor-disc"
+      );
       fineDetail(box(disk,[.34,.015,.045],0x3b3c2e,[0,.055,0]));
       fineDetail(box(disk,[.045,.015,.34],0x3b3c2e,[0,.057,0]));
-      canvasLabel(parent,"LDR",0,.39,0,Math.max(.65,width*.52),24,"#eef7f2");
+      conceptualVisualFeature(
+        canvasLabel(parent,"LDR",0,.39,0,Math.max(.65,width*.52),24,"#eef7f2"),
+        "photoresistor","type-marking","marking"
+      );
       break;
     }
     case "force-sensor": {
-      cylinder(parent,Math.min(.34,width*.25),Math.min(.34,width*.25),.07,0x7d918e,[0,.22,0],26);
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.34,width*.25),Math.min(.34,width*.25),.07,0x7d918e,[0,.22,0],26),
+        "force-sensor","sensor-pad"
+      );
       fineDetail(cylinder(parent,Math.min(.22,width*.16),Math.min(.22,width*.16),.012,0xdbe8e3,[0,.263,0],24));
-      canvasLabel(parent,"FSR",0,.36,0,Math.max(.62,width*.50),24,"#eef7f2");
+      conceptualVisualFeature(
+        canvasLabel(parent,"FSR",0,.36,0,Math.max(.62,width*.50),24,"#eef7f2"),
+        "force-sensor","type-marking","marking"
+      );
       break;
     }
     case "temperature-sensor": {
@@ -574,14 +728,26 @@ function makeLabGenericVisual(parent, component, shared) {
       break;
     }
     case "ultrasonic-sensor":
-      box(parent,[width*.80,.15,depth*.70],0x24909a,[0,.24,0]);
+      conceptualVisualFeature(
+        box(parent,[width*.80,.15,depth*.70],0x24909a,[0,.24,0]),
+        "ultrasonic-sensor","board-profile"
+      );
       for (const x of [-width*.22,width*.22]) {
-        cylinder(parent,Math.min(.24,depth*.22),Math.min(.24,depth*.22),.19,metallicMat,[x,.39,0],22);
+        conceptualVisualFeature(
+          cylinder(parent,Math.min(.24,depth*.22),Math.min(.24,depth*.22),.19,metallicMat,[x,.39,0],22),
+          "ultrasonic-sensor","transducer"
+        );
       }
       break;
     case "buzzer":
-      cylinder(parent,Math.min(.34,width*.27),Math.min(.34,width*.27),.42,0x202c31,[0,.31,0],28);
-      cylinder(parent,Math.min(.18,width*.14),Math.min(.18,width*.14),.025,0x11191c,[0,.53,0],22);
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.34,width*.27),Math.min(.34,width*.27),.42,0x202c31,[0,.31,0],28),
+        "buzzer","cylindrical-body"
+      );
+      conceptualVisualFeature(
+        cylinder(parent,Math.min(.18,width*.14),Math.min(.18,width*.14),.025,0x11191c,[0,.53,0],22),
+        "buzzer","sound-port"
+      );
       break;
     case "driver":
       box(parent,[width*.82,.18,depth*.76],0x315f67,[0,.22,0]);
@@ -607,7 +773,10 @@ function makeLabGenericVisual(parent, component, shared) {
       break;
   }
   if (component.visualKind !== "arduino-uno" && component.visualKind !== "breadboard") {
-    canvasLabel(parent,component.label,0,height + .12,0,Math.max(.72,width*.84),24,"#355f58");
+    conceptualVisualFeature(
+      canvasLabel(parent,component.label,0,height + .12,0,Math.max(.72,width*.84),24,"#355f58"),
+      component.visualKind,"component-label","marking"
+    );
   }
   return { width, depth, height };
 }
@@ -985,6 +1154,8 @@ export function mountScene(host, onSelect = () => {}) {
   const baseShortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home Enter Space";
   function refreshSceneVisualDiagnostics(){
     let unoHeaderSockets=0,breadboardVisualHoles=0,breadboardContactStrips=0,instancedVisuals=0;
+    let componentFeatures=0,componentMarkings=0,terminalContrastAffordances=0;
+    const componentVisualKinds=new Set();
     scene.traverse(child=>{
       const kind=child?.userData?.kind;
       const count=Number(child?.userData?.visualInstanceCount);
@@ -995,12 +1166,26 @@ export function mountScene(host, onSelect = () => {}) {
         breadboardVisualHoles+=instances;
       }
       if(kind==="breadboard-contact-strip-visual")breadboardContactStrips+=1;
+      if(child?.userData?.conceptualFeature===true){
+        componentFeatures+=1;
+        if(typeof child.userData.visualKind==="string"&&child.userData.visualKind){
+          componentVisualKinds.add(child.userData.visualKind);
+        }
+        if(child.userData.fidelityRole==="marking")componentMarkings+=1;
+      }
+      if(kind==="lab-terminal-contrast-backdrop")terminalContrastAffordances+=1;
     });
     canvas.dataset.sceneVisualProfile="conceptual-r3-fidelity-v2";
+    canvas.dataset.sceneComponentVisualProfile=COMPONENT_VISUAL_PROFILE;
     canvas.dataset.sceneUnoHeaderSocketVisualCount=String(unoHeaderSockets);
     canvas.dataset.sceneBreadboardHoleVisualCount=String(breadboardVisualHoles);
     canvas.dataset.sceneBreadboardContactStripVisualCount=String(breadboardContactStrips);
     canvas.dataset.sceneInstancedVisualCount=String(instancedVisuals);
+    canvas.dataset.sceneComponentVisualFeatureCount=String(componentFeatures);
+    canvas.dataset.sceneComponentVisualKindCount=String(componentVisualKinds.size);
+    canvas.dataset.sceneComponentMarkingCount=String(componentMarkings);
+    canvas.dataset.sceneTerminalFeedbackProfile=TERMINAL_FEEDBACK_PROFILE;
+    canvas.dataset.sceneTerminalContrastAffordanceCount=String(terminalContrastAffordances);
     canvas.dataset.sceneCadMapping="none";
     canvas.dataset.sceneElectricalAuthority="none";
   }
@@ -1080,6 +1265,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labPendingWirePreview="none";
     canvas.dataset.labHoveredTerminal="";
     canvas.dataset.labTerminalLabelFeedback="none";
+    canvas.dataset.labTerminalContrastFeedback="none";
+    canvas.dataset.labCommittedWireEndpointFeedbackCount="0";
+    canvas.dataset.labWireHighlightFeedback="none";
     updateInspectionBadge();
   }
   resetLabMetadata();
@@ -1100,6 +1288,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(clearHighlight){
       highlightedLabWireId=null;
       canvas.dataset.labHighlightedWire="";
+      canvas.dataset.labWireHighlightFeedback="none";
+      canvas.dataset.labCommittedWireEndpointFeedbackCount="0";
+      refreshLabInteractionFeedback();
     }
   }
   function refreshLabWireHighlight(){
@@ -1110,9 +1301,12 @@ export function mountScene(host, onSelect = () => {}) {
       : null;
     if(!rendered)highlightedLabWireId=null;
     for(const item of labWireObjects){
+      if(item.highlightBackdropLine)item.highlightBackdropLine.visible=item.wireId===highlightedLabWireId;
       if(item.highlightLine)item.highlightLine.visible=item.wireId===highlightedLabWireId;
     }
     canvas.dataset.labHighlightedWire=highlightedLabWireId||"";
+    canvas.dataset.labWireHighlightFeedback=highlightedLabWireId?"contrast-line+endpoints":"none";
+    refreshLabInteractionFeedback();
   }
   function sameCommittedWireIdentity(left,right){
     if(!left||!right||left.id!==right.id)return false;
@@ -1177,16 +1371,26 @@ export function mountScene(host, onSelect = () => {}) {
         netId:wire.netId,status:wire.status,physicalLocation:false,physicalVerified:false,
         routeModel:"elevated-multisegment",routePointCount:LAB_COMMITTED_WIRE_ROUTE_POINTS,
       };
+      const highlightBackdropLine=new T.Line(geometry,sharedMaterials.highlightedWireBackdropMat);
+      highlightBackdropLine.visible=false;
+      highlightBackdropLine.position.y=.010;
+      highlightBackdropLine.renderOrder=5;
+      highlightBackdropLine.userData={
+        kind:"lab-conceptual-wire-highlight-backdrop",wireId:wire.id,
+        committed:true,visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+      };
       const highlightLine=new T.Line(geometry,sharedMaterials.highlightedWireLineMat);
       highlightLine.visible=false;
+      highlightLine.position.y=.024;
       highlightLine.renderOrder=6;
       highlightLine.userData={
         kind:"lab-conceptual-wire-highlight",wireId:wire.id,
         committed:true,visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
       };
       labWireLayer.add(line);
+      labWireLayer.add(highlightBackdropLine);
       labWireLayer.add(highlightLine);
-      labWireObjects.push({line,highlightLine,wireId:wire.id,from:wire.from,to:wire.to});
+      labWireObjects.push({line,highlightBackdropLine,highlightLine,wireId:wire.id,from:wire.from,to:wire.to});
     }
     updateLabWireGeometry();
     canvas.dataset.labWireCount=String(labWireObjects.length);
@@ -1230,9 +1434,10 @@ export function mountScene(host, onSelect = () => {}) {
     geometry.setAttribute("position",new T.Float32BufferAttribute(9,3));
     pendingWirePreviewLine=new T.Line(geometry,sharedMaterials.pendingWireLineMat);
     pendingWirePreviewLine.visible=false;
+    pendingWirePreviewLine.renderOrder=8;
     pendingWirePreviewLine.userData={
       kind:"lab-pending-wire-preview",committed:false,
-      physicalLocation:false,physicalVerified:false,electricalState:false,
+      visualOnly:true,physicalLocation:false,physicalVerified:false,electricalState:false,electricalAuthority:false,
     };
     activeLabLayer.add(pendingWirePreviewLine);
     return pendingWirePreviewLine;
@@ -1256,6 +1461,12 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function refreshLabInteractionFeedback(){
     let highlightedTerminals=0;
+    let committedEndpointFeedback=0;
+    let hasHoverFeedback=false,hasPendingFeedback=false,hasInspectionFeedback=false,hasCommittedFeedback=false;
+    const highlightedWire=highlightedLabWireId
+      ? lastWiringModel?.wires?.find(wire=>wire.id===highlightedLabWireId)||null
+      : null;
+    const committedEndpoints=new Set(highlightedWire?[highlightedWire.from,highlightedWire.to]:[]);
     for(const [id,entry] of labComponents){
       entry.selection.visible=id===selectedLabComponentId;
       if(entry.focus)entry.focus.visible=id===focusedLabComponentId;
@@ -1273,16 +1484,24 @@ export function mountScene(host, onSelect = () => {}) {
       const inspected=haloInspection&&terminalId===inspectedLabTerminalId;
       const pending=labEdit.enabled&&terminalId===pendingWireTerminalId;
       const hovered=labEdit.enabled&&terminalId===hoveredLabTerminalId;
+      const committed=committedEndpoints.has(terminalId);
       if(item.halo)item.halo.visible=highlighted;
       if(item.inspectionHalo)item.inspectionHalo.visible=inspected;
       if(item.pendingHalo)item.pendingHalo.visible=pending;
       if(item.hoverHalo)item.hoverHalo.visible=hovered&&!pending&&!inspected;
+      if(item.contrastHalo)item.contrastHalo.visible=pending||inspected||hovered||committed;
+      if(item.committedHalo)item.committedHalo.visible=committed;
       if(item.feedbackLabel)item.feedbackLabel.visible=pending||inspected||hovered;
-      item.marker.scale.setScalar(pending?1.42:inspected?1.32:hovered?1.24:highlighted?1.18:1);
+      item.marker.scale.setScalar(pending?1.42:inspected?1.32:hovered?1.24:committed?1.22:highlighted?1.18:1);
       if(pending)labelFeedback="pending";
       else if(inspected&&labelFeedback!=="pending")labelFeedback="inspection";
       else if(hovered&&labelFeedback==="none")labelFeedback="hover";
       if(highlighted)highlightedTerminals+=1;
+      if(committed)committedEndpointFeedback+=1;
+      hasPendingFeedback||=pending;
+      hasInspectionFeedback||=inspected;
+      hasHoverFeedback||=hovered;
+      hasCommittedFeedback||=committed;
     }
     canvas.dataset.labSelectionFeedback=selectedLabComponentId?"outline":"none";
     canvas.dataset.labFocusFeedback=focusedLabComponentId?"outline":"none";
@@ -1294,6 +1513,13 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labPendingWireTerminal=pendingWireTerminalId||"";
     canvas.dataset.labHoveredTerminal=hoveredLabTerminalId||"";
     canvas.dataset.labTerminalLabelFeedback=labelFeedback;
+    canvas.dataset.labCommittedWireEndpointFeedbackCount=String(committedEndpointFeedback);
+    canvas.dataset.labTerminalContrastFeedback=[
+      hasPendingFeedback?"pending":"",
+      hasInspectionFeedback?"inspection":"",
+      hasHoverFeedback?"hover":"",
+      hasCommittedFeedback?"committed":"",
+    ].filter(Boolean).join("+")||"none";
     updateInspectionBadge();
   }
   function setLabVisualTransform(entry,x,z,quarterTurns){
@@ -1615,6 +1841,19 @@ export function mountScene(host, onSelect = () => {}) {
           physicalLocation:false,physicalVerified:false,
         };
         root.add(collar);
+        const contrastHalo=new T.Mesh(
+          new T.RingGeometry(.14,.31,26),
+          sharedMaterials.terminalContrastMat,
+        );
+        contrastHalo.rotation.x=-Math.PI/2;
+        contrastHalo.position.set(marker.position.x,marker.position.y+.078,marker.position.z);
+        contrastHalo.visible=false;
+        contrastHalo.renderOrder=7;
+        contrastHalo.userData={
+          kind:"lab-terminal-contrast-backdrop",terminalId,componentId:component.id,
+          visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+        };
+        root.add(contrastHalo);
         const halo=new T.Mesh(
           new T.RingGeometry(.10,.17,20),
           sharedMaterials.terminalHaloMat,
@@ -1622,9 +1861,10 @@ export function mountScene(host, onSelect = () => {}) {
         halo.rotation.x=-Math.PI/2;
         halo.position.set(marker.position.x,marker.position.y+.075,marker.position.z);
         halo.visible=false;
+        halo.renderOrder=8;
         halo.userData={
           kind:"lab-terminal-affordance",terminalId,componentId:component.id,
-          physicalLocation:false,physicalVerified:false,
+          visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
         };
         root.add(halo);
         const inspectionHalo=new T.Mesh(
@@ -1634,9 +1874,10 @@ export function mountScene(host, onSelect = () => {}) {
         inspectionHalo.rotation.x=-Math.PI/2;
         inspectionHalo.position.set(marker.position.x,marker.position.y+.082,marker.position.z);
         inspectionHalo.visible=false;
+        inspectionHalo.renderOrder=9;
         inspectionHalo.userData={
           kind:"lab-terminal-inspection-affordance",terminalId,componentId:component.id,
-          physicalLocation:false,physicalVerified:false,readOnly:true,
+          visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,readOnly:true,
         };
         root.add(inspectionHalo);
         const hoverHalo=new T.Mesh(
@@ -1646,9 +1887,10 @@ export function mountScene(host, onSelect = () => {}) {
         hoverHalo.rotation.x=-Math.PI/2;
         hoverHalo.position.set(marker.position.x,marker.position.y+.084,marker.position.z);
         hoverHalo.visible=false;
+        hoverHalo.renderOrder=9;
         hoverHalo.userData={
           kind:"lab-terminal-hover-affordance",terminalId,componentId:component.id,
-          physicalLocation:false,physicalVerified:false,
+          visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
         };
         root.add(hoverHalo);
         const pendingHalo=new T.Mesh(
@@ -1658,11 +1900,26 @@ export function mountScene(host, onSelect = () => {}) {
         pendingHalo.rotation.x=-Math.PI/2;
         pendingHalo.position.set(marker.position.x,marker.position.y+.088,marker.position.z);
         pendingHalo.visible=false;
+        pendingHalo.renderOrder=10;
         pendingHalo.userData={
           kind:"lab-terminal-pending-wire-affordance",terminalId,componentId:component.id,
-          committed:false,physicalLocation:false,physicalVerified:false,electricalState:false,
+          committed:false,visualOnly:true,physicalLocation:false,physicalVerified:false,
+          electricalState:false,electricalAuthority:false,
         };
         root.add(pendingHalo);
+        const committedHalo=new T.Mesh(
+          new T.RingGeometry(.27,.35,28),
+          sharedMaterials.committedTerminalHaloMat,
+        );
+        committedHalo.rotation.x=-Math.PI/2;
+        committedHalo.position.set(marker.position.x,marker.position.y+.086,marker.position.z);
+        committedHalo.visible=false;
+        committedHalo.renderOrder=9;
+        committedHalo.userData={
+          kind:"lab-terminal-committed-wire-affordance",terminalId,componentId:component.id,
+          committed:true,visualOnly:true,physicalLocation:false,physicalVerified:false,electricalAuthority:false,
+        };
+        root.add(committedHalo);
         const terminalHit=new T.Mesh(
           new T.SphereGeometry(LAB_TERMINAL_HIT_RADIUS,10,8),
           sharedMaterials.hitMat,
@@ -1683,7 +1940,7 @@ export function mountScene(host, onSelect = () => {}) {
           ...feedbackLabel.userData,terminalId,componentId:component.id,
         };
         labTerminals.set(terminalId,{
-          marker,collar,halo,inspectionHalo,hoverHalo,pendingHalo,feedbackLabel,
+          marker,collar,contrastHalo,halo,inspectionHalo,hoverHalo,pendingHalo,committedHalo,feedbackLabel,
           hit:terminalHit,componentId:component.id,anchor
         });
       }
@@ -2268,6 +2525,9 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labWireGeometryRevision="0";
     canvas.dataset.labHoveredTerminal="";
     canvas.dataset.labTerminalLabelFeedback="none";
+    canvas.dataset.labTerminalContrastFeedback="none";
+    canvas.dataset.labCommittedWireEndpointFeedbackCount="0";
+    canvas.dataset.labWireHighlightFeedback="none";
     if(inspectionBadge){inspectionBadge.remove();inspectionBadge=null;}
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}

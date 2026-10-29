@@ -1,4 +1,5 @@
 import { lessons } from "../src/lessons.js";
+import { inspectSketchPinEvidence } from "../src/sketch-pin-evidence.js";
 import { inspectSketchDraft } from "../src/sketch-review.js";
 import { renderSketchReview } from "../src/sketch-review-ui.js";
 
@@ -115,6 +116,11 @@ function clone(value) {
 
 function render(inspection) {
   return renderSketchReview(new FakeDocument(), inspection);
+}
+
+function renderWithPinEvidence(inspection, source) {
+  const pinEvidence = inspectSketchPinEvidence({ lessonId: inspection.lessonId, source });
+  return renderSketchReview(new FakeDocument(), inspection, { pinEvidence });
 }
 
 export function runSketchReviewUiContracts() {
@@ -346,6 +352,150 @@ export function runSketchReviewUiContracts() {
       assert(/không biên dịch Arduino C\+\+/i.test(section.textContent),
         "lesson " + lesson.id + " boundary");
     }
+  });
+
+  check("pin-evidence-is-explicit-opt-in-with-separate-accessible-region", () => {
+    const inspection = referenceInspection(2);
+    assert(render(inspection).querySelector("[data-sketch-pin-evidence]") === null,
+      "legacy two-arg render must not add pin evidence");
+
+    const section = renderWithPinEvidence(
+      inspection,
+      "void loop() { digitalWrite(13, HIGH); }",
+    );
+    assert(section.getAttribute("data-sketch-review-pin-evidence") === "true", "root opt-in marker");
+    const block = section.querySelector("[data-sketch-pin-evidence]");
+    assert(block?.tagName === "SECTION", "separate semantic section");
+    assert(/Bằng chứng lexical về chân Arduino/i.test(block?.getAttribute("aria-label") || ""),
+      "pin evidence aria label");
+    const status = block.querySelector("[data-sketch-pin-evidence-summary]");
+    assert(status?.getAttribute("role") === "status", "pin summary status role");
+    assert(status?.getAttribute("aria-live") === "polite", "pin summary live region");
+    assert(status?.getAttribute("aria-atomic") === "true", "pin summary atomic");
+  });
+
+  check("pin-evidence-renders-routed-outside-and-unknown-statuses-without-upgrading-them", () => {
+    const section = renderWithPinEvidence(referenceInspection(2), [
+      "digitalWrite(13, HIGH);",
+      "tone(12, 440);",
+      "digitalRead(BUTTON);",
+    ].join("\n"));
+    const routed = section.querySelector("[data-sketch-pin-evidence-status='lesson-terminal']");
+    const outside = section.querySelector("[data-sketch-pin-evidence-status='not-in-lesson']");
+    const unknown = section.querySelector("[data-sketch-pin-evidence-status='unknown']");
+    assert(routed?.getAttribute("data-sketch-pin-evidence-terminal") === "D13", "router D13 attr");
+    assert(/circuit-router của bài/i.test(routed?.textContent || ""), "router authority copy");
+    assert(/literal D12.*không có terminal/i.test(outside?.textContent || ""),
+      "outside lesson remains outside");
+    assert(/alias\/macro\/biểu thức\/hàm không được suy đoán/i.test(unknown?.textContent || ""),
+      "unknown source form disclosure");
+  });
+
+  check("pin-evidence-boundary-denies-compile-execution-connection-and-completion-claims", () => {
+    const section = renderWithPinEvidence(
+      referenceInspection(2),
+      "digitalWrite(13, HIGH);",
+    );
+    const boundary = section.querySelector("[data-sketch-pin-evidence-boundary]");
+    assert(boundary?.getAttribute("role") === "note", "pin boundary note role");
+    assert(/bằng chứng lexical tĩnh/i.test(boundary?.textContent || ""), "lexical wording");
+    assert(/không biên dịch Arduino C\+\+/i.test(boundary?.textContent || ""), "compile denial");
+    assert(/không chạy firmware/i.test(boundary?.textContent || ""), "firmware denial");
+    assert(/không chứng minh lời gọi đã thực thi/i.test(boundary?.textContent || ""), "execution denial");
+    assert(/không xác nhận chân đã được nối dây hoặc kết nối điện đúng/i.test(boundary?.textContent || ""),
+      "pin connection denial");
+    assert(/không đánh giá hoàn thành bài/i.test(boundary?.textContent || ""), "completion denial");
+  });
+
+  check("pin-evidence-dynamic-argument-text-cannot-create-dom", () => {
+    const inspection = referenceInspection(2);
+    const forged = clone(inspectSketchPinEvidence({
+      lessonId: 2,
+      source: "digitalRead(BUTTON);",
+    }));
+    const payload = "<img src=x onerror=globalThis.pwned=1>";
+    forged.calls[0].argument = payload;
+    const section = renderSketchReview(new FakeDocument(), inspection, { pinEvidence: forged });
+    const block = section.querySelector("[data-sketch-pin-evidence]");
+    assert(block.textContent.includes(payload), "payload remains literal text");
+    assert(block.querySelector("img") === null, "payload must not create img node");
+  });
+
+  check("forged-pin-evidence-lesson-claims-counts-status-or-provenance-fail-closed", () => {
+    const inspection = referenceInspection(2);
+    const base = () => clone(inspectSketchPinEvidence({
+      lessonId: 2,
+      source: "digitalWrite(13, HIGH);",
+    }));
+    const renderForged = evidence =>
+      renderSketchReview(new FakeDocument(), inspection, { pinEvidence: evidence });
+
+    const wrongLesson = base();
+    wrongLesson.lessonId = 3;
+    expectThrow(() => renderForged(wrongLesson), /bài học khác/i, "pin evidence lesson mismatch");
+
+    const positiveClaim = base();
+    positiveClaim.claims.executesFirmware = true;
+    expectThrow(() => renderForged(positiveClaim), /claim/i, "firmware claim");
+
+    const badCounts = base();
+    badCounts.summary.callCount = 2;
+    expectThrow(() => renderForged(badCounts), /callCount.*nhất quán/i, "summary mismatch");
+
+    const badStatus = base();
+    badStatus.calls[0].status = "compiled";
+    expectThrow(() => renderForged(badStatus), /calls.*không hợp lệ/i, "bad call status");
+
+    const bidiArgument = base();
+    bidiArgument.calls[0].status = "unknown";
+    bidiArgument.calls[0].argument = "LED\u202E";
+    bidiArgument.calls[0].literalKind = null;
+    bidiArgument.calls[0].literalPin = null;
+    bidiArgument.calls[0].lessonTerminalId = null;
+    bidiArgument.calls[0].reason = "non-literal-pin-expression";
+    bidiArgument.summary.lessonTerminalCallCount = 0;
+    bidiArgument.summary.unknownCallCount = 1;
+    bidiArgument.summary.uniqueLessonTerminalCount = 0;
+    bidiArgument.matchedTerminalIds = [];
+    expectThrow(() => renderForged(bidiArgument), /calls.*không hợp lệ/i, "bidi argument");
+
+    const badLiteralMapping = base();
+    badLiteralMapping.calls[0].literalPin = "D12";
+    badLiteralMapping.calls[0].lessonTerminalId = "D12";
+    badLiteralMapping.lessonTerminalIds = ["D12"];
+    badLiteralMapping.matchedTerminalIds = ["D12"];
+    expectThrow(() => renderForged(badLiteralMapping), /lesson-terminal shape/i,
+      "literal mapping must agree with api/argument");
+
+    const badProvenance = base();
+    badProvenance.provenance.terminalIds = "caller-supplied";
+    expectThrow(() => renderForged(badProvenance), /provenance/i, "foreign terminal provenance");
+  });
+
+  check("pin-evidence-render-row-count-is-bounded-with-truncation-disclosure", () => {
+    const inspection = referenceInspection(2);
+    const source = Array.from({ length: 40 }, () => "digitalWrite(13, HIGH);").join("\n");
+    const section = renderWithPinEvidence(inspection, source);
+    const block = section.querySelector("[data-sketch-pin-evidence]");
+    assert(block.querySelectorAll("[data-sketch-pin-evidence-call]").length === 32,
+      "pin evidence render bound");
+    assert(/Còn 8 lời gọi lexical khác/i.test(block.textContent), "pin evidence truncation copy");
+  });
+
+  check("pin-evidence-options-reject-unrelated-or-prototype-named-props", () => {
+    const inspection = referenceInspection(2);
+    expectThrow(
+      () => renderSketchReview(new FakeDocument(), inspection, { terminalIds: ["D13"] }),
+      /prop không được hỗ trợ/i,
+      "terminal injection prop",
+    );
+    const options = {};
+    Object.defineProperty(options, "__proto__", { value: "D13", enumerable: true });
+    expectThrow(
+      () => renderSketchReview(new FakeDocument(), inspection, options),
+      /prop không được hỗ trợ/i,
+      "prototype-named prop",
+    );
   });
 
   return Object.freeze({

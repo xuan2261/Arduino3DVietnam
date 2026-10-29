@@ -46,13 +46,21 @@ export function runAvrTimer2Contracts() {
     assert(R.TIFR2 === 0x37 && R.TIMSK2 === 0x70, "Timer2 flag/mask registers");
     assert(R.TCCR2A === 0xb0 && R.TCCR2B === 0xb1 && R.TCNT2 === 0xb2, "Timer2 core register map");
     assert(R.OCR2A === 0xb3 && R.OCR2B === 0xb4 && R.ASSR === 0xb6, "Timer2 compare/ASSR map");
-    assert(AVR_TIMER2_CAPABILITIES.counterBits === 8 && AVR_TIMER2_CAPABILITIES.normalMode, "Normal-only boundary");
+    assert(AVR_TIMER2_CAPABILITIES.counterBits === 8 && AVR_TIMER2_CAPABILITIES.normalMode, "Normal-mode boundary");
+    assert(AVR_TIMER2_CAPABILITIES.compareMatch === true, "Normal-mode compare match must be supported");
+    assert(AVR_TIMER2_CAPABILITIES.compareInterrupts === true, "Normal-mode compare interrupts must be supported");
     for (const key of [
-      "ctc", "pwm", "compareMatch", "outputComparePins", "asynchronousClock",
+      "ctc", "pwm", "outputComparePins", "asynchronousClock",
       "externalClock", "millisParity", "delayParity", "toneParity", "wallClock",
     ]) {
       assert(AVR_TIMER2_CAPABILITIES[key] === false, `${key} must stay unsupported`);
     }
+    const cpu = cpuFixture();
+    const timer = createAvrTimer2(cpu);
+    for (const method of ["compile", "loadHex", "runCycles", "runSketch", "executeSketch"]) {
+      assert(!(method in timer), `Timer2 must not expose fake Sketch execution API: ${method}`);
+    }
+    timer.dispose();
   });
 
   check("all-timer2-internal-prescalers", () => {
@@ -114,6 +122,68 @@ export function runAvrTimer2Contracts() {
     assert(timer.snapshot().tcnt2 === 0x02 && (cpu.data[R.TIFR2] & B.TOV2), "jump past TOP must still set TOV2");
   });
 
+  check("normal-compare-flags-w1c-and-multi-cycle-crossing", () => {
+    const cpu = cpuFixture();
+    const timer = createAvrTimer2(cpu);
+    cpu.writeData(R.OCR2A, 0x11);
+    cpu.writeData(R.OCR2B, 0x13);
+    cpu.writeData(R.TCNT2, 0x10);
+    cpu.writeData(R.TCCR2B, 0x01); // /1, Normal
+    advance(cpu, 1); // latch divider
+    advance(cpu, 3, false); // cross 0x11 and 0x13 in one catch-up
+    let state = timer.snapshot();
+    assert(state.tcnt2 === 0x13, "multi-cycle catch-up must land on 0x13");
+    assert(state.ocf2a && state.ocf2b, "multi-cycle catch-up must set both compare flags");
+    cpu.writeData(R.TIFR2, B.OCF2A);
+    assert(!(cpu.data[R.TIFR2] & B.OCF2A) && (cpu.data[R.TIFR2] & B.OCF2B), "OCF2A W1C must preserve OCF2B");
+    cpu.writeData(R.TIFR2, B.OCF2B);
+    assert((cpu.data[R.TIFR2] & (B.OCF2A | B.OCF2B)) === 0, "OCF2B W1C must clear remaining compare flag");
+
+    cpu.writeData(R.OCR2A, 0x00);
+    cpu.writeData(R.OCR2B, 0x7f);
+    cpu.writeData(R.TCNT2, 0xfe);
+    advance(cpu, 2, false);
+    state = timer.snapshot();
+    assert(state.tcnt2 === 0x00 && state.ocf2a, "wrapped catch-up must detect OCR2A=0 compare");
+    assert(state.tov2, "wrapped catch-up must still set overflow flag");
+  });
+
+  check("ocie2a-ocie2b-compare-interrupt-vectors", () => {
+    for (const [mask, ocrRegister, flagMask, vector] of [
+      [B.OCIE2A, R.OCR2A, B.OCF2A, 0x0e],
+      [B.OCIE2B, R.OCR2B, B.OCF2B, 0x10],
+    ]) {
+      const cpu = cpuFixture();
+      createAvrTimer2(cpu);
+      cpu.writeData(R.OCR2A, 0x80);
+      cpu.writeData(R.OCR2B, 0x80);
+      cpu.writeData(ocrRegister, 0x21);
+      cpu.writeData(R.TCNT2, 0x20);
+      cpu.writeData(R.TIMSK2, mask);
+      cpu.writeData(R.TCCR2B, 0x01);
+      cpu.data[95] = 0x80;
+      advance(cpu, 1); // latch divider
+      advance(cpu, 1); // compare + interrupt entry
+      assert(cpu.pc === vector, `Timer2 compare vector must be 0x${vector.toString(16)}`);
+      assert((cpu.data[R.TIFR2] & flagMask) === 0, "serviced compare interrupt clears its flag");
+      assert(cpu.interruptsEnabled === false, "compare interrupt entry clears global I bit");
+    }
+
+    const lateCpu = cpuFixture();
+    createAvrTimer2(lateCpu);
+    lateCpu.writeData(R.OCR2A, 0x21);
+    lateCpu.writeData(R.OCR2B, 0x80);
+    lateCpu.writeData(R.TCNT2, 0x20);
+    lateCpu.writeData(R.TCCR2B, 0x01);
+    advance(lateCpu, 1);
+    advance(lateCpu, 1);
+    assert((lateCpu.data[R.TIFR2] & B.OCF2A) !== 0 && lateCpu.pc === 0, "disabled compare interrupt must leave OCF2A pending");
+    lateCpu.data[95] = 0x80;
+    lateCpu.writeData(R.TIMSK2, B.OCIE2A);
+    lateCpu.tick();
+    assert(lateCpu.pc === 0x0e, "enabling OCIE2A with OCF2A already set must queue compare A");
+  });
+
   check("toie2-overflow-interrupt-vector", () => {
     const cpu = cpuFixture();
     createAvrTimer2(cpu);
@@ -141,7 +211,7 @@ export function runAvrTimer2Contracts() {
     assert(cpu.data[R.TCCR2B] === 0x04, "Normal mode may start /64");
   });
 
-  check("running-normal-rejects-pwm-ctc-compare-and-assr", () => {
+  check("running-normal-rejects-pwm-ctc-output-compare-and-assr", () => {
     const cpu = cpuFixture();
     createAvrTimer2(cpu);
     cpu.writeData(R.TCCR2B, 0x04); // Normal /64
@@ -150,22 +220,21 @@ export function runAvrTimer2Contracts() {
     expectThrow(() => cpu.writeData(R.TCCR2A, 0x02), /WGM=2/, "CTC WGM2");
     expectThrow(() => cpu.writeData(R.TCCR2A, 0x40), /COM2A/, "COM2A compare output");
     expectThrow(() => cpu.writeData(R.TCCR2B, 0x44), /force-output-compare/, "FOC2B");
-    expectThrow(() => cpu.writeData(R.OCR2A, 0x22), /OCR2A/, "OCR2A compare write");
-    expectThrow(() => cpu.writeData(R.OCR2B, 0x33), /OCR2B/, "OCR2B compare write");
+    cpu.writeData(R.OCR2A, 0x22);
+    cpu.writeData(R.OCR2B, 0x33);
+    assert(cpu.data[R.OCR2A] === 0x22 && cpu.data[R.OCR2B] === 0x33, "Normal-mode OCR2A/B writes must commit immediately");
     expectThrow(() => cpu.writeData(R.ASSR, B.AS2), /ASSR/, "asynchronous clock AS2");
     expectThrow(() => cpu.writeData(R.ASSR, B.EXCLK), /ASSR/, "external oscillator EXCLK");
     assert(cpu.data[R.TCCR2A] === 0 && cpu.data[R.TCCR2B] === 0x04 && cpu.data[R.ASSR] === 0,
       "rejected writes preserve running Normal /64 synchronous state");
   });
 
-  check("unsupported-mask-and-flag-bits-fail-closed", () => {
+  check("reserved-mask-and-flag-bits-fail-closed", () => {
     const cpu = cpuFixture();
     createAvrTimer2(cpu);
-    expectThrow(() => cpu.writeData(R.TIMSK2, 0x02), /compare interrupts/, "OCIE2A mask");
-    expectThrow(() => cpu.writeData(R.TIMSK2, 0x04), /compare interrupts/, "OCIE2B mask");
-    expectThrow(() => cpu.writeData(R.TIFR2, 0x02), /compare flags/, "OCF2A W1C");
-    expectThrow(() => cpu.writeData(R.TIFR2, 0x04), /compare flags/, "OCF2B W1C");
-    assert(cpu.data[R.TIMSK2] === 0 && cpu.data[R.TIFR2] === 0, "unsupported mask/flag writes must not mutate state");
+    expectThrow(() => cpu.writeData(R.TIMSK2, 0x08), /reserved\/unsupported/, "reserved TIMSK2 bit");
+    expectThrow(() => cpu.writeData(R.TIFR2, 0x08), /reserved\/unsupported/, "reserved TIFR2 bit");
+    assert(cpu.data[R.TIMSK2] === 0 && cpu.data[R.TIFR2] === 0, "reserved mask/flag writes must not mutate state");
   });
 
   check("divider-reschedule-reset-dispose-reinitialize", () => {

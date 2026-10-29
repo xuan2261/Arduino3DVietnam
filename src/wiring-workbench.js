@@ -20,6 +20,29 @@ const title = terminal => typeof terminal==="string" ? terminal : terminal.label
 const issueText = issue => typeof issue==="string"
   ? issue : issue?.message || issue?.description || issue?.code || "Lỗi kết nối chưa xác định";
 
+function normalizeHistoryState(value,lessonId) {
+  if(value==null)return Object.freeze({lessonId,revision:0,canUndo:false,canRedo:false});
+  if(!value||typeof value!=="object"||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype){
+    throw new TypeError("historyState phải là inspect snapshot object chuẩn.");
+  }
+  for(const key of ["lessonId","revision","canUndo","canRedo"]){
+    if(!Object.hasOwn(value,key))throw new TypeError("historyState thiếu field "+key+".");
+  }
+  if(value.lessonId!==lessonId)throw new RangeError("historyState thuộc bài học khác.");
+  if(!Number.isSafeInteger(value.revision)||value.revision<0){
+    throw new RangeError("historyState.revision phải là số nguyên an toàn không âm.");
+  }
+  if(typeof value.canUndo!=="boolean"||typeof value.canRedo!=="boolean"){
+    throw new TypeError("historyState canUndo/canRedo phải là boolean.");
+  }
+  return Object.freeze({
+    lessonId,
+    revision:value.revision,
+    canUndo:value.canUndo,
+    canRedo:value.canRedo,
+  });
+}
+
 export function supportedWiringLessons() { return availableLessons(); }
 export function sampleCircuit(lessonId) {
   return createSampleCircuit(lessonId);
@@ -29,7 +52,8 @@ export function sampleCircuit(lessonId) {
  * @param {HTMLElement} host - an attached element inside the wiring stage.
  * @param {number} lessonId
  * @param {{initial?: object, active?: boolean, onChange?:(s:object,a:object)=>void,
- * onActivate?:(s:object,a:object)=>void, onDeactivate?:()=>void}} options
+ * onActivate?:(s:object,a:object)=>void, onDeactivate?:()=>void,
+ * historyState?:object, onUndo?:(request:object)=>void, onRedo?:(request:object)=>void}} options
  */
 export function mountWiringWorkbench(host,lessonId,options={}) {
   const id=Number(lessonId);
@@ -38,6 +62,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   let circuit=options.initial ?? createCircuit(id);
   let analysis=analyzeCircuit(id,circuit);
   let selected=null, active=!!options.active, drag=null,preview=null,raf=0,disposed=false,skipClick=false;
+  let historyState=normalizeHistoryState(options.historyState,id);
   // Authored corrective guidance is a *view-only* visual annotation of two
   // canonical terminal IDs, not the user's armed first endpoint or circuit.
   let suggestedPair=null;
@@ -51,8 +76,18 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   if(id===10||id===14)introduction.append(create("p","wire-scope-note",
     "Bài này chỉ minh họa dây tín hiệu điều khiển, chưa mô hình nguồn và tải motor/bơm. Không thể kích hoạt mạch tự đấu; mô phỏng mẫu JavaScript vẫn chạy độc lập và không chứng minh tải thực hoạt động."));
   const toolbar=create("div","wire-actions");
+  const undoBtn=create("button","wire-action","↶ Hoàn tác");undoBtn.type="button";
+  const redoBtn=create("button","wire-action","↷ Làm lại");redoBtn.type="button";
+  undoBtn.style.minHeight="44px";undoBtn.style.minWidth="44px";
+  redoBtn.style.minHeight="44px";redoBtn.style.minWidth="44px";
+  undoBtn.setAttribute("aria-label","Hoàn tác trạng thái đấu dây trước đó trong ứng dụng");
+  redoBtn.setAttribute("aria-label","Làm lại trạng thái đấu dây tiếp theo trong ứng dụng");
+  undoBtn.title="Chỉ đổi learner graph trong ứng dụng; không hoàn tác thao tác phần cứng.";
+  redoBtn.title="Chỉ đổi learner graph trong ứng dụng; không lặp lại thao tác phần cứng.";
   const sampleBtn=create("button","wire-action","⌁ Mạch mẫu");sampleBtn.type="button";sampleBtn.title="Nối dây đúng theo sơ đồ mẫu để đối chiếu";
   const clearBtn=create("button","wire-action","↺ Xóa dây");clearBtn.type="button";
+  const historyControls=typeof options.onUndo==="function"||typeof options.onRedo==="function";
+  if(historyControls)toolbar.append(undoBtn,redoBtn);
   toolbar.append(sampleBtn,clearBtn);titleRow.append(introduction,toolbar);
 
   const workspace=create("div","wire-space");
@@ -172,6 +207,12 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     options.onChange?.(changedCircuit,changedAnalysis);
     if (revokeActive) options.onDeactivate?.("invalid");
   }
+  function refreshHistoryControls() {
+    undoBtn.disabled=typeof options.onUndo!=="function"||!historyState.canUndo;
+    redoBtn.disabled=typeof options.onRedo!=="function"||!historyState.canRedo;
+    undoBtn.setAttribute("aria-disabled",String(undoBtn.disabled));
+    redoBtn.setAttribute("aria-disabled",String(redoBtn.disabled));
+  }
   function render(message="") {
     analysis=analyzeCircuit(id,circuit);
     workspace.querySelectorAll("[data-terminal]").forEach(button=>{
@@ -211,6 +252,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     activateBtn.textContent=active ? "✓ Đang dùng mạch tự đấu" : "▶ Thử mạch vừa đấu";
     activateBtn.setAttribute("aria-pressed",String(active));
     lessonOnly.hidden=!active;
+    refreshHistoryControls();
     connectionsList.replaceChildren();
     if(!count)connectionsList.append(create("p","wire-empty","Chưa nối dây nào."));
     for(const wire of circuit.wires) {
@@ -319,6 +361,18 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   const deactivate=()=>{
     active=false;options.onDeactivate?.();render("Đã trở lại mô phỏng mẫu của bài học.");
   };
+  const undo=()=>{
+    if(disposed||undoBtn.disabled||typeof options.onUndo!=="function")return;
+    options.onUndo(Object.freeze({lessonId:id,expectedRevision:historyState.revision}));
+  };
+  const redo=()=>{
+    if(disposed||redoBtn.disabled||typeof options.onRedo!=="function")return;
+    options.onRedo(Object.freeze({lessonId:id,expectedRevision:historyState.revision}));
+  };
+  if(historyControls){
+    undoBtn.addEventListener("click",undo);
+    redoBtn.addEventListener("click",redo);
+  }
   sampleBtn.addEventListener("click",sample);
   clearBtn.addEventListener("click",clear);
   activateBtn.addEventListener("click",activate);
@@ -332,6 +386,12 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     getCircuit:()=>circuit,
     getAnalysis:()=>analysis,
     isActive:()=>active,
+    setHistoryState(next) {
+      if(disposed)return false;
+      historyState=normalizeHistoryState(next,id);
+      refreshHistoryControls();
+      return true;
+    },
     previewSuggestedPair(pair){
       if(disposed)return false;
       if(!Array.isArray(pair)||pair.length!==2||
@@ -384,6 +444,10 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       window.removeEventListener("pointercancel",cancel);
       workspace.removeEventListener("lostpointercapture",cancel);
       connectionsList.removeEventListener("click",removeClick);
+      if(historyControls){
+        undoBtn.removeEventListener("click",undo);
+        redoBtn.removeEventListener("click",redo);
+      }
       sampleBtn.removeEventListener("click",sample);
       clearBtn.removeEventListener("click",clear);
       activateBtn.removeEventListener("click",activate);

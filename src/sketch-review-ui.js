@@ -9,9 +9,22 @@
 const MAX_WARNING_ROWS = 12;
 const MAX_GUIDANCE_ROWS = 8;
 const MAX_LEXICAL_ROWS = 24;
+const MAX_PIN_EVIDENCE_ROWS = 32;
 const MAX_TEXT_CHARS = 900;
 const STATUSES = new Set(["reference", "changed"]);
 const LEXICAL_STATUSES = new Set(["present", "absent", "fewer-than-reference"]);
+const PIN_EVIDENCE_STATUSES = new Set(["lesson-terminal", "not-in-lesson", "unknown"]);
+const PIN_EVIDENCE_APIS = new Set([
+  "pinMode",
+  "digitalRead",
+  "digitalWrite",
+  "analogRead",
+  "analogWrite",
+  "tone",
+]);
+const PIN_LITERAL_KINDS = new Set(["digital-number", "analog-token", "analog-channel-number"]);
+const CANONICAL_PIN_ID = /^(?:D(?:[0-9]|1[0-3])|A[0-5])$/;
+const PIN_UNSAFE_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/;
 const FALSE_CLAIMS = [
   "compiled",
   "semanticValidated",
@@ -20,6 +33,16 @@ const FALSE_CLAIMS = [
   "hardwareValidated",
   "learnerCompletion",
   "learnerMastery",
+];
+const PIN_FALSE_CLAIMS = [
+  "compilesCpp",
+  "validatesArduinoSemantics",
+  "executesFirmware",
+  "provesCallExecuted",
+  "validatesPinConnection",
+  "validatesCircuit",
+  "provesLearnerCompletion",
+  "provesLearnerMastery",
 ];
 
 function requireDocument(doc) {
@@ -118,6 +141,173 @@ function requireInspection(inspection) {
       inspection.provenance?.lexical !== "masked-reference-pattern-scan") {
     throw new TypeError("inspection thiếu provenance lesson-reference/editor-draft.");
   }
+}
+
+function pinCallKey(call) {
+  const target = call.lessonTerminalId ?? call.literalPin ?? call.argument;
+  return call.api + "\u0000" + call.status + "\u0000" + target;
+}
+
+function literalShapeFor(api, argument) {
+  const analogToken = /^A([0-5])$/.exec(argument);
+  if (analogToken) {
+    return { literalKind: "analog-token", literalPin: "A" + analogToken[1] };
+  }
+  if (!/^(?:0|[1-9][0-9]*)$/.test(argument)) return null;
+  const number = Number(argument);
+  if (!Number.isSafeInteger(number)) return null;
+  if (api === "analogRead") {
+    return number >= 0 && number <= 5
+      ? { literalKind: "analog-channel-number", literalPin: "A" + number }
+      : null;
+  }
+  return number >= 0 && number <= 13
+    ? { literalKind: "digital-number", literalPin: "D" + number }
+    : null;
+}
+
+function requirePinEvidence(pinEvidence, lessonId) {
+  if (!pinEvidence || typeof pinEvidence !== "object" || Array.isArray(pinEvidence)) {
+    throw new TypeError("pinEvidence phải là kết quả inspectSketchPinEvidence().");
+  }
+  if (pinEvidence.schemaVersion !== 1 || pinEvidence.mode !== "masked-direct-pin-call-scan") {
+    throw new TypeError("pinEvidence schema/mode không được hỗ trợ.");
+  }
+  if (pinEvidence.lessonId !== lessonId) {
+    throw new RangeError("pinEvidence thuộc bài học khác inspection.");
+  }
+  if (!Array.isArray(pinEvidence.lessonTerminalIds) ||
+      !Array.isArray(pinEvidence.calls) ||
+      !Array.isArray(pinEvidence.matchedTerminalIds) ||
+      !pinEvidence.summary || typeof pinEvidence.summary !== "object") {
+    throw new TypeError("pinEvidence thiếu terminal/call/summary arrays.");
+  }
+  if (pinEvidence.calls.length > 96 || pinEvidence.lessonTerminalIds.length > 32 ||
+      pinEvidence.matchedTerminalIds.length > 32) {
+    throw new RangeError("pinEvidence vượt giới hạn render an toàn.");
+  }
+
+  const lessonTerminalSet = new Set();
+  for (const id of pinEvidence.lessonTerminalIds) {
+    if (typeof id !== "string" || !CANONICAL_PIN_ID.test(id) || lessonTerminalSet.has(id)) {
+      throw new TypeError("pinEvidence.lessonTerminalIds không hợp lệ hoặc bị trùng.");
+    }
+    lessonTerminalSet.add(id);
+  }
+
+  const actualMatched = new Set();
+  const duplicateKeys = new Set();
+  let duplicateCallCount = 0;
+  let lessonTerminalCallCount = 0;
+  let notInLessonCallCount = 0;
+  let unknownCallCount = 0;
+
+  for (let index = 0; index < pinEvidence.calls.length; index += 1) {
+    const call = pinEvidence.calls[index];
+    if (!call || typeof call !== "object" || Array.isArray(call) ||
+        call.sequence !== index + 1 || !PIN_EVIDENCE_APIS.has(call.api) ||
+        !PIN_EVIDENCE_STATUSES.has(call.status) ||
+        !Number.isInteger(call.line) || call.line < 1 || call.line > 600 ||
+        !Number.isInteger(call.column) || call.column < 1 || call.column > 2001 ||
+        typeof call.argument !== "string" || call.argument.length > 160 || PIN_UNSAFE_TEXT.test(call.argument) ||
+        (call.literalKind !== null && !PIN_LITERAL_KINDS.has(call.literalKind)) ||
+        (call.literalPin !== null &&
+          (typeof call.literalPin !== "string" || !CANONICAL_PIN_ID.test(call.literalPin))) ||
+        (call.lessonTerminalId !== null &&
+          (typeof call.lessonTerminalId !== "string" || !CANONICAL_PIN_ID.test(call.lessonTerminalId))) ||
+        (call.reason !== null && (typeof call.reason !== "string" || call.reason.length > 120))) {
+      throw new TypeError("pinEvidence.calls có item không hợp lệ.");
+    }
+
+    if (call.status === "lesson-terminal") {
+      const expectedLiteral = literalShapeFor(call.api, call.argument);
+      if (!expectedLiteral || expectedLiteral.literalKind !== call.literalKind ||
+          expectedLiteral.literalPin !== call.literalPin ||
+          !call.literalPin || call.lessonTerminalId !== call.literalPin ||
+          !lessonTerminalSet.has(call.lessonTerminalId) || call.reason !== null) {
+        throw new TypeError("pinEvidence lesson-terminal shape không hợp lệ.");
+      }
+      lessonTerminalCallCount += 1;
+      actualMatched.add(call.lessonTerminalId);
+    } else if (call.status === "not-in-lesson") {
+      const expectedLiteral = literalShapeFor(call.api, call.argument);
+      if (!expectedLiteral || expectedLiteral.literalKind !== call.literalKind ||
+          expectedLiteral.literalPin !== call.literalPin ||
+          !call.literalPin || call.lessonTerminalId !== null || lessonTerminalSet.has(call.literalPin) ||
+          typeof call.reason !== "string" || !call.reason) {
+        throw new TypeError("pinEvidence not-in-lesson shape không hợp lệ.");
+      }
+      notInLessonCallCount += 1;
+    } else {
+      if (call.literalKind !== null || call.literalPin !== null || call.lessonTerminalId !== null ||
+          typeof call.reason !== "string" || !call.reason) {
+        throw new TypeError("pinEvidence unknown shape không hợp lệ.");
+      }
+      unknownCallCount += 1;
+    }
+
+    const key = pinCallKey(call);
+    if (duplicateKeys.has(key)) duplicateCallCount += 1;
+    else duplicateKeys.add(key);
+  }
+
+  const summary = pinEvidence.summary;
+  const actualCounts = {
+    callCount: pinEvidence.calls.length,
+    lessonTerminalCallCount,
+    notInLessonCallCount,
+    unknownCallCount,
+    uniqueLessonTerminalCount: actualMatched.size,
+    duplicateCallCount,
+  };
+  for (const [key, expected] of Object.entries(actualCounts)) {
+    if (summary[key] !== expected) {
+      throw new TypeError("pinEvidence.summary." + key + " không nhất quán.");
+    }
+  }
+
+  const matchedSet = new Set();
+  for (const id of pinEvidence.matchedTerminalIds) {
+    if (typeof id !== "string" || !CANONICAL_PIN_ID.test(id) ||
+        matchedSet.has(id) || !lessonTerminalSet.has(id)) {
+      throw new TypeError("pinEvidence.matchedTerminalIds không hợp lệ.");
+    }
+    matchedSet.add(id);
+  }
+  if (matchedSet.size !== actualMatched.size ||
+      [...actualMatched].some(id => !matchedSet.has(id))) {
+    throw new TypeError("pinEvidence.matchedTerminalIds không khớp calls.");
+  }
+
+  if (!pinEvidence.boundaries || pinEvidence.boundaries.lexicalOnly !== true ||
+      pinEvidence.boundaries.commentsAndStringsIgnored !== true ||
+      pinEvidence.boundaries.directPinTokensOnly !== true ||
+      PIN_FALSE_CLAIMS.some(key => pinEvidence.boundaries[key] !== false)) {
+    throw new TypeError("pinEvidence phải giữ boundary lexical/non-execution ở trạng thái an toàn.");
+  }
+  if (!pinEvidence.claims || PIN_FALSE_CLAIMS.some(key => pinEvidence.claims[key] !== false)) {
+    throw new TypeError("pinEvidence phải giữ mọi claim biên dịch/thực thi/kết nối ở false.");
+  }
+  if (pinEvidence.provenance?.source !== "learner-editor-draft" ||
+      pinEvidence.provenance?.terminalIds !== "circuit-router:listTerminals" ||
+      pinEvidence.provenance?.scan !== "masked-direct-pin-call-scan") {
+    throw new TypeError("pinEvidence thiếu provenance editor/circuit-router/lexical scan.");
+  }
+}
+
+function optionalPinEvidence(options, lessonId) {
+  if (options === undefined || options === null) return null;
+  if (typeof options !== "object" || Array.isArray(options)) {
+    throw new TypeError("renderSketchReview options phải là object nếu được truyền.");
+  }
+  const unknown = Reflect.ownKeys(options).filter(key =>
+    typeof key !== "string" || key !== "pinEvidence");
+  if (unknown.length) {
+    throw new TypeError("renderSketchReview options có prop không được hỗ trợ: " + String(unknown[0]));
+  }
+  if (!Object.hasOwn(options, "pinEvidence") || options.pinEvidence === null) return null;
+  requirePinEvidence(options.pinEvidence, lessonId);
+  return options.pinEvidence;
 }
 
 function make(doc, tag, className = "", text = undefined) {
@@ -247,13 +437,97 @@ function appendLexical(doc, section, inspection) {
   section.append(block);
 }
 
+function appendPinEvidence(doc, section, pinEvidence) {
+  const block = make(doc, "section", "sketch-review-lexical sketch-pin-evidence");
+  block.setAttribute("data-sketch-pin-evidence", "");
+  block.setAttribute("data-sketch-pin-evidence-call-count", String(pinEvidence.summary.callCount));
+  block.setAttribute(
+    "data-sketch-pin-evidence-terminal-count",
+    String(pinEvidence.summary.uniqueLessonTerminalCount),
+  );
+  block.setAttribute("aria-label", "Bằng chứng lexical về chân Arduino trong Sketch");
+  block.append(make(
+    doc,
+    "h6",
+    "sketch-review-subheading",
+    "Bằng chứng chân từ source (lexical)",
+  ));
+
+  const summary = make(
+    doc,
+    "p",
+    "sketch-review-lexical-status sketch-pin-evidence-summary",
+    pinEvidence.summary.callCount === 0
+      ? "Chưa thấy lời gọi trực tiếp tới 6 API chân đang theo dõi sau khi bỏ qua comment/string."
+      : "Quét lexical thấy " + pinEvidence.summary.callCount + " lời gọi dạng pin: " +
+        pinEvidence.summary.lessonTerminalCallCount + " lần khớp terminal của bài, " +
+        pinEvidence.summary.notInLessonCallCount + " literal không thuộc terminal bài và " +
+        pinEvidence.summary.unknownCallCount + " đối số chưa giải được.",
+  );
+  summary.setAttribute("data-sketch-pin-evidence-summary", "");
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  summary.setAttribute("aria-atomic", "true");
+  block.append(summary);
+
+  const rows = pinEvidence.calls.slice(0, MAX_PIN_EVIDENCE_ROWS);
+  if (rows.length) {
+    const list = make(doc, "ul", "sketch-review-list sketch-pin-evidence-list");
+    for (const call of rows) {
+      const argument = safeText(call.argument, "(trống)");
+      let detail = "Dòng " + call.line + " · " + call.api + " · đối số chân “" + argument + "”";
+      if (call.status === "lesson-terminal") {
+        detail += " → terminal " + call.lessonTerminalId + " có trong circuit-router của bài.";
+      } else if (call.status === "not-in-lesson") {
+        detail += " → nhận diện literal " + call.literalPin +
+          ", nhưng circuit-router của bài không có terminal này.";
+      } else {
+        detail += " · chưa giải lexical thành terminal bài; alias/macro/biểu thức/hàm không được suy đoán.";
+      }
+      const row = make(doc, "li", "", detail);
+      row.setAttribute("data-sketch-pin-evidence-call", String(call.sequence));
+      row.setAttribute("data-sketch-pin-evidence-api", call.api);
+      row.setAttribute("data-sketch-pin-evidence-status", call.status);
+      if (call.lessonTerminalId) {
+        row.setAttribute("data-sketch-pin-evidence-terminal", call.lessonTerminalId);
+      }
+      list.append(row);
+    }
+    block.append(list);
+  }
+  if (pinEvidence.calls.length > rows.length) {
+    block.append(make(
+      doc,
+      "p",
+      "sketch-review-truncated",
+      "Còn " + (pinEvidence.calls.length - rows.length) +
+        " lời gọi lexical khác không hiển thị trong khối này.",
+    ));
+  }
+
+  const boundary = make(
+    doc,
+    "p",
+    "sketch-review-boundary sketch-pin-evidence-boundary",
+    "Đây chỉ là bằng chứng lexical tĩnh từ source editor sau khi bỏ qua comment/string. " +
+      "Terminal chỉ được gắn khi ID đó có trong circuit-router của đúng bài. " +
+      "Kết quả không biên dịch Arduino C++, không chạy firmware, không chứng minh lời gọi đã thực thi, " +
+      "không xác nhận chân đã được nối dây hoặc kết nối điện đúng và không đánh giá hoàn thành bài.",
+  );
+  boundary.setAttribute("data-sketch-pin-evidence-boundary", "");
+  boundary.setAttribute("role", "note");
+  block.append(boundary);
+  section.append(block);
+}
+
 /**
  * Render one immutable view of a sketch inspection. The host can replace the
  * returned section whenever the editor draft or lesson changes.
  */
-export function renderSketchReview(doc, inspection) {
+export function renderSketchReview(doc, inspection, options = undefined) {
   requireDocument(doc);
   requireInspection(inspection);
+  const pinEvidence = optionalPinEvidence(options, inspection.lessonId);
 
   const changes = inspection.changes;
   const structure = inspection.structure;
@@ -268,6 +542,9 @@ export function renderSketchReview(doc, inspection) {
   section.setAttribute("data-sketch-review-warning-count", String(warningCount));
   section.setAttribute("data-sketch-review-lexical-difference-count", String(lexicalDifferenceCount));
   section.setAttribute("data-sketch-review-changed-lines", String(changes.changedLines));
+  if (pinEvidence) {
+    section.setAttribute("data-sketch-review-pin-evidence", "true");
+  }
   section.setAttribute("aria-label", "Đối chiếu Sketch bài " + inspection.lessonId);
 
   section.append(make(doc, "h5", "sketch-review-heading", "Đối chiếu bản nháp Sketch"));
@@ -312,6 +589,7 @@ export function renderSketchReview(doc, inspection) {
   section.append(structureNode);
 
   appendLexical(doc, section, inspection);
+  if (pinEvidence) appendPinEvidence(doc, section, pinEvidence);
   appendGuidance(doc, section, inspection);
   appendWarnings(doc, section, inspection);
 

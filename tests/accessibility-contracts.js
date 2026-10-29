@@ -394,6 +394,17 @@ export async function runAccessibilityContracts() {
     }),
     "Bàn chỉnh 3D cần control có tên, toggle aria-controls/expanded, live status và boundary khái niệm/không vật lý đọc được.", "P1");
 
+  const labHistoryControls=[document.querySelector('#labUndoWire'),document.querySelector('#labRedoWire')];
+  record("vnext-3d-learner-history-keyboard-native-44px-disabled-until-real-graph",
+    labHistoryControls.every(button=>button?.tagName==='BUTTON' && button.type==='button' &&
+      Boolean(accessibleName(button)) && button.disabled===true &&
+      button.getAttribute('aria-disabled')==='true' &&
+      button.getBoundingClientRect().width>=44 && button.getBoundingClientRect().height>=44),
+    JSON.stringify(labHistoryControls.map(button=>({name:accessibleName(button),
+      disabled:button?.disabled,width:button?.getBoundingClientRect().width,
+      height:button?.getBoundingClientRect().height}))),
+    "Hoàn tác/làm lại 3D cần nút có tên, không thể thao tác khi history trống và kích thước ít nhất 44px; không hoàn tác dây vật lý.","P1");
+
   const cancelPendingWire = document.querySelector("#labCancelPendingWire");
   const cancelPendingRect = cancelPendingWire?.getBoundingClientRect();
   record("vnext-lab-pending-wire-native-keyboard-cancel-accessible",
@@ -616,6 +627,27 @@ export async function runAccessibilityContracts() {
     JSON.stringify({name:accessibleName(mechanical),source:mechanical?.querySelector("a")?.href}),
     "Cơ khí Uno có nguồn A000066, mô tả kích thước nhưng không giả tọa độ header hoặc breadboard.","P1");
 
+  const mounting = mechanical?.querySelector('[data-uno-mounting-evidence="partial-dimensioned"]');
+  const mountingTable = mounting?.querySelector('[data-uno-mounting-table="source-annotated-only"]');
+  const holeRows = [...(mountingTable?.querySelectorAll('[data-uno-mounting-hole]')||[])];
+  const lowerLeftHole = holeRows.find(row=>row.getAttribute('data-uno-mounting-hole')==='lower-left');
+  const mountingBoundary = mounting?.querySelector('.uno-mounting-boundary');
+  record("vnext-uno-mounting-partial-source-dimensions-aria-no-cad-snap",
+    mounting?.getAttribute('role')==='group' && Boolean(accessibleName(mounting)) &&
+    mounting.getAttribute('data-uno-hole-snap')==='unsupported' &&
+    mountingTable?.tagName==='TABLE' && mountingTable?.querySelector('caption')?.textContent.includes('X') &&
+    holeRows.length===4 && holeRows.filter(row=>
+      row.getAttribute('data-uno-mounting-known-axes')==='x,y').length===3 &&
+    lowerLeftHole?.getAttribute('data-uno-mounting-known-axes')==='y' &&
+    /Chưa có kích thước/i.test(lowerLeftHole?.textContent||'') &&
+    mountingBoundary?.getAttribute('role')==='note' &&
+    /không phải bản vẽ CAD hoàn chỉnh|không.*snap/i.test(mountingBoundary?.textContent||''),
+    JSON.stringify({mountingName:accessibleName(mounting),rows:holeRows.map(row=>({
+      id:row.getAttribute('data-uno-mounting-hole'),
+      axes:row.getAttribute('data-uno-mounting-known-axes'),
+    }))}),
+    "Bản vẽ kích thước tâm lỗ chỉ có 3/4 cặp tọa độ đầy đủ, bảng truy cập được và không giả vị trí còn thiếu.","P1");
+
   const sketchReview = document.querySelector("#sketchReviewMount [data-sketch-review]");
   const sketchReviewStatus = sketchReview?.querySelector("[data-sketch-review-status-label]");
   const sketchReviewBoundary = sketchReview?.querySelector("[data-sketch-review-boundary]");
@@ -640,6 +672,22 @@ export async function runAccessibilityContracts() {
       boundary: sketchReviewBoundary?.textContent?.trim() || "",
     }),
     "Sketch review cần named region/status polite và disclosure rõ đây chỉ là so sánh source, không phải compile/firmware/completion.", "P1");
+
+  const sketchPinRegion=sketchReview?.querySelector('[data-sketch-pin-evidence]');
+  const sketchPinSummary=sketchPinRegion?.querySelector('[data-sketch-pin-evidence-summary]');
+  const sketchPinBoundary=sketchPinRegion?.querySelector('[data-sketch-pin-evidence-boundary]');
+  record("vnext-sketch-pin-evidence-static-named-source-only-no-firmware-completion",
+    Boolean(sketchPinRegion && accessibleName(sketchPinRegion)) &&
+    sketchPinSummary?.getAttribute('role')==='status' &&
+    sketchPinSummary?.getAttribute('aria-live')==='polite' &&
+    sketchPinBoundary?.getAttribute('role')==='note' &&
+    /không biên dịch Arduino C\+\+/i.test(sketchPinBoundary?.textContent||'') &&
+    /không chạy firmware/i.test(sketchPinBoundary?.textContent||'') &&
+    /không đánh giá hoàn thành bài/i.test(sketchPinBoundary?.textContent||'') &&
+    !sketchPinRegion?.querySelector('button,input,textarea,select'),
+    JSON.stringify({name:accessibleName(sketchPinRegion),
+      callCount:sketchPinRegion?.getAttribute('data-sketch-pin-evidence-call-count')}),
+    "Bằng chứng pin lexical từ bản Sketch có nhãn, cảnh báo compiler/firmware và không tự nối dây hay hoàn thành bài.","P1");
 
   const lexicalSummary = sketchReview?.querySelector("[data-sketch-review-lexical-summary]");
   record("vnext-sketch-lexical-feedback-accessible-without-compiler-claim",

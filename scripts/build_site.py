@@ -103,6 +103,16 @@ POST_V16_GUIDED_INSPECTION_FILES = [
     "docs/UNO_MECHANICAL_REFERENCE_NEXT.md",
     "docs/PRACTICE_PAIR_PREVIEW_NEXT.md",
 ]
+POST_V16_STUDY_EXTENSION_FILES = [
+    "src/learner-circuit-history.js",
+    "src/sketch-pin-evidence.js",
+    "src/uno-mounting-evidence.js",
+    "docs/LEARNER_CIRCUIT_HISTORY_NEXT.md",
+    "docs/SKETCH_PIN_EVIDENCE_NEXT.md",
+    "docs/UNO_MOUNTING_EVIDENCE_NEXT.md",
+    "docs/POST_V16_SCENE_COMPONENT_FIDELITY.md",
+    "docs/AVR_TIMER2_FIDELITY_NEXT.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -158,6 +168,7 @@ FILES = [
     *POST_V16_GUIDED_WIRING_FILES,
     *POST_V16_FIDELITY_FILES,
     *POST_V16_GUIDED_INSPECTION_FILES,
+    *POST_V16_STUDY_EXTENSION_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

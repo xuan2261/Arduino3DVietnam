@@ -92,7 +92,25 @@ def main() -> None:
             raise AssertionError(f"{name}: {details}")
 
     def ready(page) -> None:
-        page.wait_for_function("document.documentElement.dataset.ready === '3d'", timeout=20000)
+        try:
+            page.wait_for_function("document.documentElement.dataset.ready === '3d'", timeout=20000)
+        except Exception as error:
+            # Fail closed on WebGL fallback rather than quietly treating 2D
+            # content readiness as real Three.js coverage. Include the actual
+            # app state to distinguish a GPU allocation issue from a JS error.
+            try:
+                actual = page.evaluate("""() => ({
+                    ready: document.documentElement.dataset.ready || null,
+                    canvas: !!document.querySelector('#sceneMount canvas'),
+                    fallback: document.querySelector('.scene-fallback')?.textContent || '',
+                    lesson: document.querySelector('#lessonTitle')?.textContent || '',
+                    documentState: document.readyState,
+                    url: location.href,
+                })""")
+            except Exception as diagnostic_error:
+                actual = {"diagnosticError": str(diagnostic_error)}
+            raise AssertionError("3D readiness failed: " +
+                                 json.dumps(actual, ensure_ascii=True)) from error
 
     def run_page_contract(page, module_path: str, export_name: str):
         """Import a browser contract relative to the served app base/subpath."""
@@ -598,9 +616,11 @@ def main() -> None:
                 fidelity_names = {item.get("name") for item in fidelity.get("results", [])}
                 check("vnext-threejs-visual-fidelity-instancing-hover-physical-boundary",
                       fidelity["failed"] == 0
-                      and fidelity["passed"] == fidelity["total"] == 28
+                      and fidelity["passed"] == fidelity["total"] == 30
                       and "source-uses-instancing-for-repeated-visual-detail" in fidelity_names
                       and "source-contact-strips-remain-nonauthoritative" in fidelity_names
+                      and "source-component-fidelity-has-conceptual-provenance" in fidelity_names
+                      and "clearing-committed-highlight-removes-endpoint-feedback-only" in fidelity_names
                       and "compact-viewport-reduces-lod-without-changing-detail-inventory" in fidelity_names
                       and "pending-selection-has-priority-label-feedback" in fidelity_names
                       and "read-only-inspection-does-not-recreate-3d-terminal-geometry" in fidelity_names,
@@ -1100,8 +1120,15 @@ def main() -> None:
                 check("post-v16-sketch-review-ui-direct-contracts",
                       sketch_ui_contracts["passed"] == sketch_ui_contracts["total"]
                       and sketch_ui_contracts["passed"] == len(sketch_ui_contracts["checks"])
-                      and sketch_ui_contracts["total"] == 14,
+                      and sketch_ui_contracts["total"] == 21,
                       f"{sketch_ui_contracts['passed']}/{sketch_ui_contracts['total']} passed")
+                pin_evidence_contracts = run_page_contract(
+                    page, "./tests/sketch-pin-evidence-contracts.js",
+                    "runSketchPinEvidenceContracts")
+                check("vnext-sketch-pin-static-source-only-provenance-negative-contracts",
+                      pin_evidence_contracts["passed"] == pin_evidence_contracts["total"] == 23
+                      and len(pin_evidence_contracts["checks"]) == 23,
+                      f"{pin_evidence_contracts['passed']}/{pin_evidence_contracts['total']} lexical pin evidence; never compiled firmware")
                 sketch_review = page.evaluate("""async () => {
                     const {lessons} = await import('./src/lessons.js');
                     const model = await import('./src/sketch-review.js');
@@ -1252,9 +1279,9 @@ def main() -> None:
                 timer2_contracts = run_page_contract(
                     page, "./tests/avr-timer2-contracts.js", "runAvrTimer2Contracts")
                 check("v16-avr-timer2-direct-model-contracts",
-                      timer2_contracts["passed"] == 10
-                      and len(timer2_contracts["checks"]) == 10,
-                      f"{timer2_contracts['passed']}/10 direct-model checks; no stock-firmware parity claim")
+                      timer2_contracts["passed"] == 12
+                      and len(timer2_contracts["checks"]) == 12,
+                      f"{timer2_contracts['passed']}/12 direct-model checks; no stock-firmware parity claim")
                 dc_network_contracts = run_page_contract(
                     page, "./tests/dc-resistor-network-contracts.js",
                     "runDcResistorNetworkContracts")
@@ -1301,6 +1328,20 @@ def main() -> None:
                       uno_mechanical_contracts["passed"] == uno_mechanical_contracts["total"] == 18
                       and len(uno_mechanical_contracts["checks"]) == 18,
                       f"{uno_mechanical_contracts['passed']}/{uno_mechanical_contracts['total']} manufacturer bounded geometry checks")
+                mounting_evidence_contracts = run_page_contract(
+                    page,"./tests/uno-mounting-evidence-contracts.js",
+                    "runUnoMountingEvidenceContracts")
+                check("vnext-a000066-partial-mounting-hole-axes-source-only-contracts",
+                      mounting_evidence_contracts["passed"] == mounting_evidence_contracts["total"] == 13
+                      and len(mounting_evidence_contracts["checks"]) == 13,
+                      f"{mounting_evidence_contracts['passed']}/{mounting_evidence_contracts['total']} 3 full + 1 partial, not CAD")
+                history_contracts = run_page_contract(
+                    page,"./tests/learner-circuit-history-contracts.js",
+                    "runLearnerCircuitHistoryContracts")
+                check("vnext-router-canonical-learner-undo-redo-revision-negative-contracts",
+                      history_contracts["passed"] == history_contracts["total"] == 14
+                      and len(history_contracts["checks"]) == 14,
+                      f"{history_contracts['passed']}/{history_contracts['total']} bounded learner graph history, no physical undo")
 
                 # Bounded accessibility regression includes tab semantics and
                 # computed contrast, not a claim of full WCAG/screen-reader QA.
@@ -2876,7 +2917,7 @@ def main() -> None:
                 }""")
                 check("v15-2d-valid-pointerup-commits-exactly-one-wire",
                       page.locator(".wire-connected").count() == 1)
-                page.locator(".wire-actions .wire-action").nth(1).click()
+                page.locator(".wire-actions .wire-action").filter(has_text="Xóa dây").click()
                 # Real pointer and keyboard-driven terminal interactions
                 # exercise the UI path rather than only the pure circuit model.
                 page.locator('[data-terminal="5V"]').click()
@@ -2886,7 +2927,7 @@ def main() -> None:
                 check("electrical-incomplete-draft-blocked",
                       "Bản đấu dây đang chỉnh sửa" in page.locator("#electricalResult").inner_text()
                       and "Chưa thể tính dòng" in page.locator("#electricalResult").inner_text())
-                page.locator(".wire-actions .wire-action").nth(1).click()
+                page.locator(".wire-actions .wire-action").filter(has_text="Xóa dây").click()
                 check("wiring-clear-after-click",
                       page.locator(".wire-connected").count() == 0)
                 page.locator('[data-terminal="D13"]').drag_to(
@@ -2895,8 +2936,8 @@ def main() -> None:
                 )
                 check("wiring-drag-connect",
                       page.locator(".wire-connected").count() == 1)
-                page.locator(".wire-actions .wire-action").nth(1).click()
-                page.locator(".wire-actions .wire-action").first.click()
+                page.locator(".wire-actions .wire-action").filter(has_text="Xóa dây").click()
+                page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                 check("wiring-sample-complete",
                       not page.locator(".wire-activate").is_disabled()
                       and page.locator(".wire-connected").count() == 7)
@@ -2932,7 +2973,7 @@ def main() -> None:
                 page.locator("#runButton").click()
                 check("invalid-wire-blocks-restart",
                       "Đang dừng" in page.locator("#runStatus").inner_text())
-                page.locator(".wire-actions .wire-action").first.click()
+                page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                 check("v15-2d-repair-does-not-reenable-active-circuit",
                       page.locator(".wire-activate").get_attribute("aria-pressed") == "false"
                       and not page.locator(".wire-activate").is_disabled())
@@ -2954,7 +2995,7 @@ def main() -> None:
                 for lesson_id in (2, 5):
                     page.locator(f'.lesson-link[data-lesson="{lesson_id}"]').click()
                     page.locator('.stage-tabs [data-stage="wiring"]').click()
-                    page.locator(".wire-actions .wire-action").first.click()
+                    page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                     check(f"wiring-{lesson_id}-sample",
                           not page.locator(".wire-activate").is_disabled())
                     page.locator('.stage-tabs [data-stage="3d"]').click()
@@ -2973,7 +3014,7 @@ def main() -> None:
                     page.locator('.stage-tabs [data-stage="wiring"]').click()
                     check(f"wiring-{lesson_id:02d}-terminal-ui",
                           page.locator("[data-terminal]").count() >= 4)
-                    page.locator(".wire-actions .wire-action").first.click()
+                    page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                     if lesson_id in (10, 14):
                         check(f"wiring-{lesson_id:02d}-signal-only-reference",
                               page.locator(".wire-activate").is_disabled()
@@ -3731,7 +3772,7 @@ def main() -> None:
                                   "data-practice-status") == "incomplete"
                           and practice_page.locator(
                               "#learningCoach [data-practice-grouping-note]").count() == 1)
-                    practice_page.locator(".wire-actions .wire-action").first.click()
+                    practice_page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                     evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
                     check("post-v16-reference-copied-graph-is-only-authored-topology-match",
                           evidence.get_attribute("data-practice-status") == "topology-match"
@@ -3789,7 +3830,7 @@ def main() -> None:
                           and practice_page.locator(
                               "#learningCoach [data-practice-evidence]").get_attribute(
                                   "data-practice-checkpoint-kind") == "wiring")
-                    practice_page.locator(".wire-actions .wire-action").nth(1).click()
+                    practice_page.locator(".wire-actions .wire-action").filter(has_text="Xóa dây").click()
                     practice_page.locator('[data-terminal="D13"]').click()
                     practice_page.locator('[data-terminal="GND"]').click()
                     evidence = practice_page.locator("#learningCoach [data-practice-evidence]")
@@ -3804,7 +3845,7 @@ def main() -> None:
                         practice_page.locator("#infoTabPractice").click()
                         practice_page.locator(
                             "#learningCoach [data-practice-open-wiring]").click()
-                        practice_page.locator(".wire-actions .wire-action").first.click()
+                        practice_page.locator(".wire-actions .wire-action").filter(has_text="Mạch mẫu").click()
                         evidence = practice_page.locator(
                             "#learningCoach [data-practice-evidence]")
                         expected_status = (
@@ -3969,6 +4010,28 @@ def main() -> None:
                           and mech.locator("a").nth(1).get_attribute("href") ==
                               "https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf"
                           and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0")
+
+                    mounting = mech.locator('[data-uno-mounting-evidence="partial-dimensioned"]')
+                    mounting_rows = mounting.locator('[data-uno-mounting-hole]')
+                    dimensioned = mounting.locator('[data-uno-mounting-hole][data-uno-mounting-known-axes="x,y"]')
+                    lower_left = mounting.locator('[data-uno-mounting-hole="lower-left"]')
+                    guided.set_viewport_size({"width":375,"height":812})
+                    body_width = guided.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    check("vnext-a000066-only-three-dimensioned-hole-centers-no-physical-snap-375",
+                          mounting.get_attribute("role") == "group"
+                          and mounting.get_attribute("data-uno-hole-snap") == "unsupported"
+                          and mounting_rows.count() == 4
+                          and dimensioned.count() == 3
+                          and lower_left.get_attribute("data-uno-mounting-known-axes") == "y"
+                          and "Chưa có kích thước" in lower_left.inner_text()
+                          and "không phải bản vẽ CAD hoàn chỉnh" in
+                              mounting.locator(".uno-mounting-boundary").inner_text()
+                          and body_width
+                          and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0",
+                          json.dumps({"holes":mounting_rows.count(),
+                              "completeXY":dimensioned.count(),
+                              "viewportFits":body_width},ensure_ascii=False))
+                    guided.set_viewport_size({"width":1280,"height":820})
 
                     guided.locator("#infoTabPractice").click()
                     # Regression from Ubuntu CI run 40827999649: inserting a
@@ -4146,6 +4209,105 @@ def main() -> None:
                               "newWireCount":scene_canvas.get_attribute("data-lab-wire-count")}))
                 finally:
                     guided_context.close()
+
+                # Real shared learner graph history across TWO editors and a
+                # lesson switch, plus source-only Sketch pin lexical feedback.
+                # No preview or undo/redo may become proof of physical wiring,
+                # Sketch compilation, mastery or completion.
+                history_context = browser.new_context(
+                    viewport={"width":1280,"height":820}, service_workers="allow")
+                try:
+                    history_page=history_context.new_page()
+                    capture_console(history_page)
+                    history_page.goto(base, wait_until="domcontentloaded", timeout=20000)
+                    ready(history_page)
+                    history_page.locator('.lesson-link[data-lesson="2"]').click()
+                    history_page.locator("#stageTabWiring").click()
+                    undo_2d=history_page.locator('.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    redo_2d=history_page.locator('.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("vnext-learner-history-initial-empty-disabled-not-reference-fallback",
+                          undo_2d.count()==1 and redo_2d.count()==1
+                          and undo_2d.is_disabled() and redo_2d.is_disabled()
+                          and history_page.locator(".wiring-view .wire-connected").count()==0)
+                    history_page.locator('.wiring-view [data-terminal="D13"]').click()
+                    history_page.locator('.wiring-view [data-terminal="R1:A"]').click()
+                    check("vnext-real-2d-wire-connect-opens-undo-only",
+                          history_page.locator(".wiring-view .wire-connected").count()==1
+                          and not undo_2d.is_disabled() and redo_2d.is_disabled()
+                          and history_page.locator("#completeButton").is_hidden())
+                    undo_2d.click()
+                    check("vnext-real-2d-undo-restores-empty-canonical-graph",
+                          history_page.locator(".wiring-view .wire-connected").count()==0
+                          and undo_2d.is_disabled() and not redo_2d.is_disabled())
+                    redo_2d.click()
+                    check("vnext-real-2d-redo-restores-exact-learner-edge",
+                          history_page.locator(".wiring-view .wire-connected").count()==1
+                          and "D13" in history_page.locator(".wiring-view .wire-connected").inner_text()
+                          and not undo_2d.is_disabled() and redo_2d.is_disabled())
+                    history_page.locator("#stageTab3d").click()
+                    history_page.locator("#labEditToggle").click()
+                    undo_3d=history_page.locator("#labUndoWire")
+                    redo_3d=history_page.locator("#labRedoWire")
+                    check("vnext-3d-lab-history-native-controls-from-same-learner-graph",
+                          undo_3d.is_visible() and not undo_3d.is_disabled()
+                          and redo_3d.is_disabled()
+                          and undo_3d.bounding_box()["height"]>=44
+                          and history_page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="1")
+                    history_page.locator("#labFromPin").select_option("R1:B")
+                    history_page.locator("#labToPin").select_option("LED:A")
+                    history_page.locator("#labConnect").click()
+                    check("vnext-3d-router-connection-records-reversible-graph",
+                          history_page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="2"
+                          and not undo_3d.is_disabled() and redo_3d.is_disabled())
+                    undo_3d.click()
+                    check("vnext-3d-undo-revokes-newest-edge-without-reference-fallback",
+                          history_page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="1"
+                          and not redo_3d.is_disabled())
+                    redo_3d.click()
+                    check("vnext-3d-redo-restores-newest-canonical-edge",
+                          history_page.locator("#sceneMount canvas").get_attribute("data-lab-wire-count")=="2"
+                          and redo_3d.is_disabled())
+                    history_page.locator('.lesson-link[data-lesson="3"]').click()
+                    history_page.locator("#stageTabWiring").click()
+                    history_lesson3_empty=history_page.locator(".wiring-view .wire-connected").count()==0
+                    history_page.locator('.lesson-link[data-lesson="2"]').click()
+                    history_page.locator("#stageTabWiring").click()
+                    restored_count=history_page.locator(".wiring-view .wire-connected").count()
+                    history_page.locator('.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]').click()
+                    check("vnext-lesson-switch-preserves-per-lesson-undo-stack-no-cross-lesson-leak",
+                          history_lesson3_empty and restored_count==2
+                          and history_page.locator(".wiring-view .wire-connected").count()==1
+                          and history_page.locator("#completeButton").is_hidden())
+
+                    progress_before_pins=history_page.locator("#progressText").inner_text()
+                    wire_count_before_pins=history_page.locator(".wiring-view .wire-connected").count()
+                    history_page.locator("#editCode").click()
+                    learner_source=(
+                        'void setup(){pinMode(13,OUTPUT);}'
+                        '\nvoid loop(){'
+                        '\n// digitalWrite(12,HIGH);'
+                        '\nconst char* spoof="tone(7,440)";'
+                        '\ndigitalWrite(13,HIGH);'
+                        '\ndigitalWrite(PIN,HIGH);'
+                        '\n}'
+                    )
+                    history_page.locator("#codeEditor").fill(learner_source)
+                    pin_region=history_page.locator("#sketchReviewMount [data-sketch-pin-evidence]")
+                    pin_calls=pin_region.locator("[data-sketch-pin-evidence-call]")
+                    check("vnext-edited-sketch-real-ui-pin-evidence-static-not-compiled-or-wired",
+                          pin_region.count()==1
+                          and pin_region.get_attribute("data-sketch-pin-evidence-call-count")=="3"
+                          and pin_calls.count()==3
+                          and pin_region.locator('[data-sketch-pin-evidence-terminal="D13"]').count()==2
+                          and pin_region.locator('[data-sketch-pin-evidence-status="unknown"]').count()==1
+                          and "không biên dịch Arduino C++" in pin_region.inner_text()
+                          and "không chạy firmware" in pin_region.inner_text()
+                          and "Mã đã sửa" in history_page.locator("#avrDraftNote").inner_text()
+                          and history_page.locator(".wiring-view .wire-connected").count()==wire_count_before_pins
+                          and history_page.locator("#progressText").inner_text()==progress_before_pins,
+                          json.dumps({"calls":pin_calls.count(),"statuses":pin_calls.all_inner_texts()},ensure_ascii=False))
+                finally:
+                    history_context.close()
 
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
