@@ -110,11 +110,11 @@ FILES = [
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)
 _THREE_PINNED_SHA256 = {
     "assets/vendor/three.module.min.js":
-        "852c06b9fe936cf8ebc2870c86370d1015c310b04de98cdfc07f4efaf6afd2af",
+        "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
     "assets/vendor/three.core.min.js":
-        "4183cee05f0aa093682fdf551363a16bb20bd92b68e14f7576905f45c461ba82",
+        "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
     "assets/vendor/THREE-LICENSE.txt":
-        "df2a91696186fe58c92518a25d48bc59c8ee2edc7cac9ca6d19a5a0d599a2a05",
+        "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
 }
 _AVR_UPSTREAM = {
     "repository": "https://github.com/wokwi/avr8js",

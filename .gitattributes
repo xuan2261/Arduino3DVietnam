@@ -1,4 +1,5 @@
 # Preserve source bytes across Windows and Unix checkouts.
+.gitattributes text eol=lf
 *.js text eol=lf
 *.mjs text eol=lf
 *.css text eol=lf
@@ -11,6 +12,11 @@
 *.command text eol=lf
 *.bat text eol=crlf
 *.min.js text eol=lf
+assets/vendor/THREE-LICENSE.txt text eol=lf
+assets/vendor/avr/avr8js-0.21.1-source/*.ts text eol=lf
+assets/vendor/avr/AVR8JS-LICENSE.txt text eol=lf
+assets/vendor/avr/PROVENANCE.json text eol=lf
+assets/firmware/manifest.json text eol=lf
 *.zip binary
 # Genuine avr-objcopy Intel HEX artifacts contain CRLF on all platforms.
 # Git text normalization must not rewrite compiled bytes pinned by SHA-256.

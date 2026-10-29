@@ -6,7 +6,7 @@ import re
 import shutil
 import tempfile
 import unittest
-from hashlib import sha256
+from hashlib import sha1, sha256
 from pathlib import Path
 from unittest import mock
 
@@ -37,16 +37,54 @@ class ReleaseContractTests(unittest.TestCase):
     def test_three_vendor_assets_match_independent_pinned_hashes(self):
         expected = {
             "assets/vendor/three.module.min.js":
-                "852c06b9fe936cf8ebc2870c86370d1015c310b04de98cdfc07f4efaf6afd2af",
+                "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
             "assets/vendor/three.core.min.js":
-                "4183cee05f0aa093682fdf551363a16bb20bd92b68e14f7576905f45c461ba82",
+                "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
             "assets/vendor/THREE-LICENSE.txt":
-                "df2a91696186fe58c92518a25d48bc59c8ee2edc7cac9ca6d19a5a0d599a2a05",
+                "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
         }
         self.assertEqual(build_site._THREE_PINNED_SHA256, expected)
         for filename, pinned_hash in expected.items():
             self.assertEqual(sha256((ROOT / filename).read_bytes()).hexdigest(), pinned_hash, filename)
         build_site._verify_three_vendor_assets()
+
+    def test_three_vendor_assets_match_official_r180_git_blobs_without_eol_rewrite(self):
+        # SHA-1 is Git's historical blob identity here, NOT a security
+        # substitute for the independent SHA-256 pins above. Canonical blob
+        # bytes protect CI from silent Windows CRLF checkout differences.
+        official_r180_blobs = {
+            "assets/vendor/three.module.min.js":
+                "20d3c112761a519c7780a5ccc9f72a40937fa83b",
+            "assets/vendor/three.core.min.js":
+                "70c40977daa0f6e1e312c6b58e9bfe49cb5a87a4",
+            "assets/vendor/THREE-LICENSE.txt":
+                "cf781430404b0ae0ba7d8dea3457a3515dd7c9b9",
+        }
+        for filename, expected_blob in official_r180_blobs.items():
+            data = (ROOT / filename).read_bytes()
+            self.assertNotIn(b"\r\n", data, filename)
+            git_blob = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+            self.assertEqual(sha1(git_blob).hexdigest(), expected_blob, filename)
+
+    def test_byte_pinned_vendor_and_firmware_metadata_require_portable_checkout(self):
+        # On Windows, core.autocrlf may rewrite text files unless these scoped
+        # attributes pin LF. Keep actual firmware Intel HEX binary/CRLF.
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+        paths = {
+            "assets/vendor/avr/avr8js-0.21.1-source/*.ts": (
+                "assets/vendor/avr/avr8js-0.21.1-source/cpu.ts",
+                "assets/vendor/avr/avr8js-0.21.1-source/instruction.ts",
+                "assets/vendor/avr/avr8js-0.21.1-source/interrupt.ts",
+            ),
+            "assets/vendor/avr/AVR8JS-LICENSE.txt": ("assets/vendor/avr/AVR8JS-LICENSE.txt",),
+            "assets/vendor/avr/PROVENANCE.json": ("assets/vendor/avr/PROVENANCE.json",),
+            "assets/firmware/manifest.json": ("assets/firmware/manifest.json",),
+        }
+        for rule, files in paths.items():
+            self.assertIn(rule + " text eol=lf", attributes)
+            for filename in files:
+                self.assertNotIn(b"\r\n", (ROOT / filename).read_bytes(), filename)
+        self.assertIn("assets/firmware/*.hex binary", attributes)
 
     def test_build_rejects_three_vendor_runtime_or_license_tampering(self):
         for filename in (

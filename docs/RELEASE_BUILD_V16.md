@@ -32,11 +32,13 @@ Three.js is also fail-closed at packaging time. The builder pins exact SHA-256 v
 
 Read-only provenance verification against the official `mrdoob/three.js` repository on 2026-10-29 established that tag `r180` is annotated tag object `9e8635e2031c25859dc47ba07e72230dccb2682a`, which resolves to commit `0af9729d0c143a86a1d725d6e2c3ad83301f3f34`. GitHub reports that tag object as unsigned, so this document does not claim a verified tag signature. The official r180 Git blob IDs are `20d3c112761a519c7780a5ccc9f72a40937fa83b` for `build/three.module.min.js`, `70c40977daa0f6e1e312c6b58e9bfe49cb5a87a4` for `build/three.core.min.js`, and `cf781430404b0ae0ba7d8dea3457a3515dd7c9b9` for `LICENSE`; the local vendored files have those same Git blob IDs. This proves byte identity with those three files at official tag r180 without requiring network access during a release build.
 
-The independent build-time SHA-256 anchors for those bytes are:
+The independent build-time SHA-256 anchors for the exact canonical **Git blob / LF** bytes are:
 
-- `assets/vendor/three.module.min.js`: `852c06b9fe936cf8ebc2870c86370d1015c310b04de98cdfc07f4efaf6afd2af`
-- `assets/vendor/three.core.min.js`: `4183cee05f0aa093682fdf551363a16bb20bd92b68e14f7576905f45c461ba82`
-- `assets/vendor/THREE-LICENSE.txt`: `df2a91696186fe58c92518a25d48bc59c8ee2edc7cac9ca6d19a5a0d599a2a05`
+- `assets/vendor/three.module.min.js`: `e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6`
+- `assets/vendor/three.core.min.js`: `61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de`
+- `assets/vendor/THREE-LICENSE.txt`: `bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601`
+
+**Cross-platform failure reproduced and fixed on 2026-10-29:** Windows had retained six CRLF endings in each Three.js module and 21 CRLF endings in the MIT license despite the repository's canonical Git blobs being LF. Pinning hashes to the Windows working-tree bytes led GitHub Linux CI to reject the *unchanged official r180 Git blobs*. Release hashes now pin those original upstream LF blobs, not an OS-specific working-tree conversion. `.gitattributes` explicitly specifies `eol=lf` for the MIT license as well as the already-covered `*.min.js`; developer working trees must restore the exact indexed LF bytes rather than weaken the verifier or rewrite the vendored upstream code.
 
 Reference histories under `sources/` are not release assets and remain excluded. Every allowlisted path must resolve to a real non-symlink file under the repository root and outside `dist`.
 
