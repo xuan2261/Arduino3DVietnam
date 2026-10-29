@@ -48,26 +48,49 @@ session observation WeakSet brand remains unchanged. No source import, device
 upload, compiler for user-edited Sketch, hardware operation, or blanket root
 license selection is performed in this phase.
 
-## Verification executed on this dirty source
+## Verification executed on the current local candidate
 
 | Gate | Observed result |
 | --- | --- |
 | Direct JS (Bun, 24 model/UI suites) | **714/714 PASS** |
 | Python unittest discovery | 95/95 PASS |
 | Python release-only | 24/24 PASS |
-| Windows exclusive Chromium full E2E, after fixes | **401/401 PASS**, 0 failed |
+| Windows exclusive Chromium full E2E, after Ubuntu accessibility fix | **402/402 PASS**, 0 failed |
 | Unexpected browser warnings/errors/GPU diagnostics | **0 / 0 / 0** on Windows |
 | Manifest / SW / dist | 118 public paths, 118 SW assets, 119 dist files including generated marker |
 | Prior 110-path allowlist prefix | byte-for-byte ordered path hash preserved: `5a8c277108f4314a4bf7896953a5032aad380f75efa4dda1184135fee51499eb` |
-| E2E literal IDs | 271/271 prior literal IDs preserved, 288 current distinct literals, no duplicates; both learner graph lesson-switch regression IDs retained |
+| E2E literal IDs | 271/271 prior literal IDs preserved, 289 current distinct literals, no duplicates; both learner graph lesson-switch regression IDs retained |
 
 Full browser evidence is local at
-`screenshots/post-v16-guided-inspection-chromium-final.json`. The last full browser
+`screenshots/post-v16-ubuntu-a11y-layout-final.json`. The last full browser
 run proves actual 2D preview → separate connect → Explorer/3D highlight,
 **real LabEditor move+rotate highlight preservation**, reused w1 identity
 revocation after canonical graph replacement, historical transitions, BB830
 grouping, corrected source outline, branch math at 375px, invalid-input
-handling and offline new runtime/docs imports.
+handling and offline new runtime/docs imports. The new 375px regression
+also measures all three authored-pair **inspect** and all three **preview**
+button targets at >=44px while requiring no horizontal document overflow.
+
+### Exact-SHA GitHub CI follow-up after first branch push
+
+The first pushed candidate `e8f35be414599a6733cd9cdd303766e2ea94a2db`
+had Arduino compiler workflow run **40827995165** completed/success; its
+downloaded JSON confirms **16/16** compiled with `arduino:avr:uno`.
+Ubuntu Chromium run **40827999649** completed/failure despite local
+401/401: 43/44 desktop accessibility checks passed; the sole nested P1 was
+`vnext-practice-authored-pair-checklist-named-native-inspect`. Exactly three
+authored rows/inspect actions existed, but the existing 44px target predicate
+was false on the Linux runner. After adding the second preview action to a
+two-column grid, a narrow implicit first column could squeeze the existing
+inspect button on different system fonts. The correction makes each inspect
+and preview action span the full available grid width with explicit minimum
+44px dimensions. The 44px assertion was **not weakened**; the failure
+diagnostic now includes measured width/height, names and row statuses.
+
+The corrected layout has local full Chromium **402/402 PASS**, but this
+record does **not** claim the corrected candidate has a successful GitHub
+browser run or read-only release-preflight. Both compiler and browser must
+pass on one NEW final commit SHA before dispatching release-preflight.
 
 Security/provenance preflight also checked no modified `sources/`, `.git`,
 vendored files, firmware, license or release backups; packaging allowlist has no
@@ -103,7 +126,7 @@ tag changes or physical-hardware claims.
    local final QA is recorded above.
 2. `git diff --cached --check`, ownership and private-path scan, commit/push
    nonforce on feature branch only.
-3. Dispatch compiler16/16 and browser401-or-more manual workflows on exactly
+3. Dispatch compiler16/16 and browser402-or-more manual workflows on exactly
    that full SHA; download actual JSON artifacts.
 4. Run read-only release-preflight exact SHA and verify firmware source ancestor,
    SHA-256 and 16 HEX byte parity; no Pages dispatch.

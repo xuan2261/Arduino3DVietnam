@@ -3971,6 +3971,32 @@ def main() -> None:
                           and guided.locator("#sceneMount canvas").get_attribute("data-lab-wire-count") == "0")
 
                     guided.locator("#infoTabPractice").click()
+                    # Regression from Ubuntu CI run 40827999649: inserting a
+                    # second corrective action into the old two-column grid
+                    # must not squeeze the original inspect target below 44px
+                    # on system fonts or on the 375px learner viewport.
+                    guided.set_viewport_size({"width":375,"height":812})
+                    checklist_targets = guided.evaluate("""() => {
+                        const bounds = selector => [...document.querySelectorAll(selector)].map(button => {
+                            const rect=button.getBoundingClientRect();
+                            return {width:rect.width,height:rect.height,
+                              name:button.getAttribute('aria-label')||button.textContent?.trim()||''};
+                        });
+                        return {
+                          inspect:bounds('#learningCoach [data-practice-checklist-inspect-terminal]'),
+                          preview:bounds('#learningCoach [data-practice-preview-pair-2d]'),
+                          viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth,
+                        };
+                    }""")
+                    check("vnext-375px-authored-checklist-inspect-and-preview-targets-44px",
+                          len(checklist_targets["inspect"]) == 3
+                          and len(checklist_targets["preview"]) == 3
+                          and all(item["width"] >= 44 and item["height"] >= 44
+                                  and item["name"] for kind in ("inspect","preview")
+                                  for item in checklist_targets[kind])
+                          and checklist_targets["scrollWidth"] <= checklist_targets["viewport"],
+                          json.dumps(checklist_targets,ensure_ascii=False))
+                    guided.set_viewport_size({"width":1280,"height":820})
                     practice_pair = guided.locator(
                         "#learningCoach [data-practice-preview-pair-2d]").first
                     practice_pair_data = {

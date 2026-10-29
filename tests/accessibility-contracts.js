@@ -500,7 +500,14 @@ export async function runAccessibilityContracts() {
       Boolean(accessibleName(button)) && button.getBoundingClientRect().height >= 44 &&
       button.getBoundingClientRect().width >= 44),
     JSON.stringify({name:accessibleName(authoredChecklist),rows:checklistRows.length,
-      buttons:checklistButtons.length,targets:checklistButtons.map(x=>x.dataset.practiceInspectTerminal)}),
+      rowStatuses:checklistRows.map(row=>row.getAttribute("data-practice-pair-status")),
+      buttons:checklistButtons.length,
+      targets:checklistButtons.map(button=>({
+        terminal:button.dataset.practiceInspectTerminal,
+        name:accessibleName(button),
+        width:button.getBoundingClientRect().width,
+        height:button.getBoundingClientRect().height,
+      }))}),
     "Checklist authored ở bài 02 phải có tên, hàng thiếu canonical và inspect native >=44px; không tự chứng nhận thực hành.", "P1");
 
   const missingPairPreviews = [...(authoredChecklist?.querySelectorAll('[data-practice-preview-pair-2d]')||[])];

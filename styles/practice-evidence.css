@@ -172,8 +172,19 @@
 [data-practice-extra-review-row] { border-color:#d3b9a2; background:#fff6f0; }
 .practice-evidence-checklist-copy { min-width:0; font-size:12px; font-weight:750; color:#2f5549; overflow-wrap:anywhere; }
 .practice-evidence-checklist-explanation { grid-column:1/-1; margin:0!important; font-size:11px!important; color:#49665a; }
-.practice-evidence-checklist-button { min-height:44px; max-width:100%; }
-.practice-evidence-pair-preview-button { min-height:44px; max-width:100%; border-style:dashed; background:#fff8e9; color:#74501a; }
+/* The checklist now has TWO actions per missing pair. Never let an auto-sized
+   second grid column squeeze the original inspect control below a 44px target
+   on Ubuntu/system-font or narrow layouts. Each action gets its own full row. */
+.practice-evidence-checklist-row .practice-evidence-checklist-button,
+[data-practice-extra-review-row] .practice-evidence-checklist-button,
+.practice-evidence-checklist-row .practice-evidence-pair-preview-button {
+  grid-column:1/-1;
+  width:100%;
+  min-width:44px;
+  min-height:44px;
+  max-width:100%;
+}
+.practice-evidence-pair-preview-button { border-style:dashed; background:#fff8e9; color:#74501a; }
 .practice-evidence-pair-preview-button:hover:not(:disabled) { background:#fff0ce; border-color:#bd9756; }
 
 /* A session-scoped observation is not a pass/fail grade. Keep this visually
