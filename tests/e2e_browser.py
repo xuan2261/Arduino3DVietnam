@@ -5390,12 +5390,16 @@ def main() -> None:
                           bb_scene_page.locator("#labPositionX").input_value()=="0"
                           and not history_undo.is_disabled()
                           and not history_redo.is_disabled()
+                          and bb_scene_page.evaluate(
+                              "document.activeElement === document.querySelector('#labEditor [data-lab-layout-undo]')")
                           and bb_canvas.get_attribute("data-lab-wire-count")=="0")
                     history_undo.click()
                     check("post-57d8b90-layout-undo-position-restores-canonical-prior-state",
                           bb_scene_page.locator("#labPositionX").input_value()==baseline_x
                           and history_undo.is_disabled()
                           and not history_redo.is_disabled()
+                          and bb_scene_page.evaluate(
+                              "document.activeElement === document.querySelector('#labEditor [data-lab-layout-redo]')")
                           and bb_canvas.get_attribute("data-lab-wire-count")=="0")
                     bb_scene_page.locator("#stageTabWiring").click()
                     bb_scene_page.locator("#stageTab3d").click()

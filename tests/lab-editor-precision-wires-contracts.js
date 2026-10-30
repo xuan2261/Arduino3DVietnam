@@ -883,9 +883,10 @@ export function runLabEditorPrecisionWiresContracts() {
       undoButton.focus({ preventScroll: true });
       undoButton.click();
       const afterUndo = ui.snapshot();
-      assert(document.activeElement === undoButton && afterUndo.layout === initialLayout &&
+      assert(document.activeElement === redoButton && !redoButton.disabled && undoButton.disabled &&
+        afterUndo.layout === initialLayout &&
         afterUndo.selectedId === movable.id && afterUndo.canUndoLayout === false && afterUndo.canRedoLayout === true,
-      "native undo restores exact immutable layout/selection and retains keyboard focus");
+      "native last-undo restores exact layout and transfers focus to enabled Redo");
       assert(layoutChanges.length === layoutChangesBeforeNoop + 1 && changes.length === 0 &&
         layoutCircuits.get(2) === learnerCircuit,
       "undo notifies layout observers without learner graph/history write");
@@ -893,9 +894,10 @@ export function runLabEditorPrecisionWiresContracts() {
       redoButton.focus({ preventScroll: true });
       redoButton.click();
       const afterRedo = ui.snapshot();
-      assert(document.activeElement === redoButton && afterRedo.layout === afterMove.layout &&
+      assert(document.activeElement === undoButton && !undoButton.disabled && redoButton.disabled &&
+        afterRedo.layout === afterMove.layout &&
         afterRedo.selectedId === movable.id && afterRedo.canUndoLayout === true && afterRedo.canRedoLayout === false,
-      "native redo restores exact accepted layout and selected component");
+      "native last-redo restores exact layout and transfers focus to enabled Undo");
 
       assert(scene.labEdit.onTerminalSelect("D13") === true && ui.snapshot().firstTerminal === "D13",
         "pending terminal can be armed before undo restore");
@@ -1006,7 +1008,10 @@ export function runLabEditorPrecisionWiresContracts() {
           // not by a fake-DOM-only click return value.
           button.click();
         }
-        return layoutChanges.length === beforeLayoutChanges + 1 && document.activeElement === button;
+        const reciprocal = button === undoButton ? redoButton : undoButton;
+        const expectedFocus = button.disabled ? reciprocal : button;
+        return layoutChanges.length === beforeLayoutChanges + 1 &&
+          expectedFocus.disabled === false && document.activeElement === expectedFocus;
       };
 
       const initial = ui.snapshot();
@@ -1044,8 +1049,9 @@ export function runLabEditorPrecisionWiresContracts() {
       const afterUndoTwo = ui.snapshot();
       const breadboardUndoTwo = afterUndoTwo.layout.components.find(item => item.id === "breadboard");
       assert(breadboardUndoTwo.x === -1 && breadboardUndoTwo.quarterTurns === 0 &&
-        afterUndoTwo.layoutUndoDepth === 0 && afterUndoTwo.layoutRedoDepth === 2,
-      "second undo restores exact initial breadboard layout");
+        afterUndoTwo.layoutUndoDepth === 0 && afterUndoTwo.layoutRedoDepth === 2 &&
+        document.activeElement === redoButton && !redoButton.disabled,
+      "second undo restores exact initial layout and moves focus to actionable Redo");
 
       ui.setStage("wiring");
       assert(undoButton.disabled && redoButton.disabled &&
@@ -1069,8 +1075,8 @@ export function runLabEditorPrecisionWiresContracts() {
       const divergentBreadboard = afterDivergence.layout.components.find(item => item.id === "breadboard");
       assert(divergentBreadboard.x === 0.5 && divergentBreadboard.quarterTurns === 0 &&
         afterDivergence.canRedoLayout === false && afterDivergence.layoutRedoDepth === 0 && redoButton.disabled &&
-        redoButton.getAttribute("aria-disabled") === "true",
-      "divergent move clears redo branch and native redo availability");
+        redoButton.getAttribute("aria-disabled") === "true" && document.activeElement === undoButton && !undoButton.disabled,
+      "divergent move clears redo and recovers focus from disabled Redo to actionable Undo");
       assert(changes.length === 0 && primeSequenceCircuits.get(2) === primeSequenceCircuit &&
         layoutChanges.length === 6,
       "prime E2E layout sequence emits only six layout changes and zero learner graph/history writes");

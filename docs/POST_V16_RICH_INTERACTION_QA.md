@@ -348,3 +348,49 @@ An isolated learner-edited C++ compile backend still does not exist on the
 static GitHub Pages surface: CI compiler covers **16 checked-in reference
 Sketches** only. Commit/CI/release evidence must be verified separately after
 this local gate.
+
+### Same-SHA Ubuntu focus discrepancy and forward-only repair — 2026-10-30
+
+The first feature commit for the 630-hole phase was
+`f82e8c30e7f81b3e4c6cbb1eb91ec002dc70f6eb` (15 allowlisted files,
+non-force feature push). Its manual reference-Sketch compiler run
+`40977217774` completed **success**, but Ubuntu Chromium run
+`40977225495` completed **failure**, so no preflight was dispatched for this
+SHA. The browser job failed at
+`tests/lab-editor-precision-wires-contracts.js` during a native
+`Undo` focus assertion. Source and tests were *not* quietly marked
+QA-complete based on the passing local Chrome run.
+
+Root cause: when the final available Undo/Redo step is consumed, its native
+button becomes `disabled` in `refreshLayoutHistoryControls()`. Chromium on
+Ubuntu can move focus away immediately; the original fake/native test assumed
+that an exhausted disabled button retained focus. This exposed a real
+keyboard-navigation flaw, not a circuit or layout-state discrepancy.
+
+The follow-up repair captures the focused control **before** disabling it.
+If Undo becomes disabled while Redo is enabled in active 3D edit mode, focus
+moves to Redo; the reciprocal rule applies for an exhausted Redo. Focus
+remains on the current control when it stays enabled, and inactive/hidden
+controls never receive a forced focus. Both fake/native DOM contracts and
+real Playwright Enter/Click checks require exact activeElement, accepted
+immutable layout history and zero circuit/history/progress mutation.
+
+This *forward-only, uncommitted follow-up* changed just
+`src/lab-editor-ui.js`, `tests/lab-editor-precision-wires-contracts.js` and
+`tests/e2e_browser.py` plus this QA ledger. It has been verified locally:
+
+| Follow-up local verification | Evidence |
+| --- | --- |
+| Bun/JS pure contracts | **919/919 PASS** |
+| Python unit, release gates, dist | **100/100 PASS**, **29/29 PASS**, **137 files** |
+| Installed Chrome full browser E2E | **492/492 PASS**, zero failed, zero unexpected console warnings/errors and GPU diagnostics |
+| Independent read-only P0/P1 re-audit on exact focus patch | **No P0/P1**; branch CI-only conditional GO |
+
+Final focus-recheck Chrome report:
+`screenshots/post-f82e8c3-focus-recovery-final-20261030.json`;
+SHA-256
+`20c6a4095ec11f7e56280aa2db09c2b752c9fd00e244e11ab7158e9468ee534b`.
+The failed Ubuntu run stays part of the evidence trail. A **new follow-up
+commit** must receive new compiler, Ubuntu Chromium and read-only preflight
+GitHub Actions at the exact same full SHA before this stage is called
+CI-accepted. This does not authorize Pages/main/tag/release changes.

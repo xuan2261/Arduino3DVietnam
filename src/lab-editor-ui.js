@@ -147,10 +147,18 @@ export function mountLabEditor({
   const refreshLayoutHistoryControls=()=>{
     const state=layoutHistoryAvailable();
     const active=lessonSupported()&&editing&&stage==="3d"&&!!scene&&!disposed;
+    const focused=document.activeElement;
+    const undoWasFocused=focused===undoLayoutButton;
+    const redoWasFocused=focused===redoLayoutButton;
     undoLayoutButton.disabled=!active||!state.canUndo;
     redoLayoutButton.disabled=!active||!state.canRedo;
     undoLayoutButton.setAttribute("aria-disabled",String(undoLayoutButton.disabled));
     redoLayoutButton.setAttribute("aria-disabled",String(redoLayoutButton.disabled));
+    if(active&&undoWasFocused&&undoLayoutButton.disabled&&!redoLayoutButton.disabled){
+      redoLayoutButton.focus({preventScroll:true});
+    }else if(active&&redoWasFocused&&redoLayoutButton.disabled&&!undoLayoutButton.disabled){
+      undoLayoutButton.focus({preventScroll:true});
+    }
   };
   // Pending two-terminal wiring intent belongs to this controller only.
   // The Three.js overlay mirrors it for feedback; it cannot create a wire.
