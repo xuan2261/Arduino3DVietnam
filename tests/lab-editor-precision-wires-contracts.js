@@ -356,6 +356,10 @@ export function runLabEditorPrecisionWiresContracts() {
       ui.setLesson(2);
       assert(ui.openEditor(), "lesson 2 editor opens");
       assert(scene.labEdit?.enabled === true, "scene edit bridge enabled");
+      assert(typeof ui.preparePracticeRepairPair === "function" &&
+        typeof ui.focusPracticeReviewWire === "function" &&
+        typeof ui.reroutePracticeWire === "function",
+      "frozen controller exposes explicit Practice prepare/review/reroute helpers");
       const list = panel.querySelector("[data-lab-precision-wire-list]");
       assert(list && list.getAttribute("role") === "group", "precision wire list exposes named group");
       const provenance = list.querySelector("[data-lab-wire-provenance]");
@@ -384,6 +388,9 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(rows[0].textContent.includes("w1 · D13 → R1:A · learner graph only") &&
         rows[1].textContent.includes("w2 · R1:B → LED:A · learner graph only"),
       "rows expose exact wire IDs/endpoints and provenance via textContent");
+      assert(rows[0].dataset.labWireFrom === "D13" && rows[0].dataset.labWireTo === "R1:A" &&
+        rows[1].dataset.labWireFrom === "R1:B" && rows[1].dataset.labWireTo === "LED:A",
+      "wire rows capture exact canonical endpoints for stale same-ID focus revalidation");
       for (const button of inspectButtons) {
         assert(button.tagName === "BUTTON" && button.type === "button", "inspect action is native button");
         assert(button.textContent === "Xem dây" && button.style.minHeight === "44px" && button.style.minWidth === "44px",
@@ -422,7 +429,7 @@ export function runLabEditorPrecisionWiresContracts() {
     withFixture({
       circuits,
       onWireInspection: (wireId, meta, inspectedLessonId) => inspections.push({ wireId, meta, inspectedLessonId }),
-    }, ({ ui, scene, panel, changes, document }) => {
+    }, ({ ui, scene, panel, changes, document, message }) => {
       ui.setLesson(2);
       ui.openEditor();
       assert(typeof scene.labEdit?.onCommittedWireInspect === "function",
@@ -455,6 +462,38 @@ export function runLabEditorPrecisionWiresContracts() {
         Object.isFrozen(nativeReport.meta) && nativeReport.meta.source === "native-button" &&
         nativeReport.meta.physicalVerified === false && Reflect.ownKeys(nativeReport.meta).length === 2,
       "native inspect reports strict frozen native-button metadata through same observer callback");
+
+      assert(scene.labEdit.onTerminalSelect("LED:K") === true && ui.snapshot().firstTerminal === "LED:K",
+        "practice review fixture arms a pending terminal before handoff");
+      const reviewCircuit = circuits.get(2);
+      const reviewLayoutDepth = ui.snapshot().layoutUndoDepth;
+      const review = ui.focusPracticeReviewWire("w1", "R1:A", "D13", 2);
+      const focusedInspectW1 = panel.querySelector('[data-lab-inspect-wire-id="w1"]');
+      assert(Object.isFrozen(review) && review.accepted === true && review.reason === "focused-review" &&
+        review.lessonId === 2 && review.wireId === "w1" && review.fromId === "D13" &&
+        review.toId === "R1:A" && review.committed === false && review.physicalVerified === false,
+      "practice review accepts unordered exact canonical endpoints and returns frozen noncommitting receipt");
+      assert(focusedInspectW1 && document.activeElement === focusedInspectW1 &&
+        ui.snapshot().firstTerminal === null && scene.pending === null &&
+        changes.length === 0 && circuits.get(2) === reviewCircuit &&
+        ui.snapshot().layoutUndoDepth === reviewLayoutDepth && inspections.length === 2,
+      "practice review focuses existing exact Inspect, clears stale pending intent, and does not inspect/remove/mutate graph or layout");
+      assert(/không tự gỡ/i.test(message.textContent) && /không.*hoàn thành Practice/i.test(message.textContent),
+        "practice review announcement requires learner action and denies auto-remove/completion");
+
+      const reviewMessage = message.textContent;
+      const reviewFocus = document.activeElement;
+      const reusedIdWrongEndpoints = ui.focusPracticeReviewWire("w1", "R1:B", "LED:A", 2);
+      assert(reusedIdWrongEndpoints.accepted === false &&
+        reusedIdWrongEndpoints.reason === "wire-endpoints-mismatch" &&
+        document.activeElement === reviewFocus && message.textContent === reviewMessage &&
+        changes.length === 0 && circuits.get(2) === reviewCircuit,
+      "same canonical wire ID cannot be reused with another endpoint pair or steal focus");
+      const staleReview = ui.focusPracticeReviewWire("w1", "D13", "R1:A", 3);
+      assert(staleReview.accepted === false && staleReview.reason === "stale-lesson" &&
+        document.activeElement === reviewFocus && message.textContent === reviewMessage &&
+        changes.length === 0 && circuits.get(2) === reviewCircuit,
+      "stale lesson practice review is focus/message/graph side-effect free");
 
       const w1 = [...panel.querySelectorAll("[data-lab-remove-wire-id]")]
         .find(button => button.dataset.labRemoveWireId === "w1");
@@ -570,6 +609,36 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(result.accepted === false && result.reason === "foreign-learner-graph" &&
         scene.highlightCalls === 0 && changes.length === 0,
       "foreign-lesson graph cannot be inspected as current learner wiring");
+    });
+
+    const reusedIdInitial=connectCircuit(createCircuit(2),"D13","R1:A");
+    const reusedIdNext=connectCircuit(createCircuit(2),"R1:B","LED:A");
+    const reusedIdCircuits=new Map([[2,reusedIdInitial]]);
+    withFixture({circuits:reusedIdCircuits},({ui,panel,changes,document,message})=>{
+      ui.setLesson(2);
+      ui.openEditor();
+      const staleRow=panel.querySelector('[data-lab-wire-row="w1"]');
+      assert(staleRow?.dataset.labWireFrom === "D13" && staleRow?.dataset.labWireTo === "R1:A",
+        "same-ID reuse fixture begins with exact old w1 row endpoints");
+      const toggle=document.getElementById("labEditToggle");
+      toggle.focus({preventScroll:true});
+      const beforeMessage=message.textContent;
+      reusedIdCircuits.set(2,reusedIdNext);
+      const staleDom=ui.focusPracticeReviewWire("w1","R1:B","LED:A",2);
+      assert(staleDom.accepted === false && staleDom.reason === "wire-action-unavailable" &&
+        document.activeElement === toggle && message.textContent === beforeMessage &&
+        changes.length === 0 && reusedIdCircuits.get(2) === reusedIdNext,
+      "same canonical wire ID reused for new endpoints cannot focus stale old-endpoint DOM row");
+      ui.update();
+      const currentRow=panel.querySelector('[data-lab-wire-row="w1"]');
+      const currentInspect=panel.querySelector('[data-lab-inspect-wire-id="w1"]');
+      assert(currentRow?.dataset.labWireFrom === "R1:B" && currentRow?.dataset.labWireTo === "LED:A",
+        "explicit update rerenders reused w1 with current canonical endpoints");
+      const current=ui.focusPracticeReviewWire("w1","LED:A","R1:B",2);
+      assert(current.accepted === true && current.reason === "focused-review" &&
+        document.activeElement === currentInspect && changes.length === 0 &&
+        reusedIdCircuits.get(2) === reusedIdNext,
+      "same-ID reused wire becomes focusable only after exact current endpoint row exists");
     });
   });
 
@@ -834,6 +903,159 @@ export function runLabEditorPrecisionWiresContracts() {
       "second distinct tap still commits via existing router path");
     });
 
+    const repairNegativeCircuits=new Map([[2,createCircuit(2)]]);
+    withFixture({circuits:repairNegativeCircuits},({ui,scene,changes,document,message})=>{
+      ui.setLesson(2);
+      const toggle=document.getElementById("labEditToggle");
+      toggle.focus({preventScroll:true});
+      const initialCircuit=repairNegativeCircuits.get(2);
+      const initialMessage=message.textContent;
+      const stale=ui.preparePracticeRepairPair("D13","R1:A",3);
+      assert(Object.isFrozen(stale) && stale.accepted === false && stale.reason === "stale-lesson" &&
+        stale.committed === false && stale.physicalVerified === false &&
+        changes.length === 0 && repairNegativeCircuits.get(2) === initialCircuit &&
+        ui.snapshot().firstTerminal === null && scene.pending === null &&
+        document.activeElement === toggle && message.textContent === initialMessage,
+      "stale Practice repair request is graph/focus/status/pending side-effect free");
+      const disabled=ui.preparePracticeRepairPair("D13","R1:A",2);
+      assert(disabled.accepted === false && disabled.reason === "editor-not-active" &&
+        changes.length === 0 && repairNegativeCircuits.get(2) === initialCircuit &&
+        ui.snapshot().firstTerminal === null && scene.pending === null &&
+        document.activeElement === toggle && message.textContent === initialMessage,
+      "disabled editor rejects Practice repair without stale pointer or mutation");
+
+      assert(ui.openEditor() === true,"repair negative fixture opens current 3D editor");
+      const activeMessage=message.textContent;
+      const activeFocus=document.activeElement;
+      const same=ui.preparePracticeRepairPair("D13","D13",2);
+      const foreign=ui.preparePracticeRepairPair("NOPE","R1:A",2);
+      assert(same.accepted === false && same.reason === "same-terminal" &&
+        foreign.accepted === false && foreign.reason === "invalid-terminal" &&
+        changes.length === 0 && repairNegativeCircuits.get(2) === initialCircuit &&
+        ui.snapshot().firstTerminal === null && scene.pending === null &&
+        document.activeElement === activeFocus && message.textContent === activeMessage,
+      "same/foreign Practice repair endpoints reject before focus, pending, graph or status mutation");
+    });
+
+    const repairCircuits=new Map([[2,createCircuit(2)]]);
+    withFixture({circuits:repairCircuits},({ui,scene,changes,document,message})=>{
+      ui.setLesson(2);
+      ui.openEditor();
+      assert(scene.labEdit.onTerminalSelect("LED:K") === true &&
+        ui.snapshot().firstTerminal === "LED:K" && scene.pending === "LED:K",
+      "accepted Practice repair fixture starts with an unrelated pending terminal");
+      const circuitBefore=repairCircuits.get(2);
+      const historyBefore=ui.snapshot();
+      const prepared=ui.preparePracticeRepairPair("D13","R1:A",2);
+      const connect=document.getElementById("labConnect");
+      assert(Object.isFrozen(prepared) && Reflect.ownKeys(prepared).length === 7 &&
+        prepared.accepted === true && prepared.reason === "prepared" &&
+        prepared.lessonId === 2 && prepared.fromId === "D13" && prepared.toId === "R1:A" &&
+        prepared.committed === false && prepared.physicalVerified === false,
+      "Practice repair returns exact frozen noncommitting prepare receipt");
+      assert(document.getElementById("labFromPin").value === "D13" &&
+        document.getElementById("labToPin").value === "R1:A" &&
+        document.activeElement === connect && connect.disabled !== true &&
+        ui.snapshot().firstTerminal === null && scene.pending === null,
+      "Practice repair fills existing native selects, clears stale pending pointer, and focuses existing Connect");
+      const afterPrepare=ui.snapshot();
+      assert(changes.length === 0 && repairCircuits.get(2) === circuitBefore &&
+        circuitBefore.wires.length === 0 &&
+        afterPrepare.layout === historyBefore.layout &&
+        afterPrepare.layoutUndoDepth === historyBefore.layoutUndoDepth &&
+        afterPrepare.layoutRedoDepth === historyBefore.layoutRedoDepth,
+      "Practice repair preparation creates no learner graph or layout/history mutation");
+      assert(/phải bấm Connect/i.test(message.textContent) &&
+        /chưa có dây.*tạo|chưa có dây nào được tạo/i.test(message.textContent),
+      "Practice repair announcement makes explicit that learner must click Connect and nothing auto-connects");
+    });
+
+    const rerouteBase=connectCircuit(createCircuit(2),"D13","R1:A");
+    const rerouteCircuits=new Map([[2,rerouteBase]]);
+    withFixture({circuits:rerouteCircuits},({ui,scene,changes})=>{
+      ui.setLesson(2);
+      const inactive=ui.reroutePracticeWire("w1","D13","R1:A","D13","R1:B",2);
+      assert(inactive.accepted === false && inactive.committed === false &&
+        inactive.reason === "editor-not-active" && changes.length === 0 &&
+        rerouteCircuits.get(2) === rerouteBase,
+      "inactive editor rejects Practice reroute before any learner graph write");
+      ui.openEditor();
+      const historyBefore=ui.snapshot();
+      const stale=ui.reroutePracticeWire("w1","D13","R1:A","D13","R1:B",3);
+      assert(Object.isFrozen(stale) && stale.accepted === false && stale.committed === false &&
+        stale.reason === "stale-lesson" && changes.length === 0 && rerouteCircuits.get(2) === rerouteBase,
+      "stale Practice reroute rejects atomically before learner graph write");
+      const sameRoute=ui.reroutePracticeWire("w1","R1:A","D13","D13","R1:A",2);
+      assert(sameRoute.accepted === false && sameRoute.committed === false &&
+        sameRoute.reason === "same-route" && changes.length === 0 && rerouteCircuits.get(2) === rerouteBase,
+      "reroute to the replaced original endpoint is an atomic no-op");
+      const invalidAnchor=ui.reroutePracticeWire("w1","D13","R1:A","LED:A","R1:B",2);
+      assert(invalidAnchor.accepted === false && invalidAnchor.committed === false &&
+        invalidAnchor.reason === "invalid-anchor" && changes.length === 0 &&
+        rerouteCircuits.get(2) === rerouteBase,
+      "reroute anchor must be one exact endpoint of the live original wire");
+      assert(scene.labEdit.onTerminalSelect("LED:K") === true &&
+        ui.snapshot().firstTerminal === "LED:K" && scene.pending === "LED:K",
+      "successful reroute fixture arms an unrelated pending terminal");
+      const rerouted=ui.reroutePracticeWire("w1","R1:A","D13","D13","R1:B",2);
+      const after=rerouteCircuits.get(2);
+      assert(Object.isFrozen(rerouted) && Reflect.ownKeys(rerouted).length === 9 &&
+        rerouted.accepted === true && rerouted.committed === true && rerouted.reason === "rerouted" &&
+        rerouted.lessonId === 2 && rerouted.oldWireId === "w1" && rerouted.newWireId === "w2" &&
+        rerouted.anchorTerminalId === "D13" && rerouted.newTargetId === "R1:B" &&
+        rerouted.physicalVerified === false,
+      "successful Practice reroute returns exact frozen old/new router-wire receipt");
+      assert(changes.length === 1 && after !== rerouteBase && after.wires.length === 1 &&
+        after.wires[0].id === "w2" && after.wires[0].from === "D13" && after.wires[0].to === "R1:B" &&
+        !after.wires.some(wire=>wire.id === "w1") &&
+        ui.snapshot().firstTerminal === null && scene.pending === null,
+      "successful Practice reroute performs one canonical onCircuitChange, replaces router ID, and clears stale pending intent");
+      const historyAfter=ui.snapshot();
+      assert(historyAfter.layout === historyBefore.layout &&
+        historyAfter.layoutUndoDepth === historyBefore.layoutUndoDepth &&
+        historyAfter.layoutRedoDepth === historyBefore.layoutRedoDepth,
+      "Practice reroute does not create conceptual layout/history steps");
+    });
+
+    const duplicateBase=connectCircuit(
+      connectCircuit(createCircuit(2),"D13","R1:A"),
+      "D13","R1:B",
+    );
+    const duplicateCircuits=new Map([[2,duplicateBase]]);
+    withFixture({circuits:duplicateCircuits},({ui,changes})=>{
+      ui.setLesson(2);
+      ui.openEditor();
+      const before=ui.snapshot();
+      const duplicate=ui.reroutePracticeWire("w1","D13","R1:A","D13","R1:B",2);
+      const after=ui.snapshot();
+      assert(Object.isFrozen(duplicate) && duplicate.accepted === false && duplicate.committed === false &&
+        duplicate.reason === "router-rejected" && changes.length === 0 &&
+        duplicateCircuits.get(2) === duplicateBase && duplicateBase.wires.length === 2,
+      "duplicate-target Practice reroute fails atomically with original graph object untouched");
+      assert(after.layout === before.layout && after.layoutUndoDepth === before.layoutUndoDepth &&
+        after.layoutRedoDepth === before.layoutRedoDepth,
+      "duplicate reroute rejection leaves conceptual layout/history unchanged");
+    });
+
+    const reusedRerouteInitial=connectCircuit(createCircuit(2),"D13","R1:A");
+    const reusedRerouteCurrent=connectCircuit(createCircuit(2),"R1:B","LED:A");
+    const reusedRerouteCircuits=new Map([[2,reusedRerouteInitial]]);
+    withFixture({circuits:reusedRerouteCircuits},({ui,changes})=>{
+      ui.setLesson(2);
+      ui.openEditor();
+      reusedRerouteCircuits.set(2,reusedRerouteCurrent);
+      const staleEndpoints=ui.reroutePracticeWire("w1","D13","R1:A","D13","GND",2);
+      assert(staleEndpoints.accepted === false && staleEndpoints.committed === false &&
+        staleEndpoints.reason === "wire-endpoints-mismatch" && changes.length === 0 &&
+        reusedRerouteCircuits.get(2) === reusedRerouteCurrent,
+      "reused canonical w1 with different live endpoints rejects stale original endpoint receipt atomically");
+      const current=ui.reroutePracticeWire("w1","LED:A","R1:B","R1:B","GND",2);
+      assert(current.accepted === true && current.committed === true &&
+        current.oldWireId === "w1" && current.newWireId === "w2" &&
+        changes.length === 1 && reusedRerouteCircuits.get(2).wires[0].id === "w2",
+      "reused wire ID can reroute only after exact current unordered endpoints are supplied");
+    });
+
     const authoredCircuits = new Map([[2, createCircuit(2)], [3, createCircuit(3)]]);
     withFixture({ circuits: authoredCircuits }, ({
       ui, scene, changes, message, nativeBrowserDom,
@@ -1039,17 +1261,52 @@ export function runLabEditorPrecisionWiresContracts() {
       "lesson 14 authored-hole route preserves signal-only and manual-step practice boundaries");
     });
 
+    for(const [lessonId,from,to,anchor,newTarget] of [
+      [10,"D9","DRV:ENA","D9","DRV:IN1"],
+      [14,"A0","SOIL:SIG","A0","PUMP:IN"],
+    ]){
+      const initial=connectCircuit(createCircuit(lessonId),from,to);
+      const circuits=new Map([[lessonId,initial]]);
+      withFixture({circuits},({ui,changes})=>{
+        ui.setLesson(lessonId);
+        ui.openEditor();
+        const rerouted=ui.reroutePracticeWire("w1",to,from,anchor,newTarget,lessonId);
+        const analysis=changes.at(-1)?.analysis;
+        const trail=buildPracticeCheckpointTrail({
+          lesson:lessonById(lessonId),currentStepIndex:0,circuit:circuits.get(lessonId),
+        });
+        assert(rerouted.accepted === true && rerouted.committed === true &&
+          rerouted.oldWireId === "w1" && rerouted.newWireId === "w2" &&
+          changes.length === 1 && analysis?.scope === "signal-only" &&
+          analysis.functional === false && analysis.ok === false &&
+          trail.lessonScope === "signal-only" && trail.claims.autoCompletion === false &&
+          trail.claims.mastery === false && trail.claims.physicalVerified === false,
+        "lesson " + lessonId + " Practice reroute preserves signal-only and never upgrades completion/mastery/physics");
+        if(lessonId===10){
+          assert(trail.steps.every(step=>step.kind === "manual" && step.scope === "manual"),
+            "lesson 10 Practice reroute cannot change all-manual authored checkpoint restrictions");
+        }else{
+          assert(trail.steps[0].kind === "wiring" && trail.steps[0].scope === "signal-only" &&
+            trail.steps.slice(1).every(step=>step.kind === "manual" && step.scope === "manual"),
+          "lesson 14 Practice reroute preserves existing signal-only wiring/manual split");
+        }
+      });
+    }
+
     withFixture({circuits:new Map()},({ui,changes})=>{
       ui.setLesson(1);
       const result=ui.connectAuthoredHoleTerminals("D13","GND",authoredHoleMeta(),1);
+      const reroute=ui.reroutePracticeWire("w1","D13","GND","D13","D2",1);
       const trail1=buildPracticeCheckpointTrail({
         lesson:lessonById(1),currentStepIndex:0,circuit:null,
       });
       assert(Object.isFrozen(result) && result.accepted === false && result.committed === false &&
         result.reason === "unsupported-lesson" && changes.length === 0 && ui.openEditor() === false &&
+        Object.isFrozen(reroute) && reroute.accepted === false && reroute.committed === false &&
+        reroute.reason === "unsupported-lesson" &&
         trail1.lessonScope === "manual-only" && trail1.steps.every(step=>step.scope === "manual") &&
         trail1.claims.mutationPerformed === false,
-      "lesson 1 remains unsupported/manual-only and cannot gain a learner graph through hole confirmation");
+      "lesson 1 remains unsupported/manual-only and cannot gain or reroute a learner graph");
     });
 
     const learnerCircuit = connectCircuit(createCircuit(2), "D13", "R1:A");

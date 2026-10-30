@@ -883,6 +883,16 @@ export function runPracticeEvidenceUiContracts() {
       /onInspectChecklistTerminal.*function/i,
       "bad checklist inspector callback",
     );
+    expectThrow(
+      () => renderPracticeEvidence(new FakeDocument(), evidence(), { onStartRepairMissingPair: "bad" }),
+      /onStartRepairMissingPair.*function/i,
+      "bad missing-pair repair callback",
+    );
+    expectThrow(
+      () => renderPracticeEvidence(new FakeDocument(), evidence(), { onStartReviewExtraPair: "bad" }),
+      /onStartReviewExtraPair.*function/i,
+      "bad extra-review callback",
+    );
   });
 
   check("canonical-pure-model-final-output-renders-all-16-lessons", () => {
@@ -1195,6 +1205,357 @@ export function runPracticeEvidenceUiContracts() {
       }
     }
     assert(steps===48 && missingPairs>20,"strict 3D preview covers all 48 authored checkpoints");
+  });
+
+  check("canonical-missing-pairs-expose-native-3d-repair-intents-only-after-click", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    let circuit = createCircuit(2);
+    circuit = connectCircuit(circuit, "D13", "R1:A");
+    const inspection = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const beforeEvidence = JSON.stringify(inspection);
+    const beforeCircuit = JSON.stringify(circuit);
+    const intents = [];
+    const section = render(inspection, {
+      onStartRepairMissingPair: pair => intents.push(pair),
+    });
+    const rows = section.querySelectorAll("[data-practice-checklist-row]");
+    const missingRows = rows.filter(row => row.getAttribute("data-practice-pair-status") === "missing");
+    const buttons = section.querySelectorAll("[data-practice-start-repair-missing-pair]");
+    assert(buttons.length === missingRows.length && buttons.length === 2,
+      "one 3D repair intent must exist per strict canonical missing row");
+    assert(!rows[0].querySelector("[data-practice-start-repair-missing-pair]"),
+      "matched authored row must never receive repair intent");
+    for (const button of buttons) {
+      assert(button.tagName === "BUTTON" && button.type === "button",
+        "repair entrypoint must be native non-submit button");
+      assert(button.disabled === false && button.getAttribute("tabindex") === null && !button.focused,
+        "repair entrypoint must keep native keyboard focus and never steal focus on render");
+      assert(button.className.split(/\s+/).includes("practice-evidence-repair-action") &&
+        button.getAttribute("data-practice-min-target") === "44",
+      "repair entrypoint must bind the 44px repair-action style contract");
+      assert(button.getAttribute("data-practice-intent-only") === "",
+        "repair entrypoint must identify itself as intent-only");
+      const name = button.getAttribute("aria-label") || "";
+      assert(/authored/i.test(name) && /kiểm tra lại bài, bước và learner graph/i.test(name),
+        "repair accessible name must state provenance and host revalidation");
+      assert(/không tự tạo dây/i.test(name) && /không tự động xác nhận checkpoint/i.test(name),
+        "repair accessible name must deny automatic commit/validation");
+    }
+    assert(intents.length === 0, "render must never emit repair intent");
+    buttons[0].click();
+    assert(intents.length === 1 &&
+      JSON.stringify(intents[0]) === JSON.stringify(["R1:B", "LED:A"]) &&
+      Object.isFrozen(intents[0]),
+    "explicit repair click must forward exact frozen canonical pair once");
+    assert(JSON.stringify(inspection) === beforeEvidence && JSON.stringify(circuit) === beforeCircuit,
+      "repair intent must not mutate evidence or canonical circuit");
+  });
+
+  check("canonical-extra-review-pairs-expose-existing-jumper-review-intent-only", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const reference = createSampleCircuit(2);
+    const circuit = connectCircuit(reference, "D13", "GND");
+    const inspection = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: reference,
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const beforeEvidence = JSON.stringify(inspection);
+    const beforeCircuit = JSON.stringify(circuit);
+    const intents = [];
+    const section = render(inspection, {
+      onStartReviewExtraPair: pair => intents.push(pair),
+    });
+    const extraRows = section.querySelectorAll("[data-practice-extra-review-row]");
+    const buttons = section.querySelectorAll("[data-practice-start-review-extra-pair]");
+    assert(extraRows.length === inspection.extraPairs.length && buttons.length === extraRows.length &&
+      buttons.length > 0, "one review intent must exist per strict canonical extra-review row");
+    assert(section.querySelectorAll("[data-practice-start-repair-missing-pair]").length === 0,
+      "extra-only topology must not fabricate missing-pair repair entrypoints");
+    for (const button of buttons) {
+      assert(button.tagName === "BUTTON" && button.type === "button" &&
+        button.getAttribute("tabindex") === null && !button.focused,
+      "extra review entrypoint must be native, focusable, and not auto-focused");
+      assert(button.className.split(/\s+/).includes("practice-evidence-repair-action") &&
+        button.getAttribute("data-practice-min-target") === "44",
+      "extra review entrypoint must bind the 44px repair-action style contract");
+      const name = button.getAttribute("aria-label") || "";
+      assert(/review-extra/i.test(name) && /canonical reference/i.test(name),
+        "extra review accessible name must state review provenance");
+      assert(/host phải kiểm tra lại bài, bước và learner graph/i.test(name) &&
+        /không tự gỡ dây/i.test(name) && /không tự động xác nhận checkpoint/i.test(name),
+      "extra review accessible name must require revalidation and deny automatic removal/validation");
+    }
+    assert(intents.length === 0, "render must never emit extra-review intent");
+    buttons[0].click();
+    assert(intents.length === 1 && Object.isFrozen(intents[0]) &&
+      JSON.stringify(intents[0]) === JSON.stringify(inspection.extraPairs[0]),
+    "explicit review click must forward exact frozen current learner extra pair");
+    assert(JSON.stringify(inspection) === beforeEvidence && JSON.stringify(circuit) === beforeCircuit,
+      "extra-review intent must not mutate evidence or canonical circuit");
+  });
+
+  check("repair-review-hooks-are-optional-visible-disabled-on-valid-rows", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const missingCircuit = createCircuit(2);
+    const missing = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit: missingCircuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, missingCircuit),
+      hasLearnerDraft: true,
+    });
+    const missingButtons = render(missing).querySelectorAll("[data-practice-start-repair-missing-pair]");
+    assert(missingButtons.length === missing.missingPairs.length && missingButtons.every(button =>
+      button.disabled && button.getAttribute("aria-disabled") === "true"),
+    "valid missing entrypoints remain visible but disabled until host provides callback");
+
+    const reference = createSampleCircuit(2);
+    const extraCircuit = connectCircuit(reference, "D13", "GND");
+    const extra = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit: extraCircuit,
+      referenceCircuit: reference,
+      analysis: analyzeCircuit(2, extraCircuit),
+      hasLearnerDraft: true,
+    });
+    const extraButtons = render(extra).querySelectorAll("[data-practice-start-review-extra-pair]");
+    assert(extraButtons.length === extra.extraPairs.length && extraButtons.every(button =>
+      button.disabled && button.getAttribute("aria-disabled") === "true"),
+    "valid extra-review entrypoints remain visible but disabled until host provides callback");
+  });
+
+  check("manual-lesson01-matched-and-forged-evidence-never-gain-repair-review-entrypoints", () => {
+    const lesson2 = lessons.find(item => item.id === 2);
+    const reference2 = createSampleCircuit(2);
+    const complete = inspectPracticeEvidence({
+      lesson: lesson2,
+      stepIndex: 0,
+      circuit: reference2,
+      referenceCircuit: reference2,
+      analysis: analyzeCircuit(2, reference2),
+      hasLearnerDraft: true,
+    });
+    const completeSection = render(complete, {
+      onStartRepairMissingPair: () => {},
+      onStartReviewExtraPair: () => {},
+    });
+    assert(completeSection.querySelectorAll("[data-practice-start-repair-missing-pair]").length === 0 &&
+      completeSection.querySelectorAll("[data-practice-start-review-extra-pair]").length === 0,
+    "matched authored checkpoint must not expose repair/review actions");
+
+    const manualCircuit = createCircuit(2);
+    const manual = inspectPracticeEvidence({
+      lesson: lesson2,
+      stepIndex: 1,
+      circuit: manualCircuit,
+      referenceCircuit: reference2,
+      analysis: analyzeCircuit(2, manualCircuit),
+      hasLearnerDraft: true,
+    });
+    const manualSection = render(manual, {
+      onStartRepairMissingPair: () => {},
+      onStartReviewExtraPair: () => {},
+    });
+    assert(manualSection.querySelectorAll("[data-practice-start-repair-missing-pair]").length === 0 &&
+      manualSection.querySelectorAll("[data-practice-start-review-extra-pair]").length === 0,
+    "manual checkpoint must never expose repair/review actions");
+
+    const lesson1 = lessons.find(item => item.id === 1);
+    const lesson1Evidence = inspectPracticeEvidence({
+      lesson: lesson1,
+      stepIndex: 0,
+      circuit: null,
+      referenceCircuit: null,
+      analysis: null,
+      hasLearnerDraft: false,
+    });
+    const lesson1Section = render(lesson1Evidence, {
+      onStartRepairMissingPair: () => {},
+      onStartReviewExtraPair: () => {},
+    });
+    assert(lesson1Section.querySelectorAll("[data-practice-start-repair-missing-pair]").length === 0 &&
+      lesson1Section.querySelectorAll("[data-practice-start-review-extra-pair]").length === 0,
+    "lesson 1 has no external wiring repair/review entrypoints");
+
+    const missingCircuit = createCircuit(2);
+    const genuineMissing = inspectPracticeEvidence({
+      lesson: lesson2,
+      stepIndex: 0,
+      circuit: missingCircuit,
+      referenceCircuit: reference2,
+      analysis: analyzeCircuit(2, missingCircuit),
+      hasLearnerDraft: true,
+    });
+    const forged = deepFreezeFixture({
+      ...genuineMissing,
+      checkpoint: {
+        ...genuineMissing.checkpoint,
+        requiredPairs: genuineMissing.checkpoint.requiredPairs.map(pair => [...pair]),
+      },
+    });
+    const forgedSection = render(forged, {
+      onStartRepairMissingPair: () => {},
+      onStartReviewExtraPair: () => {},
+    });
+    assert(forgedSection.querySelectorAll("[data-practice-start-repair-missing-pair]").length === 0 &&
+      forgedSection.querySelectorAll("[data-practice-start-review-extra-pair]").length === 0,
+    "deep-frozen cloned checkpoint identity must fail closed");
+  });
+
+  check("lesson10-and-14-signal-boundary-keeps-only-strict-missing-repair-intents", () => {
+    for (const lessonId of [10, 14]) {
+      const lesson = lessons.find(item => item.id === lessonId);
+      const circuit = createCircuit(lessonId);
+      const inspection = inspectPracticeEvidence({
+        lesson,
+        stepIndex: 0,
+        circuit,
+        referenceCircuit: createSampleCircuit(lessonId),
+        analysis: analyzeCircuit(lessonId, circuit),
+        hasLearnerDraft: true,
+      });
+      const section = render(inspection, { onStartRepairMissingPair: () => {} });
+      const missingRows = section.querySelectorAll("[data-practice-checklist-row]")
+        .filter(row => row.getAttribute("data-practice-pair-status") === "missing");
+      const actions = section.querySelectorAll("[data-practice-start-repair-missing-pair]");
+      assert(actions.length === missingRows.length,
+        "lesson " + lessonId + " missing repair count must follow strict authored checklist");
+      assert(section.querySelectorAll("[data-practice-start-review-extra-pair]").length === 0,
+        "lesson " + lessonId + " empty learner graph has no extra-review intent");
+      assert(/tín hiệu\/GND/.test(section.textContent),
+        "lesson " + lessonId + " must retain signal-only hardware boundary");
+      assert(actions.every(button => /không tự động xác nhận checkpoint/i.test(button.getAttribute("aria-label") || "")),
+        "lesson " + lessonId + " repair intents must not upgrade validation claims");
+    }
+  });
+
+  check("repair-intent-model-text-injection-remains-literal-and-cannot-change-pair-binding", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const circuit = createCircuit(2);
+    const genuine = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const payload = '<img src=x onerror="globalThis.practiceRepairPwned=1">';
+    const poisoned = deepFreezeFixture({
+      ...genuine,
+      checkpoint: genuine.checkpoint,
+      wireGuidance: {
+        ...genuine.wireGuidance,
+        pairChecklist: genuine.wireGuidance.pairChecklist.map((row, index) =>
+          index === 0 ? { ...row, explanation: payload } : row),
+      },
+    });
+    const intents = [];
+    const section = render(poisoned, { onStartRepairMissingPair: pair => intents.push(pair) });
+    const actions = section.querySelectorAll("[data-practice-start-repair-missing-pair]");
+    assert(section.textContent.includes(payload) && !section.querySelector("img"),
+      "adversarial checklist explanation must remain literal textContent");
+    assert(actions.length === poisoned.missingPairs.length,
+      "safe text mutation cannot alter canonical pair-action count");
+    actions[0].click();
+    assert(intents.length === 1 && Object.isFrozen(intents[0]) &&
+      JSON.stringify(intents[0]) === JSON.stringify(poisoned.missingPairs[0]),
+    "injected text cannot alter exact frozen canonical pair binding");
+  });
+
+  check("stale-repair-click-can-be-rejected-by-host-revalidation-without-mutation", () => {
+    const lesson = lessons.find(item => item.id === 2);
+    const circuit = createCircuit(2);
+    const inspection = inspectPracticeEvidence({
+      lesson,
+      stepIndex: 0,
+      circuit,
+      referenceCircuit: createSampleCircuit(2),
+      analysis: analyzeCircuit(2, circuit),
+      hasLearnerDraft: true,
+    });
+    const beforeCircuit = JSON.stringify(circuit);
+    const beforeEvidence = JSON.stringify(inspection);
+    const expectedLessonId = inspection.lessonId;
+    const expectedStepIndex = inspection.stepIndex;
+    let currentLessonId = expectedLessonId;
+    let currentStepIndex = expectedStepIndex;
+    const currentGraphPairs = new Set();
+    const accepted = [];
+    const host = pair => {
+      if (currentLessonId !== expectedLessonId || currentStepIndex !== expectedStepIndex) return;
+      const key = [...pair].sort().join("\u0000");
+      if (currentGraphPairs.has(key)) return;
+      accepted.push(pair);
+    };
+    const section = render(inspection, { onStartRepairMissingPair: host });
+    const button = section.querySelector("[data-practice-start-repair-missing-pair]");
+    assert(button, "stale-host fixture requires a canonical repair entrypoint");
+    currentStepIndex += 1;
+    button.click();
+    assert(accepted.length === 0,
+      "host revalidation must be able to reject stale lesson/step before navigation");
+    assert(JSON.stringify(circuit) === beforeCircuit && JSON.stringify(inspection) === beforeEvidence,
+      "stale repair click must leave graph/evidence unchanged");
+    currentLessonId += 1;
+    currentStepIndex = expectedStepIndex;
+    button.click();
+    assert(accepted.length === 0,
+      "host revalidation must also reject stale lesson identity");
+    currentLessonId = expectedLessonId;
+    currentGraphPairs.add(
+      [button.getAttribute("data-practice-repair-from"), button.getAttribute("data-practice-repair-to")]
+        .sort().join("\u0000"),
+    );
+    button.click();
+    assert(accepted.length === 0,
+      "host revalidation must reject stale missing intent after current graph already contains the pair");
+    assert(JSON.stringify(circuit) === beforeCircuit && JSON.stringify(inspection) === beforeEvidence,
+      "stale graph rejection must not mutate source circuit/evidence");
+  });
+
+  check("all-48-authored-checkpoints-expose-repair-only-for-strict-current-missing-rows", () => {
+    let steps = 0;
+    let repairActions = 0;
+    for (const lesson of lessons) {
+      const circuit = lesson.id === 1 ? null : createCircuit(lesson.id);
+      for (let stepIndex = 0; stepIndex < lesson.steps.length; stepIndex += 1) {
+        const inspection = inspectPracticeEvidence({
+          lesson,
+          stepIndex,
+          circuit,
+          referenceCircuit: lesson.id === 1 ? null : createSampleCircuit(lesson.id),
+          analysis: lesson.id === 1 ? null : analyzeCircuit(lesson.id, circuit),
+          hasLearnerDraft: lesson.id !== 1,
+        });
+        const section = render(inspection, { onStartRepairMissingPair: () => {} });
+        const expected = section.querySelectorAll("[data-practice-checklist-row]")
+          .filter(row => row.getAttribute("data-practice-pair-status") === "missing").length;
+        const actions = section.querySelectorAll("[data-practice-start-repair-missing-pair]");
+        assert(actions.length === expected,
+          "repair action count drift " + lesson.id + "/" + stepIndex);
+        assert(section.querySelectorAll("[data-practice-extra-review-row]")
+          .every(row => !row.querySelector("[data-practice-start-repair-missing-pair]")),
+        "extra-review row must never receive missing repair action " + lesson.id + "/" + stepIndex);
+        repairActions += actions.length;
+        steps += 1;
+      }
+    }
+    assert(steps === 48 && repairActions > 20,
+      "all 48 authored checkpoints must preserve strict repair-action coverage");
   });
 
   return Object.freeze({

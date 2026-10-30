@@ -711,7 +711,21 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 280
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 318
+                      and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-source-ghost-is-explicitly-visual-only-and-nonauthoritative" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-mouse-drop-delegates-frozen-proposal-without-auto-confirm" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-supports-touch-and-pen-proposal-only" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-pointercancel-clears-ghost-without-proposal" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-lostcapture-clears-ghost-without-proposal" in
+                          scene_lifecycle_names
+                      and "committed-wire-repair-same-id-wiring-replacement-cancels-stale-drop" in
+                          scene_lifecycle_names
                       and "hole-link-source-ghost-is-explicitly-nonauthoritative" in
                           scene_lifecycle_names
                       and "hole-link-source-same-profile-study-reprojection-does-not-cancel-hole-link-drag" in
@@ -1260,7 +1274,15 @@ def main() -> None:
                       practice_ui_contracts["passed"] == practice_ui_contracts["total"]
                       and practice_ui_contracts["passed"] ==
                           len(practice_ui_contracts["checks"])
-                      and practice_ui_contracts["total"] == 36
+                      and practice_ui_contracts["total"] == 44
+                      and "canonical-missing-pairs-expose-native-3d-repair-intents-only-after-click" in
+                          practice_ui_names
+                      and "canonical-extra-review-pairs-expose-existing-jumper-review-intent-only" in
+                          practice_ui_names
+                      and "manual-lesson01-matched-and-forged-evidence-never-gain-repair-review-entrypoints" in
+                          practice_ui_names
+                      and "stale-repair-click-can-be-rejected-by-host-revalidation-without-mutation" in
+                          practice_ui_names
                       and "authored-missing-pair-3d-preview-only-after-native-click-with-readonly-boundary" in
                           practice_ui_names
                       and "authored-48-steps-3d-preview-available-only-for-strict-real-missing-wiring-pairs" in
@@ -1330,6 +1352,24 @@ def main() -> None:
                           len(observation_ui_contracts["checks"])
                       and observation_ui_contracts["total"] == 12,
                       f"{observation_ui_contracts['passed']}/{observation_ui_contracts['total']} passed")
+                step_attempt_contracts=run_page_contract(
+                    page,"./tests/practice-step-attempt-contracts.js",
+                    "runPracticeStepAttemptContracts")
+                attempt_contract_names=set(step_attempt_contracts.get("checks",[]))
+                check("post-85ff-step-scoped-48-checkpoint-attempt-model-dom-contracts",
+                      step_attempt_contracts["passed"]==
+                        step_attempt_contracts["total"]==15
+                      and step_attempt_contracts.get("failed",0)==0
+                      and len(attempt_contract_names)==15
+                      and {
+                          "all-48-authored-steps-bind-exact-source-with-36-manual-12-wiring",
+                          "events-require-active-exact-step-and-current-source",
+                          "retry-and-cancel-invalidate-stale-callback-tokens",
+                          "lesson10-and-14-remain-signal-only-with-no-functional-upgrade",
+                          "attempt-model-has-no-circuit-graph-mutation-authority",
+                          "native-ui-active-callbacks-pass-exact-token-without-mutating-model",
+                      }.issubset(attempt_contract_names),
+                      f"{step_attempt_contracts['passed']}/15 step-scoped exact-history/DOM checks")
                 sketch_contracts = run_page_contract(
                     page, "./tests/sketch-review-contracts.js",
                     "runSketchReviewContracts")
@@ -5727,6 +5767,347 @@ def main() -> None:
                 finally:
                     hole_link_context.close()
 
+                # Post-85ff136 product growth: a human-authored 48-step TRY→
+                # CHECK loop must attribute in-app interaction ONLY after an
+                # explicit Start and ONLY in the exact active lesson/step.
+                # Old lesson-level observations may coexist but cannot make a
+                # later step's new attempt inherit earlier control activity.
+                attempt_context=browser.new_context(
+                    viewport={"width":1280,"height":820},service_workers="allow")
+                try:
+                    attempt_page=attempt_context.new_page()
+                    capture_console(attempt_page)
+                    attempt_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(attempt_page)
+                    attempt_page.locator('.lesson-link[data-lesson="2"]').click()
+                    attempt_page.locator("#infoTabPractice").click()
+                    attempt_progress=attempt_page.locator("#progressText").inner_text()
+                    attempt=attempt_page.locator(
+                        "#learningCoach [data-practice-step-attempt]")
+                    check("post-85ff-step-attempt-opt-in-48-checkpoint-native-ui-idle",
+                          attempt.get_attribute("data-attempt-checkpoint")=="lesson-02-step-01"
+                          and attempt.get_attribute("data-attempt-state")=="idle"
+                          and not attempt.locator("[data-attempt-start]").is_disabled()
+                          and attempt.locator("[data-attempt-check]").is_disabled()
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt_page.locator(
+                        '#learningCoach [data-practice-trail-navigate-step="1"]').click()
+                    check("post-85ff-step-attempt-manual-step-selection-does-not-auto-start",
+                          attempt.get_attribute("data-attempt-checkpoint")=="lesson-02-step-02"
+                          and attempt.get_attribute("data-attempt-state")=="idle"
+                          and attempt.locator("[data-attempt-observed-events] li").count()==0)
+                    attempt.locator("[data-attempt-start]").focus()
+                    attempt.locator("[data-attempt-start]").press("Enter")
+                    check("post-85ff-step-attempt-keyboard-start-keeps-graph-and-progress",
+                          attempt.get_attribute("data-attempt-state")=="active"
+                          and attempt.get_attribute("data-attempt-step")=="1"
+                          and attempt.locator("[data-attempt-check]").is_enabled()
+                          and attempt_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-attempt-check')") is True
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress
+                          and attempt_page.locator("#sceneMount canvas").get_attribute(
+                              "data-lab-wire-count")=="0")
+                    attempt_page.locator("#control-interval").focus()
+                    attempt_page.locator("#control-interval").press("ArrowRight")
+                    check("post-85ff-step-attempt-captures-real-control-action-after-start",
+                          attempt.get_attribute("data-attempt-state")=="active"
+                          and attempt.get_attribute("data-attempt-step")=="1"
+                          and "change-control" in attempt.locator(
+                              "[data-attempt-observed-events]").inner_text()
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt.locator("[data-attempt-check]").focus()
+                    attempt.locator("[data-attempt-check]").press("Enter")
+                    check("post-85ff-step-attempt-explicit-check-is-informational-not-mastery",
+                          attempt.get_attribute("data-attempt-state")=="checked"
+                          and attempt.locator('[data-attempt-review-status="expected-current-attempt-events-observed"]').count()==1
+                          and "không phải" in attempt.inner_text().lower()
+                          and attempt_page.locator("#completeButton").is_hidden()
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt_page.locator("#control-interval").focus()
+                    attempt_page.locator("#control-interval").press("ArrowRight")
+                    check("post-85ff-step-attempt-repeated-action-invalidates-stale-check-review",
+                          attempt.get_attribute("data-attempt-state")=="active"
+                          and attempt.locator("[data-practice-step-attempt-review]").count()==0
+                          and "2 event" in attempt.locator(
+                              "[data-practice-step-attempt-status]").inner_text()
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt_page.locator(
+                        '#learningCoach [data-practice-trail-navigate-step="2"]').click()
+                    check("post-85ff-step-attempt-switch-step-revokes-old-token-and-overlap",
+                          attempt.get_attribute("data-attempt-checkpoint")=="lesson-02-step-03"
+                          and attempt.get_attribute("data-attempt-state")=="idle"
+                          and attempt.locator("[data-attempt-observed-events] li").count()==0)
+                    attempt.locator("[data-attempt-start]").click()
+                    attempt.locator("[data-attempt-check]").click()
+                    check("post-85ff-step-attempt-second-step-rejects-previous-step-event-proof",
+                          attempt.get_attribute("data-attempt-state")=="checked"
+                          and attempt.locator('[data-attempt-review-status="no-current-attempt-events"]').count()==1
+                          and attempt.locator("[data-attempt-observed-events] li").count()==0
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt_page.locator("#runButton").click()
+                    attempt_page.locator("#control-interval").focus()
+                    attempt_page.locator("#control-interval").press("ArrowLeft")
+                    attempt.locator("[data-attempt-check]").click()
+                    check("post-85ff-step-attempt-fresh-step-observes-both-real-in-app-events-only",
+                          attempt.locator('[data-attempt-review-status="expected-current-attempt-events-observed"]').count()==1
+                          and "start-simulation" in attempt.locator(
+                              "[data-attempt-observed-events]").inner_text()
+                          and "change-control" in attempt.locator(
+                              "[data-attempt-observed-events]").inner_text()
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt.locator("[data-attempt-retry]").focus()
+                    attempt.locator("[data-attempt-retry]").press("Enter")
+                    check("post-85ff-step-attempt-retry-resets-only-step-attempt-evidence",
+                          attempt.get_attribute("data-attempt-state")=="active"
+                          and attempt.locator("[data-attempt-observed-events] li").count()==0
+                          and attempt_page.locator("#progressText").inner_text()==attempt_progress)
+                    attempt.locator("[data-attempt-cancel]").focus()
+                    attempt.locator("[data-attempt-cancel]").press("Enter")
+                    check("post-85ff-step-attempt-cancel-recovers-actionable-keyboard-focus",
+                          attempt.get_attribute("data-attempt-state")=="idle"
+                          and attempt_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-attempt-start')") is True)
+                    attempt_page.set_viewport_size({"width":375,"height":812})
+                    attempt_buttons=attempt.locator(".practice-step-attempt-actions button")
+                    rects=[node.bounding_box() for node in attempt_buttons.all()]
+                    check("post-85ff-step-attempt-mobile-375px-native-controls-44px-no-overflow",
+                          len(rects)==4 and all(r is not None and
+                              r["width"]>=44 and r["height"]>=44 for r in rects)
+                          and attempt_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    attempt_page.set_viewport_size({"width":1280,"height":820})
+                    for signal_lesson in (10,14):
+                        attempt_page.locator(
+                            f'.lesson-link[data-lesson="{signal_lesson}"]').click()
+                        attempt_page.locator("#infoTabPractice").click()
+                        attempt=attempt_page.locator(
+                            "#learningCoach [data-practice-step-attempt]")
+                        attempt.locator("[data-attempt-start]").click()
+                        attempt.locator("[data-attempt-check]").click()
+                        check(f"post-85ff-step-attempt-{signal_lesson}-signal-only-without-autocompletion",
+                              attempt.get_attribute("data-attempt-lesson")==str(signal_lesson)
+                              and "signal-only" in attempt.inner_text().lower()
+                              and attempt_page.locator("#progressText").inner_text()==attempt_progress
+                              and attempt_page.locator("#completeButton").is_hidden())
+                finally:
+                    attempt_context.close()
+
+                # Post-85ff practical repair path: a missing authored pair
+                # enters the current 3D editor with an exact native Connect
+                # proposal but ZERO auto-wires. A current extra-review learner
+                # edge navigates to exact per-ID actions, never auto-removes.
+                # Separately, 3D endpoint drag is visual-only until Confirm
+                # atomically disconnects/reconnects through circuit-router.
+                repair_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    repair_page=repair_context.new_page()
+                    capture_console(repair_page)
+                    repair_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(repair_page)
+                    repair_page.locator('.lesson-link[data-lesson="2"]').click()
+                    repair_page.locator("#infoTabPractice").click()
+                    repair_progress=repair_page.locator("#progressText").inner_text()
+                    repair_canvas=repair_page.locator("#sceneMount canvas")
+                    missing_actions=repair_page.locator(
+                        "#learningCoach [data-practice-start-repair-missing-pair]")
+                    check("post-85ff-practice-missing-authored-pairs-have-real-edit-entry",
+                          missing_actions.count()==3
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and repair_page.locator(
+                              "#learningCoach [data-practice-start-review-extra-pair]").count()==0)
+                    missing_actions.first.focus()
+                    missing_actions.first.press("Enter")
+                    check("post-85ff-practice-missing-pair-opens-native-3d-connect-uncommitted",
+                          repair_page.locator("#labEditor").is_visible()
+                          and repair_page.locator("#labFromPin").input_value()=="D13"
+                          and repair_page.locator("#labToPin").input_value()=="R1:A"
+                          and repair_page.evaluate("document.activeElement?.id")=="labConnect"
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator("#labConnect").press("Enter")
+                    check("post-85ff-practice-missing-pair-commits-only-after-explicit-connect",
+                          repair_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w1"]').count()==1
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator("#labFromPin").select_option("D13")
+                    repair_page.locator("#labToPin").select_option("GND")
+                    repair_page.locator("#labConnect").click()
+                    check("post-85ff-practice-extra-review-is-real-current-learner-wire",
+                          repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w2"]').count()==1
+                          and repair_page.locator(
+                              "#learningCoach [data-practice-start-review-extra-pair]").count()>=1)
+                    repair_page.locator(
+                        "#learningCoach [data-practice-start-review-extra-pair]").first.click()
+                    check("post-85ff-practice-extra-review-focuses-exact-wire-without-removal",
+                          repair_page.evaluate(
+                              "document.activeElement?.dataset.labInspectWireId")=="w2"
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator(
+                        '#labEditor [data-lab-inspect-wire-id="w2"]').click()
+                    check("post-85ff-extra-review-exposes-native-3d-jumper-repair-only-on-selection",
+                          repair_canvas.get_attribute("data-lab-highlighted-wire")=="w2"
+                          and repair_page.locator(
+                              "#sceneInspectionStatus [data-wire-repair-start]").count()==1)
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-start]").click()
+                    check("post-85ff-reroute-native-opt-in-is-preview-not-graph-edge",
+                          repair_canvas.get_attribute("data-lab-committed-wire-repair-mode")==
+                              "endpoint-reroute-preview"
+                          and repair_canvas.get_attribute("data-lab-committed-wire-repair-electrical-authority")=="false"
+                          and repair_page.locator("#sceneWireRepairAnchor").input_value()=="D13"
+                          and repair_page.locator(
+                              "#sceneInspectionStatus [data-wire-repair-confirm]").is_disabled()
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2")
+                    repair_page.locator("#sceneWireRepairTarget").select_option("R1:B")
+                    check("post-85ff-reroute-keyboard-target-selection-needs-distinct-confirm",
+                          not repair_page.locator(
+                              "#sceneInspectionStatus [data-wire-repair-confirm]").is_disabled()
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2")
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-cancel]").focus()
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-cancel]").press("Enter")
+                    check("post-85ff-reroute-cancel-leaves-exact-learner-graph-and-focus",
+                          repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_canvas.get_attribute("data-lab-committed-wire-repair-mode")=="off"
+                          and repair_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-wire-repair-start')") is True)
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-start]").click()
+                    repair_page.locator("#sceneWireRepairTarget").select_option("R1:B")
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-confirm]").focus()
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-confirm]").press("Enter")
+                    check("post-85ff-reroute-explicit-confirm-atomically-replaces-canonical-wire",
+                          repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w2"]').count()==0
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w3"]').count()==1
+                          and repair_canvas.get_attribute("data-lab-committed-wire-repair-mode")=="off"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator("#stageTabWiring").click()
+                    check("post-85ff-reroute-2d-and-explorer-project-same-new-router-edge",
+                          repair_page.locator(".wiring-view .wire-connected").count()==2
+                          and repair_page.locator(
+                              '#labExplorer [data-explorer-wire="w3"]').count()>=1
+                          and repair_page.locator(
+                              '#labExplorer [data-explorer-wire="w2"]').count()==0)
+                    repair_page.locator("#stageTab3d").click()
+                    repair_page.locator("#labUndoWire").click()
+                    check("post-85ff-reroute-one-history-undo-restores-original-exact-wire",
+                          repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w2"]').count()==1
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w3"]').count()==0
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2")
+                    repair_page.locator("#labRedoWire").click()
+                    check("post-85ff-reroute-one-history-redo-restores-new-edge",
+                          repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w2"]').count()==0
+                          and repair_page.locator(
+                              '#labEditor [data-lab-wire-row="w3"]').count()==1
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator(
+                        '#labEditor [data-lab-inspect-wire-id="w3"]').click()
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-start]").click()
+                    # Re-activating the current 3D tab rebuilds wiring lines.
+                    # The host intent and scene gesture MUST remain in sync;
+                    # no stale dock may claim an active repair when the scene
+                    # silently fell back to ordinary committed-wire picking.
+                    repair_page.locator("#stageTab3d").click()
+                    check("post-85ff-reroute-same-stage-3d-rerender-rearms-exact-wire",
+                          repair_canvas.get_attribute(
+                              "data-lab-committed-wire-repair-mode")==
+                              "endpoint-reroute-preview"
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator("#sceneWireRepairTarget").is_visible()
+                          and repair_page.locator(
+                              "#sceneInspectionStatus [data-wire-repair-confirm]").is_disabled()
+                          and repair_page.locator("#progressText").inner_text()==repair_progress)
+                    repair_page.locator(
+                        '#cameraToolbar [data-camera="reset"]').click()
+                    repair_page.wait_for_timeout(60)
+                    # Demand a real 3D picked committed route and terminal
+                    # release; never call private scene callbacks or set state
+                    # through a Playwright evaluate shortcut.
+                    wire_pixels=lab_scene_committed_wire_points(
+                        repair_page,2,"D13","R1:B",wire_index=1)
+                    pointer_reroute=None
+                    for candidate_index in range(len(wire_pixels)):
+                        # A miss is a genuine canvas camera gesture. It
+                        # rotates the view, invalidating all precomputed
+                        # pointer coordinates; reset/reproject EVERY attempt
+                        # instead of accidentally testing stale screen pixels.
+                        repair_page.locator(
+                            '#cameraToolbar [data-camera="reset"]').click()
+                        repair_page.wait_for_timeout(40)
+                        fresh=lab_scene_committed_wire_points(
+                            repair_page,2,"D13","R1:B",wire_index=1)
+                        if candidate_index>=len(fresh):
+                            continue
+                        pixel=fresh[candidate_index]
+                        target_pixel=lab_scene_point(
+                            repair_page,2,terminal_id="GND")
+                        repair_page.mouse.move(pixel["x"],pixel["y"])
+                        repair_page.mouse.down()
+                        repair_page.mouse.move(
+                            target_pixel["x"],target_pixel["y"],steps=8)
+                        repair_page.mouse.up()
+                        if repair_page.locator(
+                                "#sceneWireRepairTarget").input_value()=="GND":
+                            pointer_reroute=pixel
+                            break
+                    check("post-85ff-real-3d-committed-wire-drag-arms-exact-target-only",
+                          pointer_reroute is not None
+                          and repair_canvas.get_attribute("data-lab-wire-count")=="2"
+                          and repair_page.locator(
+                              "#sceneInspectionStatus [data-wire-repair-confirm]").is_enabled()
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"target":lab_scene_point(
+                                          repair_page,2,terminal_id="GND"),
+                                      "picked":pointer_reroute,
+                                      "candidateCount":len(wire_pixels),
+                                      "mode":repair_canvas.get_attribute(
+                                          "data-lab-committed-wire-repair-mode"),
+                                      "preview":repair_canvas.get_attribute(
+                                          "data-lab-committed-wire-repair-preview")},ensure_ascii=False))
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-cancel]").click()
+                    repair_page.set_viewport_size({"width":375,"height":812})
+                    repair_page.locator(
+                        '#labEditor [data-lab-inspect-wire-id="w3"]').click()
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-start]").click()
+                    repair_controls=repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-start], "
+                        "#sceneInspectionStatus [data-wire-repair-confirm], "
+                        "#sceneInspectionStatus [data-wire-repair-cancel], "
+                        "#sceneWireRepairAnchor,#sceneWireRepairTarget")
+                    control_rects=[control.bounding_box()
+                                   for control in repair_controls.all()]
+                    check("post-85ff-reroute-mobile-375px-controls-44px-no-overflow",
+                          len(control_rects)==4
+                          and all(rect is not None and
+                              rect["width"]>=44 and rect["height"]>=44
+                              for rect in control_rects)
+                          and repair_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    repair_page.locator(
+                        "#sceneInspectionStatus [data-wire-repair-cancel]").click()
+                    repair_page.set_viewport_size({"width":1280,"height":820})
+                finally:
+                    repair_context.close()
+
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
                 if not (dist / ".arduino-3d-viet-generated").is_file():
@@ -6169,6 +6550,39 @@ def main() -> None:
                       and len(rich_interaction_offline["docs"])==8
                       and all(x["ok"] and x["size"]>150 for x in rich_interaction_offline["docs"]),
                       json.dumps(rich_interaction_offline,ensure_ascii=False))
+                attempt_repair_offline=app.evaluate("""async()=>{
+                    const baseUrl=document.baseURI;
+                    const [model,ui,css,docs]=await Promise.all([
+                        import(new URL('./src/practice-step-attempt.js',baseUrl).href),
+                        import(new URL('./src/practice-step-attempt-ui.js',baseUrl).href),
+                        fetch(new URL('./styles/practice-step-attempt.css',baseUrl)),
+                        Promise.all([
+                            './docs/PRACTICE_STEP_ATTEMPTS.md',
+                            './docs/PRACTICE_REPAIR_ACTIONS.md',
+                            './docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md',
+                            './docs/THREE_D_COMMITTED_WIRE_REPAIR.md',
+                        ].map(async path=>{
+                            const response=await fetch(new URL(path,baseUrl));
+                            return {path,ok:response.ok,
+                              size:response.ok?(await response.text()).length:0};
+                        })),
+                    ]);
+                    return {
+                        model:typeof model.createPracticeStepAttemptSession==='function'
+                          &&model.PRACTICE_STEP_ATTEMPT_LIMITS.totalCheckpoints===48
+                          &&model.PRACTICE_STEP_ATTEMPT_LIMITS.maxRecords===64,
+                        ui:typeof ui.renderPracticeStepAttempt==='function',
+                        css:css.ok&&(await css.text()).includes('.practice-step-attempt'),
+                        docs,
+                    };
+                }""")
+                check("post-85ff-step-attempt-and-wire-repair-resources-available-offline",
+                      attempt_repair_offline["model"] and attempt_repair_offline["ui"]
+                      and attempt_repair_offline["css"]
+                      and len(attempt_repair_offline["docs"])==4
+                      and all(row["ok"] and row["size"]>150
+                              for row in attempt_repair_offline["docs"]),
+                      json.dumps(attempt_repair_offline,ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

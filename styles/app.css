@@ -172,6 +172,86 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
   min-width: 44px;
   min-height: 44px;
 }
+.scene-inspection-status[data-committed-wire-inspect="view-only"] [data-wire-repair-start],
+.scene-inspection-status[data-committed-wire-inspect="view-only"] [data-wire-repair-confirm],
+.scene-inspection-status[data-committed-wire-inspect="view-only"] [data-wire-repair-cancel] {
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  white-space: normal;
+  text-align: left;
+}
+.scene-inspection-status .scene-wire-repair-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 9px;
+  border: 1px solid #9ebcad;
+  border-radius: 7px;
+  background: #fff;
+  color: #254c42;
+  font: inherit;
+  pointer-events: auto;
+}
+.scene-inspection-status [data-wire-repair-start]:focus-visible,
+.scene-inspection-status [data-wire-repair-confirm]:focus-visible,
+.scene-inspection-status [data-wire-repair-cancel]:focus-visible,
+.scene-inspection-status .scene-wire-repair-select:focus-visible {
+  outline: 3px solid #1c8273;
+  outline-offset: 2px;
+}
+.scene-inspection-status .scene-wire-repair-feedback {
+  border-left: 3px solid #4f9f8a;
+  padding: 7px 8px;
+  background: #f2fbf4;
+  color: #29564c;
+  overflow-wrap: anywhere;
+}
+.scene-inspection-status[data-committed-wire-inspect="view-only"] {
+  max-height: min(370px, 70vh);
+}
+.scene-wire-repair-dock {
+  min-width: 0;
+  padding: 12px 19px 15px;
+  border-top: 1px solid #bad6c7;
+  background: #eef8f2;
+}
+.scene-wire-repair-dock[hidden] { display: none; }
+.scene-wire-repair-dock .scene-inspection-status[data-committed-wire-inspect="view-only"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: end;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  background: #f8fefa;
+  border-color: #c1ddca;
+  border-radius: 9px;
+  padding: 13px;
+  color: #255247;
+  font-size: 11.5px;
+}
+.scene-wire-repair-dock .scene-inspection-status [data-wire-repair-status] {
+  grid-column: 1 / -1;
+}
+.scene-wire-repair-dock .scene-wire-repair-select,
+.scene-wire-repair-dock .scene-inspection-status button { min-width: 0; width: 100%; }
+@media(max-width:580px) {
+  .scene-wire-repair-dock { padding: 11px 12px; }
+  .scene-wire-repair-dock .scene-inspection-status[data-committed-wire-inspect="view-only"] {
+    grid-template-columns: minmax(0,1fr);
+    max-width: 100%;
+    max-height: none;
+    font-size: 11px;
+  }
+  .scene-inspection-status[data-committed-wire-inspect="view-only"] {
+    max-width: min(230px, 58vw);
+    max-height: min(305px, 53vh);
+    font-size: 10px;
+  }
+}
 .view-toolbar { background: #fff; border: 1px solid #d7e3dc; border-radius: 9px; padding: 4px; display: flex; gap: 1px; box-shadow: 0 6px 18px #3269581e; pointer-events: auto; }
 .view-toolbar button { width: 32px; height: 32px; background: transparent; border: 0; border-radius: 5px; font-size: 19px; font-weight: 500; color: #526f69; }
 .view-toolbar button:hover { background: #e7f3ed; color: #146c65; }

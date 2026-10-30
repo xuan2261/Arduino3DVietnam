@@ -32,6 +32,12 @@ import {
   inspectPracticeObservation,
 } from "./practice-observation.js";
 import { renderPracticeObservation } from "./practice-observation-ui.js";
+import {
+  createPracticeStepAttemptSession,startPracticeStepAttempt,
+  recordPracticeStepAttemptEvent,checkPracticeStepAttempt,
+  retryPracticeStepAttempt,cancelPracticeStepAttempt,inspectPracticeStepAttempt,
+} from "./practice-step-attempt.js";
+import { renderPracticeStepAttempt } from "./practice-step-attempt-ui.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -61,20 +67,60 @@ const state = {
   authoredGuide: null,
   // Only the exact currently owned learner edge may be inspected across views.
   selectedCommittedWire: null,
+  // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
+  // separate native Confirm may pass the proposed endpoints to LabEditor.
+  committedWireRepair: null,
   // Learner opt-in for a visual BB hole picker. It is not an electrical
   // connection, and profile holes never derive from arbitrary 3D proximity.
   bb3dHolePickRequested: false,
   breadboardUI: null, resistiveUI: null, avrEvidence: null,
   learningSteps: new Map(), learningHints: new Set(),
   practiceObservations: createPracticeObservationJournal(),
+  // Opt-in attempt evidence belongs to one exact active authored step.
+  // Older lesson-level journal remains separate and never proves this step.
+  practiceStepAttempts: createPracticeStepAttemptSession(),
 };
 
 function currentLesson() { return lessonById(state.lessonId); }
+function cancelCommittedWireRepair(){
+  const hadIntent=state.committedWireRepair!==null;
+  state.committedWireRepair=null;
+  state.scene?.setCommittedWireRepairIntent?.({enabled:false});
+  return hadIntent;
+}
+function currentCommittedWireRepair(){
+  const intent=state.committedWireRepair;
+  if(!intent)return null;
+  const wire=selectedCommittedLearnerWire();
+  const history=learnerHistorySnapshot();
+  if(!intent||!wire||state.stageTab!=="3d"||
+      state.labEditorUI?.isEditingIn3D?.()!==true||
+      state.bb3dHolePickRequested||
+      intent.lessonId!==state.lessonId||intent.wireId!==wire.id||
+      !((intent.from===wire.from&&intent.to===wire.to)||
+        (intent.from===wire.to&&intent.to===wire.from))||
+      ![intent.from,intent.to].includes(intent.anchorTerminalId)||
+      intent.historyRevision!==history?.revision)return null;
+  return intent;
+}
 function refreshSceneInspectionNote(){
   const note=$("sceneInspectionStatus");
   if(!note)return;
+  // Keep real 3D wire hit targets unobstructed while the repair form is open.
+  // Move the SAME status node (including its delegated listeners) beneath the
+  // canvas instead of overlaying the tiny 300–420px high viewport. Other
+  // inspection/guide notes retain their existing compact in-canvas location.
+  const dock=$("sceneWireRepairDock");
+  const viewportNoteHome=$("viewport")?.querySelector(".viewport-top");
+  const dockRepairNote=active=>{
+    if(!dock||!viewportNoteHome)return;
+    const parent=active?dock:viewportNoteHome;
+    if(note.parentElement!==parent)parent.append(note);
+    dock.hidden=!active;
+  };
   const guide=state.stageTab==="3d" ? state.authoredGuide : null;
   if(guide){
+    dockRepairNote(false);
     const [from,to]=guide.pair;
     const dismiss=el("button","button button-soft","Ẩn gợi ý 3D");
     dismiss.type="button";
@@ -87,17 +133,64 @@ function refreshSceneInspectionNote(){
   delete note.dataset.authoredGuide;
   const inspectedWire=state.stageTab==="3d"?selectedCommittedLearnerWire():null;
   if(inspectedWire && state.labEditorUI?.isEditingIn3D?.()){
+    const repair=currentCommittedWireRepair();
+    if(state.committedWireRepair&&!repair)cancelCommittedWireRepair();
+    dockRepairNote(Boolean(repair));
     const dismiss=el("button","button button-soft","Bỏ chọn dây");
     dismiss.type="button";
     dismiss.dataset.committedWireDismiss="";
-    note.replaceChildren(
-      el("span","",`Đang xem dây ${inspectedWire.id}: ${inspectedWire.from} ↔ ${inspectedWire.to}. Đây là cạnh learner graph đã nối, chỉ được làm nổi bật để đối chiếu 3D/2D; chưa xác minh nối dây hoặc điện thực.`),
+    const parts=[
+      el("span","",`Đang xem dây ${inspectedWire.id}: ${inspectedWire.from} ↔ ${inspectedWire.to}. Chỉ là cạnh learner graph; chưa đo điện hoặc xác minh lắp ráp vật lý.`),
       dismiss,
-    );
+    ];
+    if(!repair){
+      const start=el("button","button button-soft","Sửa một đầu dây trong 3D");
+      start.type="button";
+      start.dataset.wireRepairStart="";
+      start.setAttribute("aria-label",`Chuẩn bị sửa dây ${inspectedWire.id}; chỉ xem trước, không tự nối hoặc gỡ`);
+      parts.push(start);
+    }else{
+      const description=el("span","scene-wire-repair-feedback",
+        repair.feedback??(repair.targetTerminalId
+          ? `Xem trước: giữ ${repair.anchorTerminalId}, đổi đầu còn lại sang ${repair.targetTerminalId}. Chưa thay đổi netlist; cần bấm Xác nhận.`
+          : `Đang chọn đích mới cho dây ${repair.wireId}. Kéo dây đến terminal trong 3D hoặc chọn đích bằng bàn phím bên dưới; chưa thay đổi netlist.`));
+      description.dataset.wireRepairStatus="";
+      parts.push(description);
+      const labelAnchor=el("label","","Giữ nguyên đầu chân");
+      labelAnchor.htmlFor="sceneWireRepairAnchor";
+      const anchor=el("select","scene-wire-repair-select");
+      anchor.id="sceneWireRepairAnchor";anchor.dataset.wireRepairAnchor="";
+      for(const id of [repair.from,repair.to]){
+        const option=el("option","",id);option.value=id;anchor.append(option);
+      }
+      anchor.value=repair.anchorTerminalId;
+      const labelTarget=el("label","","Chuyển đầu còn lại tới");
+      labelTarget.htmlFor="sceneWireRepairTarget";
+      const target=el("select","scene-wire-repair-select");
+      target.id="sceneWireRepairTarget";target.dataset.wireRepairTarget="";
+      const blank=el("option","","— Chọn terminal đích —");
+      blank.value="";target.append(blank);
+      for(const terminal of listTerminals(state.lessonId)){
+        if(terminal.id===repair.anchorTerminalId)continue;
+        const option=el("option","",terminal.id);
+        option.value=terminal.id;target.append(option);
+      }
+      target.value=repair.targetTerminalId??"";
+      const confirm=el("button","button button-soft","Xác nhận sửa cạnh learner");
+      confirm.type="button";confirm.dataset.wireRepairConfirm="";
+      confirm.disabled=!repair.targetTerminalId||
+        repair.targetTerminalId===repair.anchorTerminalId||
+        repair.targetTerminalId===(repair.anchorTerminalId===repair.from?repair.to:repair.from);
+      const cancel=el("button","button button-soft","Hủy sửa dây");
+      cancel.type="button";cancel.dataset.wireRepairCancel="";
+      parts.push(labelAnchor,anchor,labelTarget,target,confirm,cancel);
+    }
+    note.replaceChildren(...parts);
     note.dataset.committedWireInspect="view-only";
     note.hidden=false;
     return;
   }
+  dockRepairNote(false);
   delete note.dataset.committedWireInspect;
   const id=state.stageTab==="3d" && !state.labEditorUI?.snapshot?.()?.editing
     ? state.inspectedTerminalId
@@ -116,7 +209,109 @@ function currentPracticeObservation(){
     journal:state.practiceObservations,
   });
 }
+function cancelActivePracticeStepAttempt(){
+  const token=state.practiceStepAttempts?.active?.token??null;
+  if(!token)return false;
+  state.practiceStepAttempts=cancelPracticeStepAttempt(
+    state.practiceStepAttempts,{attemptToken:token}
+  );
+  return true;
+}
+function validPracticeAttemptUiContext(context){
+  if(!context||typeof context!=="object"||Array.isArray(context)||
+      !Object.isFrozen(context)||Object.getPrototypeOf(context)!==Object.prototype||
+      Reflect.ownKeys(context).length!==3)return false;
+  const keys=["lessonId","stepIndex","checkpointId"];
+  if(keys.some(key=>!Object.hasOwn(context,key)||
+      !("value" in Object.getOwnPropertyDescriptor(context,key))))return false;
+  const lessonId=state.lessonId;
+  if(context.lessonId!==lessonId||state.infoTab!=="practice"||
+      context.stepIndex!==(state.learningSteps.get(lessonId)??0))return false;
+  let checkpoint;
+  try{checkpoint=getPracticeCheckpoint(currentLesson(),context.stepIndex);}
+  catch{return false;}
+  return checkpoint.id===context.checkpointId;
+}
+function currentPracticeStepAttempt(){
+  return inspectPracticeStepAttempt(state.practiceStepAttempts,{
+    lesson:currentLesson(),stepIndex:state.learningSteps.get(state.lessonId)??0,
+  });
+}
+function refreshPracticeStepAttemptUi(focusAttr=null){
+  const old=$("infoContent")?.querySelector("[data-practice-step-attempt]");
+  if(!old||state.infoTab!=="practice")return false;
+  const next=renderPracticeStepAttempt(
+    document,currentPracticeStepAttempt(),practiceAttemptCallbacks()
+  );
+  old.replaceWith(next);
+  if(focusAttr){
+    const button=next.querySelector("["+focusAttr+"]");
+    if(button&&!button.disabled)button.focus({preventScroll:true});
+  }
+  return true;
+}
+function practiceAttemptCallbacks(){
+  return {
+    onStart(context){
+      if(!validPracticeAttemptUiContext(context))return false;
+      try{
+        state.practiceStepAttempts=startPracticeStepAttempt(state.practiceStepAttempts,{
+          lesson:currentLesson(),stepIndex:context.stepIndex,
+        });
+        refreshPracticeStepAttemptUi("data-attempt-check");
+        return true;
+      }catch{return false;}
+    },
+    onCheck(token,context){
+      if(!validPracticeAttemptUiContext(context))return false;
+      try{
+        state.practiceStepAttempts=checkPracticeStepAttempt(state.practiceStepAttempts,{
+          lesson:currentLesson(),stepIndex:context.stepIndex,attemptToken:token,
+        });
+        refreshPracticeStepAttemptUi("data-attempt-check");
+        return true;
+      }catch{return false;}
+    },
+    onRetry(token,context){
+      if(!validPracticeAttemptUiContext(context))return false;
+      try{
+        state.practiceStepAttempts=retryPracticeStepAttempt(state.practiceStepAttempts,{
+          lesson:currentLesson(),stepIndex:context.stepIndex,attemptToken:token,
+        });
+        refreshPracticeStepAttemptUi("data-attempt-check");
+        return true;
+      }catch{return false;}
+    },
+    onCancel(token,context){
+      if(!validPracticeAttemptUiContext(context))return false;
+      try{
+        state.practiceStepAttempts=cancelPracticeStepAttempt(
+          state.practiceStepAttempts,{attemptToken:token}
+        );
+        refreshPracticeStepAttemptUi("data-attempt-start");
+        return true;
+      }catch{return false;}
+    },
+  };
+}
 function recordPracticeAction(eventType){
+  // Capture current-step events BEFORE the historical lesson-level dedupe.
+  // Only a manually started, module-branded exact current-step attempt can
+  // receive the event; actions from an earlier step never count for this one.
+  if(state.practiceStepAttempts.active){
+    try{
+      const current=currentPracticeStepAttempt();
+      if(["active","checked"].includes(current.state)){
+        state.practiceStepAttempts=recordPracticeStepAttemptEvent(
+          state.practiceStepAttempts,{
+            lesson:currentLesson(),stepIndex:current.stepIndex,
+            attemptToken:current.attemptToken,eventType,
+          }
+        );
+        refreshPracticeStepAttemptUi();
+      }
+    }catch{/* Never upgrade a stale/rejected event into step evidence. */}
+  }
   // One category occurrence per lesson is sufficient: no timestamps, step
   // attribution, user telemetry or implied mastery. Repeated slider input
   // cannot exhaust the journal's bounded 128-record budget.
@@ -181,13 +376,128 @@ function selectedCommittedLearnerWire(){
     (wire.from===selected.to&&wire.to===selected.from) ? wire:null;
 }
 function clearCommittedWireInspection(){
-  if(!state.selectedCommittedWire)return false;
+  const hadRepair=cancelCommittedWireRepair();
+  if(!state.selectedCommittedWire){
+    if(hadRepair)refreshSceneInspectionNote();
+    return hadRepair;
+  }
   state.selectedCommittedWire=null;
   state.scene?.setHighlightedLabWire?.(null);
   state.wiringUI?.highlightCommittedWire?.(null);
   refreshSceneInspectionNote();
   refreshLabExplorer();
   return true;
+}
+function currentRepairTerminalIds(){
+  return supportedWiringLessons().includes(state.lessonId)
+    ? new Set(listTerminals(state.lessonId).map(terminal=>terminal.id))
+    : new Set();
+}
+function setCommittedRepairTarget(targetId,{source="native"}={}){
+  const repair=currentCommittedWireRepair();
+  if(!repair||typeof targetId!=="string")return false;
+  const ids=currentRepairTerminalIds();
+  const moved=repair.anchorTerminalId===repair.from?repair.to:repair.from;
+  if(targetId!==""&&(!ids.has(targetId)||targetId===repair.anchorTerminalId||
+      targetId===moved))return false;
+  state.committedWireRepair=Object.freeze({
+    ...repair,targetTerminalId:targetId||null,feedback:null,
+  });
+  refreshSceneInspectionNote();
+  if(source==="native")$("sceneWireRepairTarget")?.focus({preventScroll:true});
+  return true;
+}
+function validRepairPointerMeta(meta){
+  if(!meta||typeof meta!=="object"||Array.isArray(meta)||!Object.isFrozen(meta)||
+      Object.getPrototypeOf(meta)!==Object.prototype)return false;
+  const keys=Reflect.ownKeys(meta);
+  if(keys.length!==2||!keys.includes("source")||!keys.includes("physicalVerified"))return false;
+  const source=Object.getOwnPropertyDescriptor(meta,"source");
+  const physical=Object.getOwnPropertyDescriptor(meta,"physicalVerified");
+  return Boolean(source&&physical&&"value" in source&&"value" in physical&&
+    source.value==="pointer-drag"&&physical.value===false);
+}
+function syncSceneCommittedWireRepair(){
+  const scene=state.scene;
+  if(!scene?.setCommittedWireRepairIntent)return false;
+  const repair=currentCommittedWireRepair();
+  if(!repair){
+    if(state.committedWireRepair!==null)state.committedWireRepair=null;
+    scene.setCommittedWireRepairIntent({enabled:false});
+    return false;
+  }
+  const lessonId=repair.lessonId;
+  const result=scene.setCommittedWireRepairIntent({
+    enabled:true,wireId:repair.wireId,from:repair.from,to:repair.to,
+    anchorTerminalId:repair.anchorTerminalId,
+    onRerouteTarget(wireId,from,to,anchorTerminalId,targetTerminalId,meta){
+      const current=currentCommittedWireRepair();
+      if(!current||current.lessonId!==lessonId||
+          current.wireId!==wireId||current.from!==from||current.to!==to||
+          current.anchorTerminalId!==anchorTerminalId||
+          !validRepairPointerMeta(meta))return false;
+      return setCommittedRepairTarget(targetTerminalId,{source:"3d-pointer"});
+    },
+  });
+  // Mode merely being toggled on is not proof that the selected live wire
+  // still passes scene canonical-identity validation.
+  return result?.active===true&&result.mode==="endpoint-reroute-preview"&&
+    result.wireId===repair.wireId&&result.physicalVerified===false&&
+    result.electricalAuthority===false;
+}
+function startCommittedWireRepair(){
+  const wire=selectedCommittedLearnerWire();
+  if(!wire||state.stageTab!=="3d"||!state.scene?.setCommittedWireRepairIntent||
+      state.labEditorUI?.isEditingIn3D?.()!==true)return false;
+  state.bb3dHolePickRequested=false;
+  state.breadboardUI?.cancelHoleLink?.();
+  syncSceneBreadboardHoleStudy();
+  const history=learnerHistorySnapshot();
+  if(!Number.isSafeInteger(history?.revision))return false;
+  state.committedWireRepair=Object.freeze({
+    lessonId:state.lessonId,wireId:wire.id,from:wire.from,to:wire.to,
+    anchorTerminalId:wire.from,targetTerminalId:null,
+    historyRevision:history.revision,feedback:null,
+  });
+  try{
+    if(!syncSceneCommittedWireRepair())throw new Error("scene not ready");
+  }catch{
+    cancelCommittedWireRepair();
+    refreshSceneInspectionNote();
+    return false;
+  }
+  refreshSceneInspectionNote();
+  $("sceneWireRepairTarget")?.focus({preventScroll:true});
+  return true;
+}
+function confirmCommittedWireRepair(){
+  const repair=currentCommittedWireRepair();
+  if(!repair||!repair.targetTerminalId||
+      !currentRepairTerminalIds().has(repair.targetTerminalId)||
+      repair.targetTerminalId===repair.anchorTerminalId||
+      repair.targetTerminalId===(repair.anchorTerminalId===repair.from?repair.to:repair.from)||
+      typeof state.labEditorUI?.reroutePracticeWire!=="function")return false;
+  const result=state.labEditorUI.reroutePracticeWire(
+    repair.wireId,repair.from,repair.to,
+    repair.anchorTerminalId,repair.targetTerminalId,repair.lessonId,
+  );
+  if(result?.accepted===true&&result.committed===true&&
+      result.physicalVerified===false&&result.oldWireId===repair.wireId){
+    cancelCommittedWireRepair();
+    refreshSceneInspectionNote();
+    const target=$("labUndoWire");
+    if(!target.disabled)target.focus({preventScroll:true});
+    else $("stageTab3d").focus({preventScroll:true});
+    return true;
+  }
+  if(currentCommittedWireRepair()){
+    state.committedWireRepair=Object.freeze({
+      ...repair,feedback:"Bộ kiểm tra mạch chưa chấp nhận sửa cạnh; graph không bị thay đổi. Kiểm tra đích, chọn lại hoặc Hủy.",
+    });
+    refreshSceneInspectionNote();
+    $("sceneInspectionStatus")?.querySelector("[data-wire-repair-confirm]")?.focus({preventScroll:true});
+  }
+  return false;
 }
 function syncSceneBreadboardHoleStudy(){
   const toggle=$("bb3dHolePickToggle");
@@ -254,6 +564,7 @@ function acceptCommittedWireInspection(wireId,expectedLessonId=state.lessonId){
   if(!wire)return false;
   const result=state.scene?.setHighlightedLabWire?.(wire.id);
   if(result?.active!==true||result?.wireId!==wire.id||result?.physicalVerified!==false)return false;
+  cancelCommittedWireRepair();
   state.selectedCommittedWire=Object.freeze({lessonId:state.lessonId,id:wire.id,from:wire.from,to:wire.to});
   state.wiringUI?.highlightCommittedWire?.(wire.id);
   refreshSceneInspectionNote();
@@ -324,6 +635,7 @@ function applyCanonicalCircuit(lessonId,model,analysis=analyzeCircuit(lessonId,m
   // A new canonical graph may reuse a wire ID for different endpoints (w1,
   // w2...). Never carry an earlier 3D inspection to a different learner edge.
   // Merely inspecting or refreshing the layout does not call this mutator.
+  cancelCommittedWireRepair();
   state.selectedCommittedWire=null;
   state.scene?.setHighlightedLabWire?.(null);
   state.wiringUI?.highlightCommittedWire?.(null);
@@ -509,6 +821,75 @@ function previewAuthoredMissingPairIn3D(pair, lessonId, stepIndex){
   $("sceneInspectionStatus")?.querySelector("[data-authored-guide-dismiss]")?.focus({preventScroll:true});
   return true;
 }
+function openAuthoredMissingPairForLearnerRepair(pair,lessonId,stepIndex){
+  // A checkpoint CTA is not a wiring command. The rendered row can be stale
+  // after a lesson/step/graph change, so repeat the canonical missing-pair
+  // proof before opening the *existing* Lab Editor's native Connect control.
+  const verified=validatedMissingAuthoredPair(pair,lessonId,stepIndex);
+  if(!verified||!state.scene||!state.labEditorUI?.openEditor ||
+      !state.labEditorUI?.preparePracticeRepairPair)return false;
+  clearAuthoredGuide();
+  clearCommittedWireInspection();
+  state.bb3dHolePickRequested=false;
+  state.breadboardUI?.cancelHoleLink?.();
+  state.stageTab="3d";
+  renderStage();
+  if(state.labEditorUI.openEditor()!==true)return false;
+  const intent=state.labEditorUI.preparePracticeRepairPair(
+    verified[0],verified[1],lessonId
+  );
+  if(intent?.accepted!==true||intent.committed!==false||
+      intent.fromId!==verified[0]||intent.toId!==verified[1]||
+      intent.physicalVerified!==false)return false;
+  recordPracticeAction("view-3d");
+  return true;
+}
+function validatedExtraLearnerPair(pair,lessonId,stepIndex){
+  if(lessonId!==state.lessonId||state.infoTab!=="practice"||
+      !supportedWiringLessons().includes(lessonId)||
+      (state.learningSteps.get(lessonId)??0)!==stepIndex||
+      !Array.isArray(pair)||Object.getPrototypeOf(pair)!==Array.prototype||
+      pair.length!==2||pair.some(id=>typeof id!=="string"||!id||id.trim()!==id)||
+      pair[0]===pair[1])return null;
+  let checkpoint;
+  try{checkpoint=getPracticeCheckpoint(currentLesson(),stepIndex);}catch{return null;}
+  if(checkpoint.kind!=="wiring"||
+      checkpoint.provenance?.scheme!=="human-authored-from-lesson-text")return null;
+  const ids=new Set(listTerminals(lessonId).map(terminal=>terminal.id));
+  if(!ids.has(pair[0])||!ids.has(pair[1]))return null;
+  const samePair=(left,right)=>
+    (left.from===right[0]&&left.to===right[1])||
+    (left.from===right[1]&&left.to===right[0]);
+  const reference=createSampleCircuit(lessonId);
+  if(reference.wires.some(wire=>samePair(wire,pair)))return null;
+  const matches=learnerCircuit(lessonId)?.wires?.filter(wire=>samePair(wire,pair))??[];
+  if(matches.length!==1||typeof matches[0].id!=="string"||
+      !/^w[1-9]\d*$/.test(matches[0].id))return null;
+  const wire=matches[0];
+  return Object.freeze({lessonId,id:wire.id,from:wire.from,to:wire.to});
+}
+function openExtraLearnerPairForReview(pair,lessonId,stepIndex){
+  // "Extra" means outside the lesson's canonical sample, not a physically
+  // dangerous/incorrect connection. Only navigate to exact learner wire;
+  // never delete it or upgrade the checkpoint to teacher-validated success.
+  const wire=validatedExtraLearnerPair(pair,lessonId,stepIndex);
+  if(!wire||!state.scene||!state.labEditorUI?.openEditor||
+      !state.labEditorUI?.focusPracticeReviewWire)return false;
+  clearAuthoredGuide();
+  clearCommittedWireInspection();
+  state.bb3dHolePickRequested=false;
+  state.breadboardUI?.cancelHoleLink?.();
+  state.stageTab="3d";
+  renderStage();
+  if(state.labEditorUI.openEditor()!==true)return false;
+  const receipt=state.labEditorUI.focusPracticeReviewWire(
+    wire.id,wire.from,wire.to,lessonId
+  );
+  if(receipt?.accepted!==true||receipt.committed!==false||
+      receipt.wireId!==wire.id||receipt.physicalVerified!==false)return false;
+  recordPracticeAction("view-3d");
+  return true;
+}
 function explorerConnect(from,to) {
   if(!supportedWiringLessons().includes(state.lessonId))
     throw new RangeError("Bài này không có netlist đấu dây ngoài.");
@@ -556,7 +937,14 @@ function refresh3DWiring() {
   // used by the 2D workbench. Outside edit mode, retain the teaching sample.
   const circuit = (state.labEditorUI?.isEditingIn3D?.()||state.authoredGuide)
     ? learnerCircuit() : displayedCircuit();
-  if (!circuit) { state.scene.setWiring(null); return; }
+  if (!circuit) {
+    state.scene.setWiring(null);
+    if(state.committedWireRepair!==null){
+      cancelCommittedWireRepair();
+      refreshSceneInspectionNote();
+    }
+    return;
+  }
   const analysis = analyzeCircuit(state.lessonId, circuit);
   state.scene.setWiring(circuit, listTerminals(state.lessonId), analysis);
   const selected=selectedCommittedLearnerWire();
@@ -564,6 +952,19 @@ function refresh3DWiring() {
     // The scene can rebuild committed line geometry on layout/stage updates;
     // reapply this visual selection only after the learner projection exists.
     state.scene.setHighlightedLabWire?.(selected.id);
+  }
+  // Rebuilding the rendered wiring layer intentionally clears all scene
+  // pointer/ghost repair state. A same-stage 3D render must not leave an
+  // actionable host repair dock pointing at a scene whose repair mode is off.
+  // Re-arm ONLY the still-current exact wire/history identity; otherwise
+  // revoke the host intent and its controls without touching the graph.
+  if(state.committedWireRepair!==null){
+    let rearmed=false;
+    try{rearmed=syncSceneCommittedWireRepair();}catch{}
+    if(!rearmed){
+      cancelCommittedWireRepair();
+      refreshSceneInspectionNote();
+    }
   }
 }
 function renderElectricalPanel() {
@@ -929,6 +1330,12 @@ function renderInfo() {
           // The callback must revalidate lesson/step/source/missing edge.
           return previewAuthoredMissingPairIn3D(pair,lesson.id,current);
         },
+        onStartRepairMissingPair(pair){
+          return openAuthoredMissingPairForLearnerRepair(pair,lesson.id,current);
+        },
+        onStartReviewExtraPair(pair){
+          return openExtraLearnerPairForReview(pair,lesson.id,current);
+        },
         onRecheck(){
           if(lesson.id!==state.lessonId || state.infoTab!=="practice")return;
           renderInfo();
@@ -940,6 +1347,17 @@ function renderInfo() {
           lesson,stepIndex:current,journal:state.practiceObservations,
         }))
       );
+      // A new, explicitly started TRY→CHECK attempt is independent of the
+      // historical lesson-level observation panel. It attributes only host
+      // events occurring within this exact step after Start, never mastery.
+      if(state.practiceStepAttempts.active &&
+          (state.practiceStepAttempts.active.lessonId!==lesson.id||
+            state.practiceStepAttempts.active.stepIndex!==current)){
+        cancelActivePracticeStepAttempt();
+      }
+      wrapper.append(renderPracticeStepAttempt(
+        document,currentPracticeStepAttempt(),practiceAttemptCallbacks()
+      ));
       const trail=buildPracticeCheckpointTrail({
         lesson,
         currentStepIndex:current,
@@ -952,6 +1370,7 @@ function renderInfo() {
           if(lesson.id!==state.lessonId || state.infoTab!=="practice" ||
              !Number.isInteger(stepIndex) || stepIndex<0 ||
              stepIndex>=microsteps.length)return false;
+          if(stepIndex!==current)cancelActivePracticeStepAttempt();
           state.learningSteps.set(lesson.id,stepIndex);
           renderInfo();
           $("learningCoach")?.querySelector(
@@ -979,6 +1398,7 @@ function renderInfo() {
 }
 function renderStage() {
   if(state.stageTab!=="3d"){
+    cancelCommittedWireRepair();
     state.bb3dHolePickRequested=false;
     state.breadboardUI?.cancelHoleLink?.();
   }
@@ -1297,6 +1717,7 @@ function resetSimulation() {
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
+  cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
   clearAuthoredGuide();
@@ -1442,6 +1863,7 @@ function wireEvents(){
     if($("bb3dHolePickToggle").disabled)return;
     if(!state.bb3dHolePickRequested){
       // Breadboard study picking is separate from wiring gestures/overlays.
+      cancelCommittedWireRepair();
       clearAuthoredGuide();
       clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
@@ -1472,6 +1894,43 @@ function wireEvents(){
       refreshLabExplorer();
       $("stageTab3d").focus({preventScroll:true});
     }
+  });
+  $("sceneInspectionStatus").addEventListener("click",event=>{
+    const button=event.target.closest("button");
+    if(!button)return;
+    if(button.hasAttribute("data-wire-repair-start")){
+      startCommittedWireRepair();
+    }else if(button.hasAttribute("data-wire-repair-confirm")){
+      if(!button.disabled)confirmCommittedWireRepair();
+    }else if(button.hasAttribute("data-wire-repair-cancel")){
+      cancelCommittedWireRepair();
+      refreshSceneInspectionNote();
+      $("sceneInspectionStatus")?.querySelector("[data-wire-repair-start]")?.focus({preventScroll:true});
+    }
+  });
+  $("sceneInspectionStatus").addEventListener("change",event=>{
+    const repair=currentCommittedWireRepair();
+    if(!repair)return;
+    if(event.target.matches("[data-wire-repair-anchor]")){
+      const anchor=event.target.value;
+      if(![repair.from,repair.to].includes(anchor))return;
+      state.committedWireRepair=Object.freeze({
+        ...repair,anchorTerminalId:anchor,targetTerminalId:null,feedback:null,
+      });
+      try{syncSceneCommittedWireRepair();}
+      catch{cancelCommittedWireRepair();}
+      refreshSceneInspectionNote();
+      $("sceneWireRepairAnchor")?.focus({preventScroll:true});
+    }else if(event.target.matches("[data-wire-repair-target]")){
+      setCommittedRepairTarget(event.target.value);
+    }
+  });
+  $("sceneInspectionStatus").addEventListener("keydown",event=>{
+    if(event.key!=="Escape"||!state.committedWireRepair)return;
+    event.preventDefault();
+    cancelCommittedWireRepair();
+    refreshSceneInspectionNote();
+    $("sceneInspectionStatus")?.querySelector("[data-wire-repair-start]")?.focus({preventScroll:true});
   });
   $("lessonSearch").addEventListener("input",renderLessonList);
   $("lessonList").addEventListener("click",event=>{
@@ -1514,7 +1973,9 @@ function wireEvents(){
     }else if(action==="previous" || action==="next"){
       const guide=getLessonGuidance(lesson);
       const offset=action==="next"?1:-1;
-      state.learningSteps.set(lesson.id,Math.max(0,Math.min(guide.microsteps.length-1,current+offset)));
+      const next=Math.max(0,Math.min(guide.microsteps.length-1,current+offset));
+      if(next!==current)cancelActivePracticeStepAttempt();
+      state.learningSteps.set(lesson.id,next);
     }else return;
     renderInfo();
     $("coach"+(action==="next"?"Next":action==="previous"?"Previous":"Hint"))?.focus({preventScroll:true});
@@ -1652,6 +2113,7 @@ async function init(){
     getCircuit: lessonId => learnerCircuit(lessonId),
     onEditModeChange(){
       if(state.authoredGuide)clearAuthoredGuide();
+      if(!state.labEditorUI?.isEditingIn3D?.())cancelCommittedWireRepair();
       if(!state.labEditorUI?.isEditingIn3D?.())clearCommittedWireInspection();
       if(!state.labEditorUI?.isEditingIn3D?.()){
         state.bb3dHolePickRequested=false;
@@ -1667,6 +2129,7 @@ async function init(){
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
+      cancelCommittedWireRepair();
       refreshLabExplorer();
       syncSceneBreadboardHoleStudy();
     },
@@ -1785,6 +2248,7 @@ async function init(){
       // The 3D hole-picker is a transient visual input mode, never a
       // persistent physical placement or connection. Do not replay on restore.
       state.bb3dHolePickRequested=false;
+      cancelCommittedWireRepair();
       state.breadboardUI?.cancelHoleLink?.();
       clearAuthoredGuide();
       clearCommittedWireInspection();

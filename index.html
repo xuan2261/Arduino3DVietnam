@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="styles/lab-editor.css">
   <link rel="stylesheet" href="styles/lab-explorer.css">
   <link rel="stylesheet" href="styles/practice-evidence.css">
+  <link rel="stylesheet" href="styles/practice-step-attempt.css">
   <script type="module" src="src/app.js"></script>
 </head>
 <body>
@@ -53,6 +54,7 @@
             <div class="panel-heading"><div><span class="panel-index">01 / PHÒNG THỰC HÀNH</span><h2>Không gian mô phỏng</h2></div><div class="panel-actions"><span class="live-pill" id="runStatus"><i></i> Đang dừng</span></div></div>
             <div class="stage-tabs" role="tablist" aria-label="Chế độ quan sát"><button id="stageTab3d" data-stage="3d" role="tab" aria-controls="viewport" aria-selected="true" tabindex="0">◈ Mô hình 3D</button><button id="stageTabWiring" data-stage="wiring" role="tab" aria-controls="viewport" aria-selected="false" tabindex="-1">⌁ Sơ đồ kết nối</button><button id="stageTabOverview" data-stage="overview" role="tab" aria-controls="viewport" aria-selected="false" tabindex="-1">▤ Linh kiện</button></div>
             <div class="viewport" id="viewport" role="tabpanel" aria-labelledby="stageTab3d"><div id="sceneMount" class="scene-mount" aria-label="Mô hình Arduino Uno 3D có thể xoay và phóng to"><div class="scene-loading"><div class="loading-orbit" aria-hidden="true"></div><strong>Đang chuẩn bị bo mạch 3D</strong><small>Bạn vẫn có thể đọc nội dung và thực hành bằng các điều khiển bên dưới.</small></div></div><div class="viewport-corner viewport-top"><span class="scene-badge">ARDUINO UNO R3</span><span class="scene-coordinate" id="sceneLabel">MẠCH ĐIỆN · CHẾ ĐỘ HỌC</span><span id="sceneInspectionStatus" class="scene-inspection-status" role="status" aria-live="polite" hidden></span></div><div class="viewport-corner viewport-bottom"><div class="view-toolbar" id="cameraToolbar"><button data-camera="left" aria-label="Xoay mô hình sang trái" title="Xoay trái">↶</button><button data-camera="right" aria-label="Xoay mô hình sang phải" title="Xoay phải">↷</button><span class="view-divider"></span><button data-camera="in" aria-label="Phóng to mô hình" title="Phóng to">+</button><button data-camera="out" aria-label="Thu nhỏ mô hình" title="Thu nhỏ">−</button><button data-camera="reset" aria-label="Khôi phục góc nhìn" title="Đặt lại">⌖</button></div><span class="stage-hint">Kéo để xoay · Cuộn để thu phóng</span></div></div>
+            <div id="sceneWireRepairDock" class="scene-wire-repair-dock" role="group" aria-label="Chỉnh sửa dây đã nối trên mạch học viên" hidden></div>
             <div class="lab-edit-entry" id="labEditEntry" hidden>
               <button id="labEditToggle" type="button" class="button button-soft" aria-expanded="false" aria-controls="labEditor">✣ Bố trí và nối dây 3D</button>
               <button id="bb3dHolePickToggle" type="button" class="button button-soft" aria-pressed="false" aria-controls="bbHoleGrid" aria-describedby="bb3dHolePickStatus" disabled>◎ Chọn lỗ trên 3D</button>

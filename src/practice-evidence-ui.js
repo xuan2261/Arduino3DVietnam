@@ -448,6 +448,66 @@ function appendMissingPairPreview3D(doc,row,onPreviewMissingPairIn3D){
   return button;
 }
 
+function appendStartRepairMissingPair(doc, row, onStartRepairMissingPair) {
+  const button = make(
+    doc,
+    "button",
+    "practice-evidence-button practice-evidence-repair-action practice-evidence-missing-repair-action",
+    "Thực hành sửa cặp này trong 3D",
+  );
+  button.type = "button";
+  button.setAttribute("data-practice-start-repair-missing-pair", "");
+  button.setAttribute("data-practice-repair-from", row.pair[0]);
+  button.setAttribute("data-practice-repair-to", row.pair[1]);
+  button.setAttribute("data-practice-checklist-order", String(row.order));
+  button.setAttribute("data-practice-min-target", "44");
+  button.setAttribute("data-practice-intent-only", "");
+  button.setAttribute(
+    "aria-label",
+    "Thực hành sửa cặp authored " + row.pair[0] + " và " + row.pair[1] +
+      " trong 3D; chỉ gửi ý định sang host để kiểm tra lại bài, bước và learner graph hiện tại; " +
+      "không tự tạo dây và không tự động xác nhận checkpoint",
+  );
+  if (typeof onStartRepairMissingPair !== "function") {
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+  } else {
+    const pair = Object.freeze([row.pair[0], row.pair[1]]);
+    button.addEventListener("click", () => onStartRepairMissingPair(pair));
+  }
+  return button;
+}
+
+function appendStartReviewExtraPair(doc, row, onStartReviewExtraPair) {
+  const button = make(
+    doc,
+    "button",
+    "practice-evidence-button practice-evidence-repair-action practice-evidence-extra-review-action",
+    "Xem dây này trong 3D để cân nhắc sửa/gỡ",
+  );
+  button.type = "button";
+  button.setAttribute("data-practice-start-review-extra-pair", "");
+  button.setAttribute("data-practice-review-from", row.pair[0]);
+  button.setAttribute("data-practice-review-to", row.pair[1]);
+  button.setAttribute("data-practice-checklist-order", String(row.order));
+  button.setAttribute("data-practice-min-target", "44");
+  button.setAttribute("data-practice-intent-only", "");
+  button.setAttribute(
+    "aria-label",
+    "Xem dây learner " + row.pair[0] + " và " + row.pair[1] +
+      " trong 3D để cân nhắc sửa hoặc gỡ; cặp này được checklist đánh dấu review-extra so với canonical reference; " +
+      "host phải kiểm tra lại bài, bước và learner graph hiện tại; không tự gỡ dây và không tự động xác nhận checkpoint",
+  );
+  if (typeof onStartReviewExtraPair !== "function") {
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+  } else {
+    const pair = Object.freeze([row.pair[0], row.pair[1]]);
+    button.addEventListener("click", () => onStartReviewExtraPair(pair));
+  }
+  return button;
+}
+
 function appendWireChecklist(
   doc,
   section,
@@ -456,6 +516,9 @@ function appendWireChecklist(
   onPreviewMissingPairIn2D,
   onPreviewMissingPairIn3D,
   allow3DPreview,
+  onStartRepairMissingPair,
+  onStartReviewExtraPair,
+  allow3DRepairActions,
 ) {
   if (!checklist) return;
   const block = make(doc, "div", "practice-evidence-wire-checklist");
@@ -505,6 +568,9 @@ function appendWireChecklist(
     if(row.status==="missing"){
       item.append(appendMissingPairPreview(doc,row,onPreviewMissingPairIn2D));
       if (allow3DPreview) item.append(appendMissingPairPreview3D(doc,row,onPreviewMissingPairIn3D));
+      if (allow3DRepairActions) {
+        item.append(appendStartRepairMissingPair(doc, row, onStartRepairMissingPair));
+      }
     }
     list.append(item);
   }
@@ -541,6 +607,9 @@ function appendWireChecklist(
         "data-practice-extra-inspect-terminal",
         onInspectChecklistTerminal,
       ));
+      if (allow3DRepairActions) {
+        item.append(appendStartReviewExtraPair(doc, row, onStartReviewExtraPair));
+      }
       extraList.append(item);
     }
     extraBlock.append(extraList);
@@ -590,6 +659,8 @@ export function renderPracticeEvidence(doc, evidence, {
   onInspectChecklistTerminal,
   onPreviewMissingPairIn2D,
   onPreviewMissingPairIn3D,
+  onStartRepairMissingPair,
+  onStartReviewExtraPair,
   onRecheck,
 } = {}) {
   requireDocument(doc);
@@ -600,6 +671,8 @@ export function renderPracticeEvidence(doc, evidence, {
   requireCallback(onInspectChecklistTerminal, "onInspectChecklistTerminal");
   requireCallback(onPreviewMissingPairIn2D, "onPreviewMissingPairIn2D");
   requireCallback(onPreviewMissingPairIn3D, "onPreviewMissingPairIn3D");
+  requireCallback(onStartRepairMissingPair, "onStartRepairMissingPair");
+  requireCallback(onStartReviewExtraPair, "onStartReviewExtraPair");
   requireCallback(onRecheck, "onRecheck");
 
   const lessonId = Number.isInteger(evidence.lessonId) && evidence.lessonId >= 1 && evidence.lessonId <= 16
@@ -739,6 +812,9 @@ export function renderPracticeEvidence(doc, evidence, {
     onInspectChecklistTerminal,
     onPreviewMissingPairIn2D,
     onPreviewMissingPairIn3D,
+    Boolean(wireChecklist3D),
+    onStartRepairMissingPair,
+    onStartReviewExtraPair,
     Boolean(wireChecklist3D),
   );
 

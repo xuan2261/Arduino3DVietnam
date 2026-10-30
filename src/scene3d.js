@@ -22,6 +22,7 @@ const LAB_TERMINAL_HIT_RADIUS = .20;
 const LAB_TOUCH_TAP_THRESHOLD = 12;
 const LAB_COMMITTED_WIRE_ROUTE_POINTS = 8;
 const LAB_COMMITTED_WIRE_PICK_THRESHOLD = Math.min(.20,Math.max(.08,.16));
+const LAB_COMMITTED_WIRE_REPAIR_POINTS = 4;
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -84,6 +85,14 @@ const createSharedMaterials = () => ({
   }),
   highlightedWireLineMat: new T.LineBasicMaterial({
     color: 0xffd36a, transparent: true, opacity: .96,
+    depthWrite: false, depthTest: false,
+  }),
+  committedWireRepairValidMat: new T.LineBasicMaterial({
+    color: 0x74d9c8, transparent: true, opacity: .98,
+    depthWrite: false, depthTest: false,
+  }),
+  committedWireRepairInvalidMat: new T.LineBasicMaterial({
+    color: palette.coral, transparent: true, opacity: .98,
     depthWrite: false, depthTest: false,
   }),
   authoredGuideBackdropMat: new T.LineBasicMaterial({
@@ -1108,6 +1117,11 @@ export function mountScene(host, onSelect = () => {}) {
   let hoveredLabTerminalId=null;
   let pendingWireTerminalId=null,pendingWireHoverTerminalId=null,pendingWirePreviewLine=null;
   let terminalLinkDragSourceId=null,terminalLinkDragTargetId=null;
+  let committedWireRepairIntent={
+    enabled:false,wireId:null,from:null,to:null,anchorTerminalId:null,onRerouteTarget:null
+  };
+  let committedWireRepairLine=null,committedWireRepairTargetId=null,committedWireRepairPreview="none";
+  let committedWireRepairLayoutRef=null,committedWireRepairLessonId=null;
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1310,6 +1324,12 @@ export function mountScene(host, onSelect = () => {}) {
     if(highlightedLabWireId){
       parts.push(`Dây đang được đánh dấu: ${highlightedLabWireId}. Đây chỉ là nhấn mạnh đường dây khái niệm đã có trong graph canonical.`);
     }
+    if(committedWireRepairIntent.enabled){
+      parts.push(
+        `Xem trước đổi đầu dây ${committedWireRepairIntent.wireId} đang bật; giữ terminal ${committedWireRepairIntent.anchorTerminalId}. `+
+        "Kéo trong 3D chỉ đề xuất terminal đích, không tự sửa graph hoặc xác nhận kết nối."
+      );
+    }
     if(authoredPairGuide){
       parts.push(
         `Gợi ý cặp terminal authored: ${authoredPairGuide.from} đến ${authoredPairGuide.to}. `+
@@ -1375,6 +1395,14 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labTerminalDragSource="";
     canvas.dataset.labTerminalDragTarget="";
     canvas.dataset.labTerminalDragPreview="none";
+    canvas.dataset.labCommittedWireRepairMode="off";
+    canvas.dataset.labCommittedWireRepairWire="";
+    canvas.dataset.labCommittedWireRepairAnchor="";
+    canvas.dataset.labCommittedWireRepairMovedEndpoint="";
+    canvas.dataset.labCommittedWireRepairTarget="";
+    canvas.dataset.labCommittedWireRepairPreview="none";
+    canvas.dataset.labCommittedWireRepairElectricalAuthority="false";
+    canvas.dataset.labCommittedWireRepairPhysicalVerified="false";
     canvas.dataset.labAuthoredGuideMode="none";
     canvas.dataset.labAuthoredGuideFrom="";
     canvas.dataset.labAuthoredGuideTo="";
@@ -1438,6 +1466,15 @@ export function mountScene(host, onSelect = () => {}) {
     if(!left||!right||left.id!==right.id)return false;
     return (left.from===right.from&&left.to===right.to)||
       (left.from===right.to&&left.to===right.from);
+  }
+  function sameCommittedWireRepairIdentity(intent,canonical){
+    // The repair intent uses the public field `wireId`, while committed
+    // graph wires use `id`. Comparing these raw records directly falsely
+    // rejects EVERY legitimate repair gesture even when the selected route
+    // and both endpoints are current and canonical.
+    return !!intent&&sameCommittedWireIdentity({
+      id:intent.wireId,from:intent.from,to:intent.to,
+    },canonical);
   }
   function updateLabWireGeometry(){
     if(!labWireObjects.length)return;
@@ -2262,6 +2299,7 @@ export function mountScene(host, onSelect = () => {}) {
     const hadFocus=focusedLabComponentId!==null;
     cancelTerminalLinkPointer(false);
     cancelCommittedWireInspectPointer(false);
+    resetCommittedWireRepairIntent(false);
     resetBreadboardHoleStudy(false);
     clearAuthoredPairGuide(false);
     clearLabWireLayer(!preserveWireHighlight,preserveWireRevision);
@@ -2432,9 +2470,165 @@ export function mountScene(host, onSelect = () => {}) {
       physicalVerified:false,
     });
   }
+  function committedWireRepairMovedEndpoint(intent=committedWireRepairIntent){
+    if(!intent?.enabled)return null;
+    return intent.anchorTerminalId===intent.from?intent.to:
+      intent.anchorTerminalId===intent.to?intent.from:null;
+  }
+  function syncCommittedWireRepairDatasets(){
+    const moved=committedWireRepairMovedEndpoint();
+    canvas.dataset.labCommittedWireRepairMode=committedWireRepairIntent.enabled
+      ? "endpoint-reroute-preview" : "off";
+    canvas.dataset.labCommittedWireRepairWire=committedWireRepairIntent.wireId||"";
+    canvas.dataset.labCommittedWireRepairAnchor=committedWireRepairIntent.anchorTerminalId||"";
+    canvas.dataset.labCommittedWireRepairMovedEndpoint=moved||"";
+    canvas.dataset.labCommittedWireRepairTarget=committedWireRepairTargetId||"";
+    canvas.dataset.labCommittedWireRepairPreview=committedWireRepairPreview;
+    canvas.dataset.labCommittedWireRepairElectricalAuthority="false";
+    canvas.dataset.labCommittedWireRepairPhysicalVerified="false";
+  }
+  function clearCommittedWireRepairTransient(redraw=false){
+    const previousTarget=committedWireRepairTargetId;
+    const changed=previousTarget!==null||committedWireRepairPreview!=="none"||
+      committedWireRepairLine?.visible===true;
+    committedWireRepairTargetId=null;
+    committedWireRepairPreview="none";
+    if(committedWireRepairLine)committedWireRepairLine.visible=false;
+    if(previousTarget!==null&&hoveredLabTerminalId===previousTarget)hoveredLabTerminalId=null;
+    syncCommittedWireRepairDatasets();
+    if(changed)refreshLabInteractionFeedback();
+    if(redraw&&changed)invalidate();
+    return changed;
+  }
+  function disposeCommittedWireRepairLine(){
+    if(!committedWireRepairLine)return false;
+    committedWireRepairLine.parent?.remove(committedWireRepairLine);
+    disposeTree(committedWireRepairLine,sharedMaterialSet);
+    committedWireRepairLine=null;
+    return true;
+  }
+  function committedWireRepairStatus(ok){
+    const current=currentCommittedWireRepairRecord();
+    return Object.freeze({
+      ok:Boolean(ok),
+      enabled:committedWireRepairIntent.enabled===true,
+      active:current!==null,
+      mode:current?"endpoint-reroute-preview":"off",
+      wireId:current?.canonical?.id??null,
+      from:current?.canonical?.from??null,
+      to:current?.canonical?.to??null,
+      anchorTerminalId:current?.anchorTerminalId??null,
+      movedTerminalId:current?.movedTerminalId??null,
+      targetTerminalId:committedWireRepairTargetId,
+      preview:committedWireRepairPreview,
+      physicalVerified:false,
+      electricalAuthority:false,
+    });
+  }
+  function resetCommittedWireRepairIntent(redraw=false){
+    const activePointer=drag?.kind==="committed-wire-repair"?drag:null;
+    if(activePointer){
+      drag=null;
+      moved=false;
+      try{canvas.releasePointerCapture?.(activePointer.pointerId);}catch{}
+    }
+    const changed=committedWireRepairIntent.enabled||committedWireRepairLine!==null||
+      committedWireRepairTargetId!==null||committedWireRepairPreview!=="none";
+    clearCommittedWireRepairTransient(false);
+    disposeCommittedWireRepairLine();
+    committedWireRepairIntent={
+      enabled:false,wireId:null,from:null,to:null,anchorTerminalId:null,onRerouteTarget:null
+    };
+    committedWireRepairLayoutRef=null;
+    committedWireRepairLessonId=null;
+    syncCommittedWireRepairDatasets();
+    if(changed){
+      refreshLabInteractionFeedback();
+      refreshCanvasAccessibility();
+      if(redraw)invalidate();
+    }
+    return committedWireRepairStatus(true);
+  }
+  function normalizeCommittedWireRepairTerminalId(value,label){
+    if(typeof value!=="string"||!value||value.trim()!==value){
+      throw new TypeError(label+" phải là terminal ID canonical exact không rỗng");
+    }
+    if(value.length>80||["__proto__","prototype","constructor"].includes(value)){
+      throw new RangeError(label+" không hợp lệ");
+    }
+    return value;
+  }
+  function setCommittedWireRepairIntent(options={enabled:false}){
+    if(disposed)return committedWireRepairStatus(false);
+    if(!options||typeof options!=="object"||Array.isArray(options)){
+      throw new TypeError("Committed wire repair options phải là object");
+    }
+    if(options.enabled!==true)return resetCommittedWireRepairIntent(true);
+    const requiredKeys=["enabled","wireId","from","to","anchorTerminalId","onRerouteTarget"];
+    const ownKeys=Reflect.ownKeys(options);
+    if(ownKeys.length!==requiredKeys.length||ownKeys.some(key=>typeof key!=="string")||
+      requiredKeys.some(key=>!Object.prototype.hasOwnProperty.call(options,key))){
+      throw new TypeError("Committed wire repair enabled cần đúng 6 own fields");
+    }
+    if(!inspectableCommittedWireId(options.wireId)){
+      throw new RangeError("wireId committed wire repair không hợp lệ");
+    }
+    const from=normalizeCommittedWireRepairTerminalId(options.from,"from");
+    const to=normalizeCommittedWireRepairTerminalId(options.to,"to");
+    const anchorTerminalId=normalizeCommittedWireRepairTerminalId(options.anchorTerminalId,"anchorTerminalId");
+    if(from===to)throw new RangeError("Committed wire repair cần hai endpoint cũ khác nhau");
+    if(anchorTerminalId!==from&&anchorTerminalId!==to){
+      throw new RangeError("anchorTerminalId phải là một endpoint cũ của committed wire");
+    }
+    if(typeof options.onRerouteTarget!=="function"){
+      throw new TypeError("onRerouteTarget phải là function");
+    }
+    if(!labEdit.enabled||!activeLabLayout||!lastWiringModel||contextLost||
+      !Number.isFinite(currentLessonId)||activeLabLayout.lessonId!==currentLessonId){
+      throw new RangeError("Committed wire repair chỉ khả dụng trong lab edit/layout/lesson hiện tại");
+    }
+    const canonical=lastWiringModel.wires.find(wire=>wire.id===options.wireId)||null;
+    if(!canonical||!sameCommittedWireIdentity({id:options.wireId,from,to},canonical)){
+      throw new RangeError("Committed wire repair không khớp wire ID và unordered endpoint pair canonical hiện tại");
+    }
+    for(const terminalId of [canonical.from,canonical.to]){
+      if(!isActiveTerminalDragId(terminalId,activeLabLayout)){
+        throw new RangeError("Committed wire repair có endpoint ngoài lab layout hiện tại: "+terminalId);
+      }
+    }
+    const rendered=labWireObjects.find(item=>
+      item.wireId===canonical.id&&sameRenderedCommittedWireIdentity(item,canonical)
+    )||null;
+    if(!rendered)throw new RangeError("Committed wire repair không có rendered committed route hiện tại");
+    const sameSemantic=committedWireRepairIntent.enabled===true&&
+      committedWireRepairLayoutRef===activeLabLayout&&
+      committedWireRepairLessonId===currentLessonId&&
+      committedWireRepairIntent.anchorTerminalId===anchorTerminalId&&
+      sameCommittedWireRepairIdentity(committedWireRepairIntent,canonical);
+    if(!sameSemantic){
+      const activePointer=drag?.kind==="committed-wire-repair"?drag:null;
+      if(activePointer){
+        drag=null;moved=false;
+        try{canvas.releasePointerCapture?.(activePointer.pointerId);}catch{}
+      }
+      clearCommittedWireRepairTransient(false);
+      disposeCommittedWireRepairLine();
+    }
+    committedWireRepairIntent={
+      enabled:true,wireId:canonical.id,from:canonical.from,to:canonical.to,
+      anchorTerminalId,onRerouteTarget:options.onRerouteTarget
+    };
+    committedWireRepairLayoutRef=activeLabLayout;
+    committedWireRepairLessonId=currentLessonId;
+    syncCommittedWireRepairDatasets();
+    refreshCanvasAccessibility();
+    invalidate();
+    return committedWireRepairStatus(true);
+  }
   function setHighlightedLabWire(wireId){
     if(disposed)return Object.freeze({wireId:null,active:false,mode:"none",physicalVerified:false});
     if(wireId===null){
+      if(committedWireRepairIntent.enabled)resetCommittedWireRepairIntent(false);
       highlightedLabWireId=null;
       refreshLabWireHighlight();
       refreshCanvasAccessibility();
@@ -2455,6 +2649,9 @@ export function mountScene(host, onSelect = () => {}) {
     }
     if(!labWireObjects.some(item=>item.wireId===wireId)){
       throw new RangeError("Wire highlight không có committed route trong lab layout hiện tại: "+wireId);
+    }
+    if(committedWireRepairIntent.enabled&&committedWireRepairIntent.wireId!==wireId){
+      resetCommittedWireRepairIntent(false);
     }
     highlightedLabWireId=wireId;
     refreshLabWireHighlight();
@@ -2748,6 +2945,7 @@ export function mountScene(host, onSelect = () => {}) {
       clearPendingWireState(false);
       cancelTerminalLinkPointer(false);
       cancelCommittedWireInspectPointer(false);
+      resetCommittedWireRepairIntent(false);
       cancelBreadboardHoleStudyPointer(false);
       if(nextEditEnabled)clearAuthoredPairGuide(false);
     }
@@ -2863,6 +3061,139 @@ export function mountScene(host, onSelect = () => {}) {
       if(canonical)return {rendered,canonical,hit};
     }
     return null;
+  }
+  function currentCommittedWireRepairRecord(layoutRef=activeLabLayout){
+    if(!committedWireRepairIntent.enabled||!labEdit.enabled||contextLost||disposed||
+      !layoutRef||layoutRef!==activeLabLayout||layoutRef!==committedWireRepairLayoutRef||
+      !Number.isFinite(currentLessonId)||currentLessonId!==committedWireRepairLessonId||
+      layoutRef.lessonId!==currentLessonId||typeof committedWireRepairIntent.onRerouteTarget!=="function"){
+      return null;
+    }
+    const canonical=lastWiringModel?.wires?.find(
+      wire=>wire.id===committedWireRepairIntent.wireId
+    )||null;
+    if(!canonical||!sameCommittedWireRepairIdentity(committedWireRepairIntent,canonical))return null;
+    const anchorTerminalId=committedWireRepairIntent.anchorTerminalId;
+    if(anchorTerminalId!==canonical.from&&anchorTerminalId!==canonical.to)return null;
+    const movedTerminalId=anchorTerminalId===canonical.from?canonical.to:canonical.from;
+    if(!isActiveTerminalDragId(anchorTerminalId,layoutRef)||
+      !isActiveTerminalDragId(movedTerminalId,layoutRef))return null;
+    const rendered=labWireObjects.find(item=>
+      item.wireId===canonical.id&&sameRenderedCommittedWireIdentity(item,canonical)
+    )||null;
+    if(!rendered?.line?.isLine)return null;
+    return {canonical,rendered,anchorTerminalId,movedTerminalId};
+  }
+  function committedWireRepairHit(event,layoutRef=activeLabLayout){
+    const current=currentCommittedWireRepairRecord(layoutRef);
+    if(!current||!pointerRay(event))return null;
+    committedWireRaycaster.setFromCamera(pointerNdc,camera);
+    scene.updateMatrixWorld(true);
+    const hit=committedWireRaycaster.intersectObject(current.rendered.line,false)[0]||null;
+    return hit?{...current,hit}:null;
+  }
+  function committedWireRepairPointerActive(pointerState){
+    if(!pointerState||pointerState.kind!=="committed-wire-repair"||
+      pointerState.layoutRef!==activeLabLayout||pointerState.layoutRef!==committedWireRepairLayoutRef||
+      pointerState.lessonId!==Number(currentLessonId)||
+      pointerState.anchorTerminalId!==committedWireRepairIntent.anchorTerminalId||
+      pointerState.movedTerminalId!==committedWireRepairMovedEndpoint())return false;
+    const current=currentCommittedWireRepairRecord(pointerState.layoutRef);
+    return current!==null&&sameCommittedWireIdentity(pointerState.wireIdentity,current.canonical)&&
+      current.anchorTerminalId===pointerState.anchorTerminalId&&
+      current.movedTerminalId===pointerState.movedTerminalId;
+  }
+  function committedWireRepairTerminalTarget(event,pointerState){
+    if(!committedWireRepairPointerActive(pointerState))return {terminalId:null,valid:false,marker:null};
+    const hit=labHit(event);
+    const terminalId=hit?.object?.userData?.kind==="lab-terminal"
+      ? hit.object.userData.terminalId : null;
+    if(!terminalId)return {terminalId:null,valid:false,marker:null};
+    const marker=labTerminals.get(terminalId)?.marker||null;
+    const valid=terminalId!==pointerState.anchorTerminalId&&
+      terminalId!==pointerState.movedTerminalId&&
+      isActiveTerminalDragId(terminalId,pointerState.layoutRef);
+    return {terminalId,valid,marker};
+  }
+  function committedWireRepairDropTarget(event,pointerState){
+    const target=committedWireRepairTerminalTarget(event,pointerState);
+    return target.valid?target.terminalId:null;
+  }
+  function ensureCommittedWireRepairLine(){
+    if(committedWireRepairLine||!activeLabLayer)return committedWireRepairLine;
+    const geometry=new T.BufferGeometry();
+    geometry.setAttribute("position",new T.Float32BufferAttribute(LAB_COMMITTED_WIRE_REPAIR_POINTS*3,3));
+    committedWireRepairLine=new T.Line(geometry,sharedMaterials.committedWireRepairInvalidMat);
+    committedWireRepairLine.visible=false;
+    committedWireRepairLine.renderOrder=9;
+    committedWireRepairLine.userData={
+      kind:"lab-committed-wire-repair-ghost",visualOnly:true,committed:false,
+      electricalAuthority:false,physicalLocation:false,physicalVerified:false,
+      routeModel:"bounded-endpoint-reroute-preview",routePointCount:LAB_COMMITTED_WIRE_REPAIR_POINTS,
+    };
+    activeLabLayer.add(committedWireRepairLine);
+    return committedWireRepairLine;
+  }
+  function boundedCommittedWireRepairPoint(event,layoutRef){
+    const point=labGroundPoint(event);
+    if(!point||!layoutRef)return null;
+    point.x=Math.max(layoutRef.bounds.minX*LAB_WORLD_SCALE,
+      Math.min(layoutRef.bounds.maxX*LAB_WORLD_SCALE,point.x));
+    point.z=Math.max(layoutRef.bounds.minZ*LAB_WORLD_SCALE,
+      Math.min(layoutRef.bounds.maxZ*LAB_WORLD_SCALE,point.z));
+    point.y=.12;
+    return point;
+  }
+  function updateCommittedWireRepairDrag(event){
+    if(!drag||drag.kind!=="committed-wire-repair"||!moved||
+      !committedWireRepairPointerActive(drag)){
+      clearCommittedWireRepairTransient(true);
+      return false;
+    }
+    const current=currentCommittedWireRepairRecord(drag.layoutRef);
+    const anchorMarker=labTerminals.get(drag.anchorTerminalId)?.marker||null;
+    if(!current||!anchorMarker){
+      clearCommittedWireRepairTransient(true);
+      return false;
+    }
+    const target=committedWireRepairTerminalTarget(event,drag);
+    scene.updateMatrixWorld(true);
+    const start=new T.Vector3(),end=new T.Vector3();
+    anchorMarker.getWorldPosition(start);
+    if(target.marker)target.marker.getWorldPosition(end);
+    else{
+      const bounded=boundedCommittedWireRepairPoint(event,drag.layoutRef);
+      if(!bounded){
+        clearCommittedWireRepairTransient(true);
+        return false;
+      }
+      end.copy(bounded);
+    }
+    const line=ensureCommittedWireRepairLine();
+    if(!line)return false;
+    const laneY=Math.max(start.y,end.y)+.24;
+    const position=line.geometry.getAttribute("position");
+    position.setXYZ(0,start.x,start.y,start.z);
+    position.setXYZ(1,start.x,laneY,start.z);
+    position.setXYZ(2,end.x,laneY,end.z);
+    position.setXYZ(3,end.x,end.y,end.z);
+    position.needsUpdate=true;
+    line.geometry.computeBoundingSphere();
+    line.material=target.valid
+      ? sharedMaterials.committedWireRepairValidMat
+      : sharedMaterials.committedWireRepairInvalidMat;
+    line.visible=true;
+    const previousTarget=committedWireRepairTargetId;
+    if(previousTarget!==null&&previousTarget!==target.terminalId&&hoveredLabTerminalId===previousTarget){
+      hoveredLabTerminalId=null;
+    }
+    committedWireRepairTargetId=target.terminalId;
+    committedWireRepairPreview=target.valid?"valid":"invalid";
+    if(target.terminalId)hoveredLabTerminalId=target.terminalId;
+    syncCommittedWireRepairDatasets();
+    refreshLabInteractionFeedback();
+    invalidate();
+    return true;
   }
   function cancelCommittedWireInspectPointer(redraw=false){
     if(drag?.kind!=="committed-wire")return;
@@ -3143,6 +3474,7 @@ export function mountScene(host, onSelect = () => {}) {
     }
   }
   function clearWiringLayer(redraw=true,clearHighlight=true) {
+    resetCommittedWireRepairIntent(false);
     if(activeWiringLayer){scene.remove(activeWiringLayer);disposeTree(activeWiringLayer);activeWiringLayer=null;}
     lastWiringModel=null;
     clearLabWireLayer(clearHighlight);
@@ -3167,6 +3499,23 @@ export function mountScene(host, onSelect = () => {}) {
         drag=pointerDragBase(event,{
           kind:"terminal",terminalId,componentId,previousSelectionId,layoutRef:activeLabLayout,
           dragStartEmitted:false
+        });
+        try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+        return;
+      }
+      const repairHit=committedWireRepairHit(event,activeLabLayout);
+      if(repairHit){
+        drag=pointerDragBase(event,{
+          kind:"committed-wire-repair",
+          layoutRef:activeLabLayout,
+          lessonId:Number(currentLessonId),
+          wireIdentity:Object.freeze({
+            id:repairHit.canonical.id,
+            from:repairHit.canonical.from,
+            to:repairHit.canonical.to,
+          }),
+          anchorTerminalId:repairHit.anchorTerminalId,
+          movedTerminalId:repairHit.movedTerminalId,
         });
         try{canvas.setPointerCapture?.(event.pointerId);}catch{}
         return;
@@ -3284,6 +3633,9 @@ export function mountScene(host, onSelect = () => {}) {
           setLabVisualTransform(entry,target.x,target.z,entry.quarterTurns);
         }
       }
+    }else if(drag.kind==="committed-wire-repair"&&moved){
+      event.preventDefault();
+      updateCommittedWireRepairDrag(event);
     }else if(drag.kind==="terminal"&&moved){
       event.preventDefault();
       if(crossedTapThreshold)emitTerminalDragStart(drag);
@@ -3341,12 +3693,16 @@ export function mountScene(host, onSelect = () => {}) {
     const directHoleLinkTarget=drag.kind==="breadboard-hole-link"&&select&&moved
       ? breadboardHoleLinkDropTarget(event,drag)
       : null;
+    const directCommittedWireRepairTarget=drag.kind==="committed-wire-repair"&&select&&moved
+      ? committedWireRepairDropTarget(event,drag)
+      : null;
     clearPendingWireHover(false);
     const finished=drag;
     drag=null;
     try{canvas.releasePointerCapture?.(event.pointerId);}catch{}
     clearTerminalLinkDragState(false);
     clearBreadboardHoleLinkHover(false);
+    clearCommittedWireRepairTransient(false);
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -3391,6 +3747,31 @@ export function mountScene(host, onSelect = () => {}) {
           labEdit.onCommittedWireInspect?.(
             releaseHit.canonical.id,
             Object.freeze({source:"pointer",physicalVerified:false})
+          );
+        }
+      }
+      return;
+    }
+    if(finished.kind==="committed-wire-repair"){
+      if(select&&!moved){
+        const releaseHit=committedWireHit(event,finished.layoutRef);
+        if(releaseHit&&sameCommittedWireIdentity(finished.wireIdentity,releaseHit.canonical)){
+          setHighlightedLabWire(releaseHit.canonical.id);
+          labEdit.onCommittedWireInspect?.(
+            releaseHit.canonical.id,
+            Object.freeze({source:"pointer",physicalVerified:false})
+          );
+        }
+      }else if(select&&moved&&directCommittedWireRepairTarget&&
+        committedWireRepairPointerActive(finished)){
+        const current=currentCommittedWireRepairRecord(finished.layoutRef);
+        const callback=committedWireRepairIntent.onRerouteTarget;
+        if(current&&typeof callback==="function"&&
+          sameCommittedWireIdentity(finished.wireIdentity,current.canonical)){
+          callback(
+            current.canonical.id,current.canonical.from,current.canonical.to,
+            current.anchorTerminalId,directCommittedWireRepairTarget,
+            Object.freeze({source:"pointer-drag",physicalVerified:false})
           );
         }
       }
@@ -3499,6 +3880,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.setAttribute("aria-busy","true");
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
+    resetCommittedWireRepairIntent(false);
     resetBreadboardHoleStudy(false);
     clearTerminalLinkDragState(false);
     clearLabTerminalHover(false);
@@ -3645,12 +4027,13 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
     if(raf){cancelAnimationFrame(raf);raf=0;}
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
+    resetCommittedWireRepairIntent(false);
     observer.disconnect();
     document.removeEventListener("visibilitychange",onVisibility);
     window.removeEventListener("resize",resize);

@@ -9,6 +9,246 @@ const waitEvent = (target, type, timeoutMs = 1200) => new Promise((resolve, reje
   }, { once: true });
 });
 
+export function runScene3DCommittedWireRepairSourceContracts(sceneSource) {
+  if (typeof sceneSource !== "string" || !sceneSource) {
+    throw new TypeError("scene3d source text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d committed-wire repair source contract: " + name);
+    checks.push(name);
+  };
+  const apiStart = sceneSource.indexOf("function committedWireRepairMovedEndpoint");
+  const apiEnd = sceneSource.indexOf("function setHighlightedLabWire", apiStart);
+  const apiSource = apiStart >= 0 && apiEnd > apiStart ? sceneSource.slice(apiStart, apiEnd) : "";
+  const hitStart = sceneSource.indexOf("function currentCommittedWireRepairRecord");
+  const hitEnd = sceneSource.indexOf("function cancelCommittedWireInspectPointer", hitStart);
+  const hitSource = hitStart >= 0 && hitEnd > hitStart ? sceneSource.slice(hitStart, hitEnd) : "";
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=");
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextHandlersEnd = sceneSource.indexOf('canvas.addEventListener("pointerdown"', contextRestoredStart);
+  const contextRestoredSource = sceneSource.slice(contextRestoredStart, contextHandlersEnd);
+
+  check("public-api-exact-shape-and-off-early",
+    /function setCommittedWireRepairIntent\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetCommittedWireRepairIntent\(true\)/.test(apiSource) &&
+    /setCommittedWireRepairIntent/.test(sceneSource.slice(sceneSource.indexOf("return {setLesson"))));
+  check("enabled-path-requires-exact-six-own-fields-and-function-callback",
+    /requiredKeys=\["enabled","wireId","from","to","anchorTerminalId","onRerouteTarget"\]/.test(apiSource) &&
+    /Reflect\.ownKeys\(options\)/.test(apiSource) &&
+    /ownKeys\.length!==requiredKeys\.length/.test(apiSource) &&
+    /hasOwnProperty\.call\(options,key\)/.test(apiSource) &&
+    /typeof options\.onRerouteTarget!=="function"/.test(apiSource));
+  check("enabled-path-revalidates-current-canonical-wire-layout-lesson-and-anchor",
+    /sameCommittedWireIdentity\(\{id:options\.wireId,from,to\},canonical\)/.test(apiSource) &&
+    /!labEdit\.enabled\|\|!activeLabLayout\|\|!lastWiringModel\|\|contextLost/.test(apiSource) &&
+    /activeLabLayout\.lessonId!==currentLessonId/.test(apiSource) &&
+    /anchorTerminalId!==from&&anchorTerminalId!==to/.test(apiSource) &&
+    /isActiveTerminalDragId\(terminalId,activeLabLayout\)/.test(apiSource));
+  check("same-semantic-refreshes-callback-without-restarting-pointer",
+    /const sameSemantic=committedWireRepairIntent\.enabled===true/.test(apiSource) &&
+    /sameCommittedWireRepairIdentity\(committedWireRepairIntent,canonical\)/.test(apiSource) &&
+    /if\(!sameSemantic\)\{[\s\S]*drag\?\.kind==="committed-wire-repair"/.test(apiSource) &&
+    /anchorTerminalId,onRerouteTarget:options\.onRerouteTarget/.test(apiSource));
+  check("current-record-fails-closed-on-layout-lesson-id-reuse-and-rendered-route",
+    /layoutRef!==activeLabLayout\|\|layoutRef!==committedWireRepairLayoutRef/.test(hitSource) &&
+    /currentLessonId!==committedWireRepairLessonId/.test(hitSource) &&
+    /sameCommittedWireRepairIdentity\(committedWireRepairIntent,canonical\)/.test(hitSource) &&
+    /sameRenderedCommittedWireIdentity\(item,canonical\)/.test(hitSource));
+  check("repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates",
+    /function sameCommittedWireRepairIdentity\(intent,canonical\)/.test(sceneSource) &&
+    /id:intent\.wireId,from:intent\.from,to:intent\.to/.test(sceneSource) &&
+    /sameCommittedWireRepairIdentity\(committedWireRepairIntent,canonical\)/.test(apiSource) &&
+    /sameCommittedWireRepairIdentity\(committedWireRepairIntent,canonical\)/.test(hitSource) &&
+    !/sameCommittedWireIdentity\(committedWireRepairIntent,canonical\)/.test(apiSource+hitSource));
+  check("selected-wire-hit-raycasts-only-current-repair-line",
+    /committedWireRaycaster\.intersectObject\(current\.rendered\.line,false\)/.test(hitSource) &&
+    /currentCommittedWireRepairRecord\(layoutRef\)/.test(hitSource) &&
+    /onRerouteTarget/.test(hitSource) &&
+    !/onCommittedWireInspect/.test(hitSource));
+  check("ghost-is-one-bounded-four-point-line-with-valid-invalid-materials",
+    /LAB_COMMITTED_WIRE_REPAIR_POINTS = 4/.test(sceneSource) &&
+    /new T\.Line\(geometry,sharedMaterials\.committedWireRepairInvalidMat\)/.test(hitSource) &&
+    /Math\.max\(layoutRef\.bounds\.minX\*LAB_WORLD_SCALE/.test(hitSource) &&
+    /committedWireRepairValidMat/.test(hitSource) &&
+    /committedWireRepairInvalidMat/.test(hitSource) &&
+    !/new T\.InstancedMesh/.test(hitSource));
+  check("ghost-is-explicitly-visual-only-and-nonauthoritative",
+    /kind:"lab-committed-wire-repair-ghost",visualOnly:true,committed:false/.test(hitSource) &&
+    /electricalAuthority:false,physicalLocation:false,physicalVerified:false/.test(hitSource) &&
+    !/connectCircuit\(|disconnectCircuit\(|lastWiringModel\s*=|labWireObjects\.push/.test(apiSource + hitSource));
+  check("pointer-priority-is-terminal-then-repair-wire-before-hole-and-component",
+    downSource.indexOf('kind==="lab-terminal"') >= 0 &&
+    downSource.indexOf("const repairHit=committedWireRepairHit") > downSource.indexOf('kind==="lab-terminal"') &&
+    downSource.indexOf("const repairHit=committedWireRepairHit") < downSource.indexOf("const holeHit=breadboardHoleStudyHit") &&
+    downSource.indexOf("const repairHit=committedWireRepairHit") < downSource.indexOf('kind==="lab-component-hit"'));
+  check("repair-drag-owns-pointer-without-camera-rotation",
+    /drag\.kind==="committed-wire-repair"&&moved/.test(moveSource) &&
+    /event\.preventDefault\(\);\s*updateCommittedWireRepairDrag\(event\)/.test(moveSource) &&
+    !/committed-wire-repair[^\n]*theta-=/.test(moveSource));
+  check("target-rehit-rejects-old-endpoints-and-revalidates-pointer",
+    /terminalId!==pointerState\.anchorTerminalId/.test(hitSource) &&
+    /terminalId!==pointerState\.movedTerminalId/.test(hitSource) &&
+    /isActiveTerminalDragId\(terminalId,pointerState\.layoutRef\)/.test(hitSource) &&
+    /committedWireRepairDropTarget\(event,drag\)/.test(finishSource) &&
+    /committedWireRepairPointerActive\(finished\)/.test(finishSource));
+  check("drop-delegates-exact-positional-shape-and-frozen-meta-only",
+    /callback\(\s*current\.canonical\.id,current\.canonical\.from,current\.canonical\.to,\s*current\.anchorTerminalId,directCommittedWireRepairTarget,\s*Object\.freeze\(\{source:"pointer-drag",physicalVerified:false\}\)/.test(finishSource) &&
+    !/connectCircuit\(|disconnectCircuit\(|setWiring\(/.test(finishSource));
+  check("tap-inspection-remains-and-mode-off-keeps-camera-drag-path",
+    /finished\.kind==="committed-wire-repair"/.test(finishSource) &&
+    /setHighlightedLabWire\(releaseHit\.canonical\.id\)/.test(finishSource) &&
+    /labEdit\.onCommittedWireInspect\?\./.test(finishSource) &&
+    /drag\.kind==="camera"\|\|drag\.kind==="committed-wire"/.test(moveSource));
+  check("lifecycle-resets-on-edit-layout-wiring-context-and-dispose",
+    /function clearLabLayout[\s\S]*resetCommittedWireRepairIntent\(false\)/.test(sceneSource) &&
+    /if\(editTransition\)[\s\S]*resetCommittedWireRepairIntent\(false\)/.test(sceneSource) &&
+    /function clearWiringLayer[\s\S]*resetCommittedWireRepairIntent\(false\)/.test(sceneSource) &&
+    /const onContextLost=event=>\{[\s\S]*resetCommittedWireRepairIntent\(false\)/.test(sceneSource) &&
+    /disposed=true;[\s\S]*resetCommittedWireRepairIntent\(false\)/.test(sceneSource));
+  check("context-restore-never-resurrects-intent-or-callback",
+    !/setCommittedWireRepairIntent|onRerouteTarget|committedWireRepairIntent\s*=/.test(contextRestoredSource));
+  check("pointercancel-and-lostcapture-share-nonselect-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("630-hole-picker-remains-instanced-and-separate",
+    /BREADBOARD_STUDY_HOLE_COUNT = BREADBOARD_STUDY_ROWS\.length \* BREADBOARD_STUDY_COLUMNS/.test(sceneSource) &&
+    /new T\.InstancedMesh\([\s\S]*BREADBOARD_STUDY_HOLE_COUNT/.test(sceneSource) &&
+    /holeCount:BREADBOARD_STUDY_HOLE_COUNT/.test(sceneSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DCommittedWireRepairGeometryContracts() {
+  const [T, layoutModule, router] = await Promise.all([
+    import("../assets/vendor/three.module.min.js"),
+    import("../src/lab-layout.js"),
+    import("../src/circuit-router.js"),
+  ]);
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d committed-wire repair geometry contract: " + name);
+    checks.push(name);
+  };
+  const layout = layoutModule.createLabLayout(2, router.listTerminals(2));
+  const componentHeight = kind => {
+    if (kind === "arduino-uno") return .46;
+    if (kind === "breadboard") return .34;
+    if (kind === "ultrasonic-sensor") return .68;
+    if (kind === "servo" || kind === "driver") return .62;
+    if (kind === "power-source") return .55;
+    return .48;
+  };
+  const terminalWorld = terminalId => {
+    const anchor = layoutModule.labTerminalAnchor(layout, terminalId);
+    const component = layout.components.find(item => item.id === anchor.componentId);
+    if (!component) throw new Error("missing repair geometry component: " + terminalId);
+    return new T.Vector3(
+      anchor.x * .72,
+      componentHeight(component.visualKind) + .10,
+      anchor.z * .72,
+    );
+  };
+  const start = terminalWorld("D13");
+  const end = terminalWorld("R1:B");
+  const wireIndex = 1;
+  const direction = end.x >= start.x ? 1 : -1;
+  const lead = Math.min(.36, Math.max(.16, Math.abs(end.x - start.x) * .12));
+  const routeOffset = ((wireIndex % 5) - 2) * .085;
+  const laneY = Math.max(start.y, end.y) + .34 + (wireIndex % 4) * .065;
+  const midX = (start.x + end.x) / 2 + routeOffset;
+  const route = [
+    start,
+    new T.Vector3(start.x, laneY, start.z),
+    new T.Vector3(start.x + direction * lead, laneY, start.z),
+    new T.Vector3(midX, laneY, start.z),
+    new T.Vector3(midX, laneY, end.z),
+    new T.Vector3(end.x - direction * lead, laneY, end.z),
+    new T.Vector3(end.x, laneY, end.z),
+    end,
+  ];
+  const geometry = new T.BufferGeometry().setFromPoints(route);
+  const material = new T.LineBasicMaterial();
+  const line = new T.Line(geometry, material);
+  line.updateMatrixWorld(true);
+  const width = 640, height = 360, aspect = width / height;
+  const cameraFor = (theta = .48, phi = .94) => {
+    const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+    const fitted = Math.max(16.7, 18.5 /
+      (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+    const radius = Math.min(48, Math.max(8, fitted));
+    camera.position.set(
+      radius * Math.sin(phi) * Math.sin(theta),
+      radius * Math.cos(phi) + 5,
+      radius * Math.sin(phi) * Math.cos(theta),
+    );
+    camera.lookAt(
+      ((layout.bounds.minX + layout.bounds.maxX) / 2) * .72,
+      .35,
+      ((layout.bounds.minZ + layout.bounds.maxZ) / 2) * .72,
+    );
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+    return camera;
+  };
+  const camera = cameraFor();
+  const raycaster = new T.Raycaster();
+  raycaster.params.Line.threshold = .16;
+  const segments = [[2,3],[3,4],[4,5],[1,2],[5,6],[0,1],[6,7]];
+  const screenCandidates = [];
+  let exactHits = 0, offset3Hits = 0;
+  for (const [fromIndex, toIndex] of segments) {
+    for (const fraction of [.25, .50, .75]) {
+      const world = route[fromIndex].clone().lerp(route[toIndex], fraction);
+      const projected = world.clone().project(camera);
+      const x = (projected.x + 1) * width / 2;
+      const y = (1 - projected.y) * height / 2;
+      screenCandidates.push({ x, y });
+      raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+      if (raycaster.intersectObject(line, false).length) exactHits += 1;
+      raycaster.setFromCamera(new T.Vector2(projected.x + 6 / width, projected.y), camera);
+      if (raycaster.intersectObject(line, false).length) offset3Hits += 1;
+    }
+  }
+  check("native-three-exact-route-candidates-hit-selected-line",
+    screenCandidates.length === 21 && exactHits === screenCandidates.length);
+  check("native-three-three-pixel-offset-remains-within-current-threshold",
+    offset3Hits === screenCandidates.length);
+
+  const first = screenCandidates[0];
+  const gndProjected = terminalWorld("GND").project(camera);
+  const gnd = {
+    x: (gndProjected.x + 1) * width / 2,
+    y: (1 - gndProjected.y) * height / 2,
+  };
+  const thetaAfterMiss = .48 - (gnd.x - first.x) * .008;
+  const phiAfterMiss = Math.max(.27, Math.min(1.45, .94 + (gnd.y - first.y) * .008));
+  const movedCamera = cameraFor(thetaAfterMiss, phiAfterMiss);
+  let staleHits = 0;
+  for (const candidate of screenCandidates) {
+    const ndc = new T.Vector2(
+      candidate.x / width * 2 - 1,
+      -(candidate.y / height * 2 - 1),
+    );
+    raycaster.setFromCamera(ndc, movedCamera);
+    if (raycaster.intersectObject(line, false).length) staleHits += 1;
+  }
+  check("precomputed-screen-candidates-are-invalid-after-camera-fallback-drag",
+    Math.abs(thetaAfterMiss - .48) > .5 && staleHits === 0);
+
+  geometry.dispose();
+  material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
 export function runScene3DHoleLinkSourceContracts(sceneSource) {
   if (typeof sceneSource !== "string" || !sceneSource) {
     throw new TypeError("scene3d source text is required");
@@ -152,6 +392,8 @@ export async function runScene3DContracts() {
   };
 
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
+  const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
+  for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);
   for (const name of holeLinkSourceContracts.checks) check("hole-link-source-"+name,true);
   const holeLinkRaycastContracts = await runScene3DHoleLinkRaycastContracts();
@@ -1924,6 +2166,261 @@ export async function runScene3DContracts() {
       canvas.dataset.labHighlightedWire === committedWireId);
     mounted.setBreadboardHoleStudy({ enabled: false });
 
+    check("public-committed-wire-repair-intent-api-starts-off",
+      typeof mounted.setCommittedWireRepairIntent === "function" &&
+      canvas.dataset.labCommittedWireRepairMode === "off" &&
+      canvas.dataset.labCommittedWireRepairWire === "" &&
+      canvas.dataset.labCommittedWireRepairAnchor === "" &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none" &&
+      canvas.dataset.labCommittedWireRepairElectricalAuthority === "false" &&
+      canvas.dataset.labCommittedWireRepairPhysicalVerified === "false");
+    let repairExtraFieldRejected = false;
+    try {
+      mounted.setCommittedWireRepairIntent({
+        enabled: true,
+        wireId: sampleCircuit.wires[0].id,
+        from: sampleCircuit.wires[0].from,
+        to: sampleCircuit.wires[0].to,
+        anchorTerminalId: sampleCircuit.wires[0].from,
+        onRerouteTarget: () => {},
+        extra: true,
+      });
+    } catch (error) { repairExtraFieldRejected = error instanceof TypeError; }
+    check("committed-wire-repair-rejects-extra-enabled-field-transactionally",
+      repairExtraFieldRejected && canvas.dataset.labCommittedWireRepairMode === "off");
+
+    const repairWire = sampleCircuit.wires[0];
+    const repairAnchorTerminalId = repairWire.from;
+    const repairMovedTerminalId = repairWire.to;
+    const repairTargetTerminalId = (
+      terminals.find(item => item.id === "GND" && item.id !== repairAnchorTerminalId && item.id !== repairMovedTerminalId) ||
+      terminals.find(item => item.id !== repairAnchorTerminalId && item.id !== repairMovedTerminalId)
+    )?.id;
+    if (!repairTargetTerminalId) throw new Error("Missing distinct committed-wire repair target terminal fixture");
+    resetCameraForTerminalProjection(canvas);
+    const repairWirePoint = projectedCommittedWirePoint(canvas, layout, repairWire, 0);
+    const repairTargetPoint = findTerminalPoint(canvas, layout, repairTargetTerminalId, 946);
+    const repairMovedPoint = findTerminalPoint(canvas, layout, repairMovedTerminalId, 947);
+    const repairEvents = [];
+    const staleRepairCallbackEvents = [];
+    const onRerouteTarget = (wireId, from, to, anchorTerminalId, targetTerminalId, meta) => {
+      repairEvents.push({ wireId, from, to, anchorTerminalId, targetTerminalId, meta });
+    };
+    const firstRepairEnabled = mounted.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget: (...args) => staleRepairCallbackEvents.push(args),
+    });
+    const repairEnabled = mounted.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget,
+    });
+    check("committed-wire-repair-enables-current-wire-and-refreshes-same-semantic-callback",
+      firstRepairEnabled.active === true &&
+      Object.isFrozen(repairEnabled) &&
+      repairEnabled.ok === true && repairEnabled.enabled === true && repairEnabled.active === true &&
+      repairEnabled.mode === "endpoint-reroute-preview" &&
+      repairEnabled.wireId === repairWire.id &&
+      repairEnabled.from === repairWire.from && repairEnabled.to === repairWire.to &&
+      repairEnabled.anchorTerminalId === repairAnchorTerminalId &&
+      repairEnabled.movedTerminalId === repairMovedTerminalId &&
+      repairEnabled.physicalVerified === false && repairEnabled.electricalAuthority === false &&
+      canvas.dataset.labCommittedWireRepairWire === repairWire.id &&
+      canvas.dataset.labCommittedWireRepairMovedEndpoint === repairMovedTerminalId);
+
+    const repairCameraBefore = mounted.getLabViewState().camera;
+    const repairWireCountBefore = canvas.dataset.labWireCount;
+    const repairRevisionBefore = canvas.dataset.labWireGeometryRevision;
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 948, "mouse");
+    const repairMove = dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 948, "mouse");
+    check("committed-wire-repair-drag-shows-valid-bounded-visual-only-target",
+      repairMove.defaultPrevented === true &&
+      canvas.dataset.labCommittedWireRepairTarget === repairTargetTerminalId &&
+      canvas.dataset.labCommittedWireRepairPreview === "valid" &&
+      canvas.dataset.labCommittedWireRepairElectricalAuthority === "false" &&
+      canvas.dataset.labWireCount === repairWireCountBefore &&
+      canvas.dataset.labWireGeometryRevision === repairRevisionBefore);
+    dispatchScenePointer(canvas, "pointerup", repairTargetPoint, 948, "mouse");
+    const mouseRepair = repairEvents.at(-1);
+    const repairCameraAfter = mounted.getLabViewState().camera;
+    check("committed-wire-repair-mouse-drop-delegates-frozen-proposal-without-auto-confirm",
+      repairEvents.length === 1 &&
+      mouseRepair?.wireId === repairWire.id &&
+      mouseRepair?.from === repairWire.from && mouseRepair?.to === repairWire.to &&
+      mouseRepair?.anchorTerminalId === repairAnchorTerminalId &&
+      mouseRepair?.targetTerminalId === repairTargetTerminalId &&
+      mouseRepair?.meta?.source === "pointer-drag" && mouseRepair?.meta?.physicalVerified === false &&
+      Object.isFrozen(mouseRepair.meta) &&
+      Object.keys(mouseRepair.meta).sort().join(",") === "physicalVerified,source" &&
+      staleRepairCallbackEvents.length === 0 &&
+      canvas.dataset.labCommittedWireRepairMode === "endpoint-reroute-preview" &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none" &&
+      canvas.dataset.labWireCount === repairWireCountBefore &&
+      canvas.dataset.labWireGeometryRevision === repairRevisionBefore &&
+      JSON.stringify(repairCameraAfter) === JSON.stringify(repairCameraBefore));
+
+    const repairCountBeforeAltPointers = repairEvents.length;
+    for (const [pointerType, pointerId] of [["touch", 949], ["pen", 954]]) {
+      dispatchScenePointer(canvas, "pointerdown", repairWirePoint, pointerId, pointerType);
+      dispatchScenePointer(canvas, "pointermove", repairTargetPoint, pointerId, pointerType);
+      dispatchScenePointer(canvas, "pointerup", repairTargetPoint, pointerId, pointerType);
+    }
+    check("committed-wire-repair-supports-touch-and-pen-proposal-only",
+      repairEvents.length === repairCountBeforeAltPointers + 2 &&
+      repairEvents.slice(-2).every(item =>
+        item.wireId === repairWire.id && item.targetTerminalId === repairTargetTerminalId &&
+        item.meta?.source === "pointer-drag" && item.meta?.physicalVerified === false &&
+        Object.isFrozen(item.meta)
+      ) &&
+      canvas.dataset.labWireCount === repairWireCountBefore &&
+      canvas.dataset.labWireGeometryRevision === repairRevisionBefore);
+
+    const repairCountBeforeOldEndpoint = repairEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 955, "mouse");
+    dispatchScenePointer(canvas, "pointermove", repairMovedPoint, 955, "mouse");
+    check("committed-wire-repair-old-moved-endpoint-is-invalid-target",
+      canvas.dataset.labCommittedWireRepairTarget === repairMovedTerminalId &&
+      canvas.dataset.labCommittedWireRepairPreview === "invalid");
+    dispatchScenePointer(canvas, "pointerup", repairMovedPoint, 955, "mouse");
+    check("committed-wire-repair-old-endpoint-drop-emits-no-proposal",
+      repairEvents.length === repairCountBeforeOldEndpoint &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+
+    const repairCountBeforeBackground = repairEvents.length;
+    const repairRect = canvas.getBoundingClientRect();
+    const repairBackgroundPoint = { clientX: repairRect.left + 2, clientY: repairRect.top + 2 };
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 956, "mouse");
+    dispatchScenePointer(canvas, "pointermove", repairBackgroundPoint, 956, "mouse");
+    dispatchScenePointer(canvas, "pointerup", repairBackgroundPoint, 956, "mouse");
+    check("committed-wire-repair-background-drop-emits-no-proposal",
+      repairEvents.length === repairCountBeforeBackground &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+
+    const repairCountBeforeCancel = repairEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 957, "touch");
+    dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 957, "touch");
+    dispatchScenePointer(canvas, "pointercancel", repairTargetPoint, 957, "touch");
+    check("committed-wire-repair-pointercancel-clears-ghost-without-proposal",
+      repairEvents.length === repairCountBeforeCancel &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 958, "pen");
+    dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 958, "pen");
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      pointerId: 958,
+      pointerType: "pen",
+      clientX: repairTargetPoint.clientX,
+      clientY: repairTargetPoint.clientY,
+      bubbles: true,
+      cancelable: true,
+    }));
+    check("committed-wire-repair-lostcapture-clears-ghost-without-proposal",
+      repairEvents.length === repairCountBeforeCancel &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+
+    const repairOff = mounted.setCommittedWireRepairIntent({
+      enabled: false,
+      wireId: { ignored: true },
+      from: "ignored",
+      to: "ignored",
+      anchorTerminalId: "ignored",
+      onRerouteTarget: "ignored",
+    });
+    check("committed-wire-repair-off-is-idempotent-and-harmless-before-field-validation",
+      Object.isFrozen(repairOff) && repairOff.ok === true && repairOff.enabled === false &&
+      repairOff.active === false && repairOff.mode === "off" && repairOff.wireId === null &&
+      repairOff.targetTerminalId === null && repairOff.preview === "none" &&
+      canvas.dataset.labCommittedWireRepairMode === "off" &&
+      canvas.dataset.labCommittedWireRepairWire === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+
+    const repairCountBeforeStaleWiring = repairEvents.length;
+    mounted.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget,
+    });
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 959, "mouse");
+    dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 959, "mouse");
+    const repairStaleCircuit = connectCircuit(
+      createCircuit(2), repairAnchorTerminalId, repairTargetTerminalId
+    );
+    mounted.setWiring(repairStaleCircuit, terminals);
+    dispatchScenePointer(canvas, "pointerup", repairTargetPoint, 959, "mouse");
+    check("committed-wire-repair-same-id-wiring-replacement-cancels-stale-drop",
+      repairStaleCircuit.wires[0].id === repairWire.id &&
+      (repairStaleCircuit.wires[0].from !== repairWire.from ||
+        repairStaleCircuit.wires[0].to !== repairWire.to) &&
+      repairEvents.length === repairCountBeforeStaleWiring &&
+      canvas.dataset.labCommittedWireRepairMode === "off" &&
+      canvas.dataset.labCommittedWireRepairWire === "" &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+
+    const repairCountBeforeLayoutClear = repairEvents.length;
+    mounted.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget,
+    });
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 964, "mouse");
+    dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 964, "mouse");
+    mounted.setLabLayout(null);
+    dispatchScenePointer(canvas, "pointerup", repairTargetPoint, 964, "mouse");
+    check("committed-wire-repair-layout-clear-cancels-stale-drop",
+      repairEvents.length === repairCountBeforeLayoutClear &&
+      canvas.dataset.labCommittedWireRepairMode === "off" &&
+      canvas.dataset.labCommittedWireRepairWire === "" &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+    mounted.setLabLayout(layout);
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+
+    const repairCountBeforeLessonChange = repairEvents.length;
+    mounted.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget,
+    });
+    dispatchScenePointer(canvas, "pointerdown", repairWirePoint, 965, "mouse");
+    dispatchScenePointer(canvas, "pointermove", repairTargetPoint, 965, "mouse");
+    mounted.setLesson({ id: 3 });
+    dispatchScenePointer(canvas, "pointerup", repairTargetPoint, 965, "mouse");
+    check("committed-wire-repair-lesson-change-cancels-stale-drop",
+      repairEvents.length === repairCountBeforeLessonChange &&
+      canvas.dataset.labCommittedWireRepairMode === "off" &&
+      canvas.dataset.labCommittedWireRepairWire === "" &&
+      canvas.dataset.labCommittedWireRepairTarget === "" &&
+      canvas.dataset.labCommittedWireRepairPreview === "none");
+    mounted.setLesson({ id: 2 });
+    mounted.setLabLayout(layout);
+    mounted.setWiring(sampleCircuit, terminals);
+    resetCameraForTerminalProjection(canvas);
+
     const inspectCountBeforeAltPointers = wireInspectEvents.length;
     for (const [pointerType, pointerId] of [["touch", 944], ["pen", 945]]) {
       dispatchScenePointer(canvas, "pointerdown", committedWirePoint, pointerId, pointerType);
@@ -2783,6 +3280,56 @@ export async function runScene3DContracts() {
       wireLossInspectEvents.length === 0 &&
       wireLossCanvas.dataset.sceneContext === "ready");
     flushFrames();
+
+    const wireLossRepairEvents = [];
+    resetCameraForTerminalProjection(wireLossCanvas);
+    const wireLossRepairSourcePoint = projectedCommittedWirePoint(
+      wireLossCanvas, layout, repairWire, 0
+    );
+    const wireLossRepairTargetPoint = findTerminalPoint(
+      wireLossCanvas, layout, repairTargetTerminalId, 960
+    );
+    wireLoss.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget: (wireId, from, to, anchorTerminalId, targetTerminalId, meta) => {
+        wireLossRepairEvents.push({ wireId, from, to, anchorTerminalId, targetTerminalId, meta });
+      },
+    });
+    dispatchScenePointer(wireLossCanvas, "pointerdown", wireLossRepairSourcePoint, 961, "touch");
+    dispatchScenePointer(wireLossCanvas, "pointermove", wireLossRepairTargetPoint, 961, "touch");
+    check("committed-wire-repair-context-loss-fixture-has-valid-ghost",
+      wireLossCanvas.dataset.labCommittedWireRepairMode === "endpoint-reroute-preview" &&
+      wireLossCanvas.dataset.labCommittedWireRepairTarget === repairTargetTerminalId &&
+      wireLossCanvas.dataset.labCommittedWireRepairPreview === "valid");
+    await waitTask();
+    const wireRepairLostPromise = waitEvent(wireLossCanvas, "webglcontextlost");
+    if (wireInspectContextExtension) wireInspectContextExtension.loseContext();
+    else wireLossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    await wireRepairLostPromise;
+    dispatchScenePointer(wireLossCanvas, "pointerup", wireLossRepairTargetPoint, 961, "touch");
+    check("committed-wire-repair-context-loss-cancels-proposal-and-intent",
+      wireLossRepairEvents.length === 0 &&
+      wireLossCanvas.dataset.sceneContext === "lost" &&
+      wireLossCanvas.dataset.labCommittedWireRepairMode === "off" &&
+      wireLossCanvas.dataset.labCommittedWireRepairWire === "" &&
+      wireLossCanvas.dataset.labCommittedWireRepairTarget === "" &&
+      wireLossCanvas.dataset.labCommittedWireRepairPreview === "none");
+    await waitTask();
+    const wireRepairRestorePromise = waitEvent(wireLossCanvas, "webglcontextrestored");
+    if (wireInspectContextExtension) wireInspectContextExtension.restoreContext();
+    else wireLossCanvas.dispatchEvent(new Event("webglcontextrestored"));
+    await wireRepairRestorePromise;
+    check("committed-wire-repair-context-restore-does-not-resurrect-or-replay",
+      wireLossRepairEvents.length === 0 &&
+      wireLossCanvas.dataset.sceneContext === "ready" &&
+      wireLossCanvas.dataset.labCommittedWireRepairMode === "off" &&
+      wireLossCanvas.dataset.labCommittedWireRepairPreview === "none");
+    flushFrames();
+
     resetCameraForTerminalProjection(wireLossCanvas);
     const wireDisposePoint = projectedCommittedWirePoint(
       wireLossCanvas, layout, sampleCircuit.wires[0], 0
@@ -2792,6 +3339,49 @@ export async function runScene3DContracts() {
     check("committed-wire-inspection-dispose-cancels-stale-pointer",
       wireLossInspectEvents.length === 0 &&
       !wireLossCanvas.isConnected &&
+      !host.querySelector("canvas"));
+
+    host.remove();
+    host = makeHost();
+    const repairDispose = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const repairDisposeCanvas = host.querySelector("canvas");
+    repairDisposeCanvas.setPointerCapture = () => {};
+    repairDisposeCanvas.releasePointerCapture = () => {};
+    const repairDisposeEvents = [];
+    repairDispose.setLesson({ id: 2 });
+    repairDispose.setLabLayout(layout);
+    repairDispose.setWiring(sampleCircuit, terminals);
+    repairDispose.setLabEdit({ enabled: true });
+    resetCameraForTerminalProjection(repairDisposeCanvas);
+    const repairDisposeSourcePoint = projectedCommittedWirePoint(
+      repairDisposeCanvas, layout, repairWire, 0
+    );
+    const repairDisposeTargetPoint = findTerminalPoint(
+      repairDisposeCanvas, layout, repairTargetTerminalId, 962
+    );
+    repairDispose.setCommittedWireRepairIntent({
+      enabled: true,
+      wireId: repairWire.id,
+      from: repairWire.from,
+      to: repairWire.to,
+      anchorTerminalId: repairAnchorTerminalId,
+      onRerouteTarget: (...args) => repairDisposeEvents.push(args),
+    });
+    dispatchScenePointer(repairDisposeCanvas, "pointerdown", repairDisposeSourcePoint, 963, "pen");
+    dispatchScenePointer(repairDisposeCanvas, "pointermove", repairDisposeTargetPoint, 963, "pen");
+    check("committed-wire-repair-dispose-fixture-has-valid-ghost",
+      repairDisposeCanvas.dataset.labCommittedWireRepairTarget === repairTargetTerminalId &&
+      repairDisposeCanvas.dataset.labCommittedWireRepairPreview === "valid");
+    repairDispose.dispose();
+    check("committed-wire-repair-dispose-cancels-without-proposal",
+      repairDisposeEvents.length === 0 &&
+      repairDisposeCanvas.dataset.labCommittedWireRepairMode === "off" &&
+      repairDisposeCanvas.dataset.labCommittedWireRepairWire === "" &&
+      repairDisposeCanvas.dataset.labCommittedWireRepairTarget === "" &&
+      repairDisposeCanvas.dataset.labCommittedWireRepairPreview === "none" &&
+      !repairDisposeCanvas.isConnected &&
       !host.querySelector("canvas"));
 
     host.remove();

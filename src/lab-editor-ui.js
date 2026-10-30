@@ -36,11 +36,11 @@ export function mountLabEditor({
   }
   const entry = $("labEditEntry"), panel = $("labEditor"), toggle = $("labEditToggle");
   const componentSelect = $("labComponent"), posX = $("labPositionX"), posZ = $("labPositionZ");
-  const fromSelect = $("labFromPin"), toSelect = $("labToPin");
+  const fromSelect = $("labFromPin"), toSelect = $("labToPin"), connectButton = $("labConnect");
   const message = $("labStatus"), terminalNote = $("labSelectedTerminal"), avrNote = $("labAvrStatus");
   const cancelPending = $("labCancelPendingWire");
   const resetPositions = $("labResetPositions");
-  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,message,terminalNote,avrNote,cancelPending,resetPositions].some(node=>!node)) {
+  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,connectButton,message,terminalNote,avrNote,cancelPending,resetPositions].some(node=>!node)) {
     throw new Error("Missing 3D lab editor DOM controls.");
   }
 
@@ -361,6 +361,38 @@ export function mountLabEditor({
     lessonId, fromId, toId, wireId,
     learnerGraphOnly:true, physicalVerified:false,
   });
+  const practiceRepairResult=({
+    accepted=false,reason="rejected",fromId=null,toId=null,
+  }={})=>Object.freeze({
+    accepted:Boolean(accepted),reason:String(reason),lessonId,fromId,toId,
+    committed:false,physicalVerified:false,
+  });
+  const practiceReviewResult=({
+    accepted=false,reason="rejected",wireId=null,fromId=null,toId=null,
+  }={})=>Object.freeze({
+    accepted:Boolean(accepted),reason:String(reason),lessonId,wireId,fromId,toId,
+    committed:false,physicalVerified:false,
+  });
+  const practiceRerouteResult=({
+    accepted=false,committed=false,reason="rejected",
+    oldWireId=null,newWireId=null,anchorTerminalId=null,newTargetId=null,
+  }={})=>Object.freeze({
+    accepted:Boolean(accepted),committed:Boolean(committed),reason:String(reason),lessonId,
+    oldWireId,newWireId,anchorTerminalId,newTargetId,physicalVerified:false,
+  });
+  const actionableEditorControl=node=>{
+    if(!node||panel.hidden||node.hidden===true||node.disabled===true||
+       node.getAttribute?.("aria-hidden")==="true"||typeof node.focus!=="function")return false;
+    if(typeof node.isConnected==="boolean"&&!node.isConnected)return false;
+    if(typeof node.getClientRects==="function"&&node.getClientRects().length===0)return false;
+    return true;
+  };
+  const focusEditorControl=node=>{
+    if(!actionableEditorControl(node))return false;
+    try{node.focus({preventScroll:true});}
+    catch{return false;}
+    return document.activeElement===node;
+  };
   const AUTHORED_HOLE_CONFIRM_PROFILES=new Set([
     "generic-63x10-terminal-strips",
     "busboard-bb830-rev7",
@@ -519,6 +551,150 @@ export function mountLabEditor({
     if(disposed||!editing||stage!=="3d")return rejected("editor-not-active");
     if(!validAuthoredHoleConfirmMeta(meta))return rejected("invalid-meta");
     return connectTerminals(from,to);
+  };
+  const preparePracticeRepairPair=(from,to,expectedLessonId)=>{
+    const rejected=reason=>practiceRepairResult({
+      reason,fromId:typeof from==="string"?from:null,toId:typeof to==="string"?to:null,
+    });
+    if(!Number.isInteger(expectedLessonId)||expectedLessonId!==lessonId)return rejected("stale-lesson");
+    if(!lessonSupported())return rejected("unsupported-lesson");
+    if(disposed||!editing||stage!=="3d"||!scene)return rejected("editor-not-active");
+    const terminalIds=new Set(listTerminals(lessonId).map(item=>item.id));
+    if(typeof from!=="string"||typeof to!=="string"||!terminalIds.has(from)||!terminalIds.has(to)){
+      return rejected("invalid-terminal");
+    }
+    if(from===to)return rejected("same-terminal");
+    if(!focusEditorControl(connectButton))return rejected("connect-unavailable");
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      syncPendingScenePreview();
+    }
+    fromSelect.value=from;
+    toSelect.value=to;
+    terminalNote.textContent="Practice đã chuẩn bị cặp "+from+" → "+to+
+      ". Người học PHẢI bấm Connect để yêu cầu circuit-router nối dây.";
+    announce("Đã chuẩn bị cặp sửa "+from+" → "+to+
+      ". Người học PHẢI bấm Connect; chưa có dây nào được tạo hoặc hoàn thành tự động.");
+    return practiceRepairResult({accepted:true,reason:"prepared",fromId:from,toId:to});
+  };
+  const focusPracticeReviewWire=(wireId,from,to,expectedLessonId)=>{
+    const rejected=reason=>practiceReviewResult({
+      reason,wireId:typeof wireId==="string"?wireId:null,
+      fromId:typeof from==="string"?from:null,toId:typeof to==="string"?to:null,
+    });
+    if(!Number.isInteger(expectedLessonId)||expectedLessonId!==lessonId)return rejected("stale-lesson");
+    if(!lessonSupported())return rejected("unsupported-lesson");
+    if(disposed||!editing||stage!=="3d"||!scene)return rejected("editor-not-active");
+    if(typeof wireId!=="string"||wireId.trim()!==wireId||!/^w[1-9]\d*$/.test(wireId)){
+      return rejected("invalid-wire-id");
+    }
+    const terminalIds=new Set(listTerminals(lessonId).map(item=>item.id));
+    if(typeof from!=="string"||typeof to!=="string"||!terminalIds.has(from)||!terminalIds.has(to)){
+      return rejected("invalid-terminal");
+    }
+    if(from===to)return rejected("same-terminal");
+    let circuit;
+    try{circuit=currentLearnerCircuit({requireExisting:true});}
+    catch{return rejected("foreign-learner-graph");}
+    if(!circuit)return rejected("no-learner-graph");
+    const rawWire=circuit.wires.find(item=>{
+      if(!item||typeof item!=="object")return false;
+      const descriptor=Object.getOwnPropertyDescriptor(item,"id");
+      return !!descriptor&&("value" in descriptor)&&!descriptor.get&&!descriptor.set&&descriptor.value===wireId;
+    });
+    if(!rawWire)return rejected("stale-wire");
+    const wire=exactInspectionWire(rawWire,wireId,terminalIds);
+    if(!wire)return rejected("forged-wire");
+    const endpointsMatch=(wire.from===from&&wire.to===to)||(wire.from===to&&wire.to===from);
+    if(!endpointsMatch)return rejected("wire-endpoints-mismatch");
+    const row=[...precisionWireRows.querySelectorAll("[data-lab-wire-row]")]
+      .find(item=>item.dataset.labWireRow===wire.id&&
+        item.dataset.labWireFrom===wire.from&&item.dataset.labWireTo===wire.to);
+    if(!row)return rejected("wire-action-unavailable");
+    const inspect=[...row.querySelectorAll("[data-lab-inspect-wire-id]")]
+      .find(button=>button.dataset.labInspectWireId===wire.id&&button.dataset.labWireLesson===String(lessonId));
+    const remove=[...row.querySelectorAll("[data-lab-remove-wire-id]")]
+      .find(button=>button.dataset.labRemoveWireId===wire.id&&button.dataset.labWireLesson===String(lessonId));
+    const target=actionableEditorControl(inspect)?inspect:actionableEditorControl(remove)?remove:null;
+    if(!target||!focusEditorControl(target))return rejected("wire-action-unavailable");
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      syncPendingScenePreview();
+    }
+    terminalNote.textContent="Practice đang yêu cầu xem lại dây "+wire.id+" · "+wire.from+" → "+wire.to+
+      "; chưa gỡ hoặc thay đổi learner graph.";
+    announce("Đã chuyển focus tới thao tác xem dây "+wire.id+
+      ". Hãy kiểm tra rồi tự chọn hành động; hệ thống KHÔNG tự gỡ dây hoặc hoàn thành Practice.");
+    return practiceReviewResult({
+      accepted:true,reason:"focused-review",wireId:wire.id,fromId:wire.from,toId:wire.to,
+    });
+  };
+  const reroutePracticeWire=(
+    wireId,originalFrom,originalTo,anchorTerminalId,newTargetId,expectedLessonId,
+  )=>{
+    const rejected=reason=>practiceRerouteResult({
+      reason,oldWireId:typeof wireId==="string"?wireId:null,
+      anchorTerminalId:typeof anchorTerminalId==="string"?anchorTerminalId:null,
+      newTargetId:typeof newTargetId==="string"?newTargetId:null,
+    });
+    if(!Number.isInteger(expectedLessonId)||expectedLessonId!==lessonId)return rejected("stale-lesson");
+    if(!lessonSupported())return rejected("unsupported-lesson");
+    if(disposed||!editing||stage!=="3d"||!scene)return rejected("editor-not-active");
+    if(typeof wireId!=="string"||wireId.trim()!==wireId||!/^w[1-9]\d*$/.test(wireId)){
+      return rejected("invalid-wire-id");
+    }
+    const terminalIds=new Set(listTerminals(lessonId).map(item=>item.id));
+    if([originalFrom,originalTo,anchorTerminalId,newTargetId].some(
+      value=>typeof value!=="string"||!terminalIds.has(value),
+    )){
+      return rejected("invalid-terminal");
+    }
+    if(originalFrom===originalTo||anchorTerminalId===newTargetId)return rejected("same-terminal");
+    if(anchorTerminalId!==originalFrom&&anchorTerminalId!==originalTo)return rejected("invalid-anchor");
+    const replacedEndpoint=anchorTerminalId===originalFrom?originalTo:originalFrom;
+    if(newTargetId===replacedEndpoint)return rejected("same-route");
+    let base;
+    try{base=currentLearnerCircuit({requireExisting:true});}
+    catch{return rejected("foreign-learner-graph");}
+    if(!base)return rejected("no-learner-graph");
+    const rawWire=base.wires.find(item=>{
+      if(!item||typeof item!=="object")return false;
+      const descriptor=Object.getOwnPropertyDescriptor(item,"id");
+      return !!descriptor&&("value" in descriptor)&&!descriptor.get&&!descriptor.set&&descriptor.value===wireId;
+    });
+    if(!rawWire)return rejected("stale-wire");
+    const wire=exactInspectionWire(rawWire,wireId,terminalIds);
+    if(!wire)return rejected("forged-wire");
+    const originalMatches=(wire.from===originalFrom&&wire.to===originalTo)||
+      (wire.from===originalTo&&wire.to===originalFrom);
+    if(!originalMatches)return rejected("wire-endpoints-mismatch");
+    if(anchorTerminalId!==wire.from&&anchorTerminalId!==wire.to)return rejected("invalid-anchor");
+    let without,next,newWire;
+    try{
+      without=disconnectCircuit(base,wire.id);
+      next=connectCircuit(without,anchorTerminalId,newTargetId);
+      newWire=next.wires.find(item=>!without.wires.some(previous=>previous.id===item.id))??null;
+      if(!newWire||newWire.id===wire.id||next.wires.some(item=>item.id===wire.id)||
+         !((newWire.from===anchorTerminalId&&newWire.to===newTargetId)||
+           (newWire.from===newTargetId&&newWire.to===anchorTerminalId))){
+        return rejected("router-rejected");
+      }
+    }catch{
+      return rejected("router-rejected");
+    }
+    applyCircuit(
+      next,
+      "Đã định tuyến lại "+wire.id+" thành "+newWire.id+" · "+
+        anchorTerminalId+" → "+newTargetId+" qua circuit-router.",
+    );
+    if(firstTerminal!==null){
+      firstTerminal=null;
+      syncPendingScenePreview();
+    }
+    return practiceRerouteResult({
+      accepted:true,committed:true,reason:"rerouted",
+      oldWireId:wire.id,newWireId:newWire.id,anchorTerminalId,newTargetId,
+    });
   };
   const onTerminalSelect = terminalId => {
     if (!editing || stage!=="3d" || !scene || !lessonSupported()) return false;
@@ -798,6 +974,8 @@ export function mountLabEditor({
       const row=create("li");
       row.className="lab-precision-wire-row";
       row.dataset.labWireRow=wire.id;
+      row.dataset.labWireFrom=wire.from;
+      row.dataset.labWireTo=wire.to;
       const endpoints=create("span",wire.id+" · "+wire.from+" → "+wire.to+" · learner graph only");
       endpoints.dataset.labWireEndpoints=wire.id;
       const actions=create("div");
@@ -873,7 +1051,7 @@ export function mountLabEditor({
     [undoLayoutButton,"click",onUndoLayout],
     [redoLayoutButton,"click",onRedoLayout],
     [panel,"click",onNudge],
-    [$("labConnect"),"click",onWire],
+    [connectButton,"click",onWire],
     [$("labSampleWires"),"click",onSample],
     [$("labClearWires"),"click",onClear],
     [$("labRemoveLastWire"),"click",onRemove],
@@ -965,6 +1143,17 @@ export function mountLabEditor({
     connectTerminals(from,to){return connectTerminals(from,to);},
     connectAuthoredHoleTerminals(from,to,meta,expectedLessonId){
       return connectAuthoredHoleTerminals(from,to,meta,expectedLessonId);
+    },
+    preparePracticeRepairPair(from,to,expectedLessonId){
+      return preparePracticeRepairPair(from,to,expectedLessonId);
+    },
+    focusPracticeReviewWire(wireId,from,to,expectedLessonId){
+      return focusPracticeReviewWire(wireId,from,to,expectedLessonId);
+    },
+    reroutePracticeWire(wireId,originalFrom,originalTo,anchorTerminalId,newTargetId,expectedLessonId){
+      return reroutePracticeWire(
+        wireId,originalFrom,originalTo,anchorTerminalId,newTargetId,expectedLessonId,
+      );
     },
     inspectCommittedWire(wireId,meta,expectedLessonId){return inspectCommittedWire(wireId,meta,expectedLessonId);},
     removeWire(wireId,expectedLessonId=lessonId){return removeWireById(wireId,expectedLessonId);},

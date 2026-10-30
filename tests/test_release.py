@@ -465,8 +465,11 @@ class ReleaseContractTests(unittest.TestCase):
             "assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts",
         ]
         self.assertEqual(build_site.POST_V16_RICH_INTERACTION_FILES, expected)
-        self.assertEqual(build_site.FILES[126:], expected)
-        self.assertEqual(len(build_site.FILES), 136)
+        # Historical post-v16 suffix is immutable as the exact 126..135
+        # positions. New optional practice-repair assets are appended AFTER it
+        # and checked as an exact suffix by the dedicated post-85ff test.
+        self.assertEqual(build_site.FILES[126:136], expected)
+        self.assertEqual(len(build_site.FILES[:136]), 136)
         self.assertEqual(build_site.AVR_TIMER2_EXACT_REFERENCE_FILES, expected[-2:])
         self.assertEqual(
             sha256(("\n".join(build_site.FILES[:126]) + "\n").encode()).hexdigest(),
@@ -950,6 +953,45 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertTrue(handler.guess_type("src/app.js").startswith("text/javascript"))
         self.assertTrue(handler.guess_type("site.webmanifest").startswith("application/manifest+json"))
         self.assertTrue(handler.guess_type("assets/favicon.svg").startswith("image/svg+xml"))
+
+    def test_post_85ff_practice_repair_attempt_release_is_source_and_sw_aligned(self):
+        expected_suffix = [
+            "src/practice-step-attempt.js",
+            "src/practice-step-attempt-ui.js",
+            "styles/practice-step-attempt.css",
+            "docs/PRACTICE_STEP_ATTEMPTS.md",
+            "docs/PRACTICE_REPAIR_ACTIONS.md",
+            "docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md",
+            "docs/THREE_D_COMMITTED_WIRE_REPAIR.md",
+        ]
+        self.assertEqual(build_site.POST_85FF_PRACTICE_REPAIR_FILES, expected_suffix)
+        self.assertEqual(build_site.FILES[-len(expected_suffix):], expected_suffix)
+        self.assertEqual(len(build_site.FILES), 136 + len(expected_suffix))
+        self.assertEqual(len(set(build_site.FILES)), len(build_site.FILES))
+        for path in expected_suffix:
+            source = build_site._release_source(path)
+            self.assertTrue(source.is_file(), path)
+            self.assertFalse(source.is_symlink(), path)
+            self.assertGreater(source.stat().st_size, 100, path)
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "src/app.js").read_text(encoding="utf-8")
+        self.assertIn('href="styles/practice-step-attempt.css"', html)
+        self.assertIn('from "./practice-step-attempt.js"', app)
+        self.assertIn('from "./practice-step-attempt-ui.js"', app)
+        self.assertIn("preparePracticeRepairPair", app)
+        self.assertIn("focusPracticeReviewWire", app)
+        self.assertIn("reroutePracticeWire", app)
+        self.assertIn("onStartRepairMissingPair", app)
+        self.assertIn("onStartReviewExtraPair", app)
+        self.assertIn("cancelActivePracticeStepAttempt", app)
+        self.assertNotIn("localStorage", (ROOT / "src/practice-step-attempt.js").read_text(encoding="utf-8"))
+        self.assertNotIn("innerHTML", (ROOT / "src/practice-step-attempt-ui.js").read_text(encoding="utf-8"))
+        worker = (ROOT / "sw.js").read_text(encoding="utf-8")
+        self.assertEqual(
+            build_site._service_worker_assets(worker),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
+            "Offline precache must match the actual published source allowlist in order",
+        )
 
 
 if __name__ == "__main__":

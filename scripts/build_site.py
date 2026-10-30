@@ -131,6 +131,15 @@ POST_V16_RICH_INTERACTION_FILES = [
     "docs/POST_V16_RICH_INTERACTION_QA.md",
     *AVR_TIMER2_EXACT_REFERENCE_FILES,
 ]
+POST_85FF_PRACTICE_REPAIR_FILES = [
+    "src/practice-step-attempt.js",
+    "src/practice-step-attempt-ui.js",
+    "styles/practice-step-attempt.css",
+    "docs/PRACTICE_STEP_ATTEMPTS.md",
+    "docs/PRACTICE_REPAIR_ACTIONS.md",
+    "docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md",
+    "docs/THREE_D_COMMITTED_WIRE_REPAIR.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -188,6 +197,7 @@ FILES = [
     *POST_V16_GUIDED_INSPECTION_FILES,
     *POST_V16_STUDY_EXTENSION_FILES,
     *POST_V16_RICH_INTERACTION_FILES,
+    *POST_85FF_PRACTICE_REPAIR_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

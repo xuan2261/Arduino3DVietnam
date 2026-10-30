@@ -86,7 +86,14 @@ const ASSETS = [
   "./docs/AVR_TIMER2_CTC_STUDY_NEXT.md",
   "./docs/POST_V16_RICH_INTERACTION_QA.md",
   "./assets/vendor/avr/avr8js-0.21.1-source/timer.ts",
-  "./assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts"
+  "./assets/vendor/avr/avr8js-0.21.1-source/timer.spec.ts",
+  "./src/practice-step-attempt.js",
+  "./src/practice-step-attempt-ui.js",
+  "./styles/practice-step-attempt.css",
+  "./docs/PRACTICE_STEP_ATTEMPTS.md",
+  "./docs/PRACTICE_REPAIR_ACTIONS.md",
+  "./docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md",
+  "./docs/THREE_D_COMMITTED_WIRE_REPAIR.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
