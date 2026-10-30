@@ -4,6 +4,8 @@ import {
   createSampleCircuit,
 } from "../src/circuit-router.js";
 import { mountLabEditor } from "../src/lab-editor-ui.js";
+import { lessonById } from "../src/lessons.js";
+import { buildPracticeCheckpointTrail } from "../src/practice-checkpoint-trail.js";
 
 function assert(condition, label) {
   if (!condition) throw new Error("lab-editor-precision-wires contract: " + label);
@@ -327,6 +329,15 @@ function withFixture({ circuits = new Map(), onWireInspection = null, onSceneRec
 
 const pointerMeta = () => Object.freeze({ source: "pointer-drag", physicalVerified: false });
 const wirePointerMeta = () => Object.freeze({ source: "pointer", physicalVerified: false });
+const authoredHoleMeta = (overrides = {}) => Object.freeze({
+  source: "authored-hole-confirm",
+  physicalVerified: false,
+  profileId: "generic-63x10-terminal-strips",
+  fromHoleId: "A1",
+  toHoleId: "J63",
+  placementRevision: 0,
+  ...overrides,
+});
 
 export function runLabEditorPrecisionWiresContracts() {
   const checks = [];
@@ -821,6 +832,224 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(callbacks.onTerminalSelect("R1:A") === true && changes.length === 1 &&
         circuitsFrom(changes).wires[0].from === "D13" && circuitsFrom(changes).wires[0].to === "R1:A",
       "second distinct tap still commits via existing router path");
+    });
+
+    const authoredCircuits = new Map([[2, createCircuit(2)], [3, createCircuit(3)]]);
+    withFixture({ circuits: authoredCircuits }, ({
+      ui, scene, changes, message, nativeBrowserDom,
+    }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      assert(typeof ui.connectAuthoredHoleTerminals === "function",
+        "controller exposes authored-hole confirmation entrypoint");
+      assert(ui.selectTerminal("D13") === "D13" && ui.snapshot().firstTerminal === "D13" && scene.pending === "D13",
+        "authored-hole fixture arms existing two-tap pending terminal");
+      const baselineMessage = message.textContent;
+      const baselineCircuit = authoredCircuits.get(2);
+      const baselineChanges = changes.length;
+      const assertNoSideEffect = (result, reason, label) => {
+        assert(Object.isFrozen(result) && result.accepted === false && result.committed === false &&
+          result.reason === reason && result.learnerGraphOnly === true && result.physicalVerified === false,
+        label + " returns frozen learner-only rejection");
+        assert(changes.length === baselineChanges && authoredCircuits.get(2) === baselineCircuit &&
+          ui.snapshot().firstTerminal === "D13" && scene.pending === "D13" &&
+          message.textContent === baselineMessage,
+        label + " has no graph/callback/pending/status side effect");
+      };
+
+      assertNoSideEffect(
+        ui.connectAuthoredHoleTerminals("D13", "R1:A", authoredHoleMeta(), 3),
+        "stale-lesson",
+        "stale lesson",
+      );
+      assertNoSideEffect(
+        ui.connectAuthoredHoleTerminals("D13", "R1:A", authoredHoleMeta(), "2"),
+        "stale-lesson",
+        "non-integer expected lesson",
+      );
+      assertNoSideEffect(
+        ui.connectAuthoredHoleTerminals("BTN:1", "R1:A", authoredHoleMeta(), 2),
+        "invalid-terminal",
+        "foreign lesson terminal",
+      );
+      assertNoSideEffect(
+        ui.connectAuthoredHoleTerminals("D13", "D13", authoredHoleMeta(), 2),
+        "same-terminal",
+        "same canonical terminal",
+      );
+
+      const accessorMeta={};
+      Object.defineProperties(accessorMeta,{
+        source:{get(){throw new Error("source getter must not execute");},enumerable:true,configurable:true},
+        physicalVerified:{value:false,enumerable:true,configurable:true,writable:true},
+        profileId:{value:"generic-63x10-terminal-strips",enumerable:true,configurable:true,writable:true},
+        fromHoleId:{value:"A1",enumerable:true,configurable:true,writable:true},
+        toHoleId:{value:"J63",enumerable:true,configurable:true,writable:true},
+        placementRevision:{value:0,enumerable:true,configurable:true,writable:true},
+      });
+      Object.freeze(accessorMeta);
+      const customProtoMeta=Object.freeze(Object.assign(Object.create({ forged:true }),{
+        source:"authored-hole-confirm",physicalVerified:false,
+        profileId:"generic-63x10-terminal-strips",fromHoleId:"A1",toHoleId:"J63",placementRevision:0,
+      }));
+      const nullProtoMeta=Object.freeze(Object.assign(Object.create(null),{
+        source:"authored-hole-confirm",physicalVerified:false,
+        profileId:"generic-63x10-terminal-strips",fromHoleId:"A1",toHoleId:"J63",placementRevision:0,
+      }));
+      const symbolMeta=Object.freeze({
+        source:"authored-hole-confirm",physicalVerified:false,
+        profileId:"generic-63x10-terminal-strips",fromHoleId:"A1",toHoleId:"J63",placementRevision:0,
+        [Symbol("forged")]:true,
+      });
+      const invalidMetaCases=[
+        [{...authoredHoleMeta()}, "unfrozen"],
+        [Object.freeze({...authoredHoleMeta(), extra:true}), "extra key"],
+        [accessorMeta, "accessor"],
+        [customProtoMeta, "custom prototype"],
+        [nullProtoMeta, "null prototype"],
+        [symbolMeta, "symbol key"],
+        [authoredHoleMeta({source:"pointer-drag"}), "wrong source"],
+        [authoredHoleMeta({physicalVerified:true}), "physical verification claim"],
+        [authoredHoleMeta({profileId:"unknown-profile"}), "unknown profile"],
+        [authoredHoleMeta({fromHoleId:"A0"}), "hole zero"],
+        [authoredHoleMeta({fromHoleId:"A01"}), "hole leading zero"],
+        [authoredHoleMeta({fromHoleId:"K1"}), "row outside A-J"],
+        [authoredHoleMeta({toHoleId:"J64"}), "column above 63"],
+        [authoredHoleMeta({toHoleId:"A1"}), "same hole"],
+        [authoredHoleMeta({placementRevision:-1}), "negative revision"],
+        [authoredHoleMeta({placementRevision:1.5}), "fractional revision"],
+        [authoredHoleMeta({placementRevision:Number.MAX_SAFE_INTEGER+1}), "unsafe revision"],
+      ];
+      for(const [meta,label] of invalidMetaCases){
+        assertNoSideEffect(
+          ui.connectAuthoredHoleTerminals("D13","R1:A",meta,2),
+          "invalid-meta",
+          "invalid meta " + label,
+        );
+      }
+
+      ui.setStage("wiring");
+      const offStageCircuit=authoredCircuits.get(2);
+      const offStageChanges=changes.length;
+      const offStagePending=ui.snapshot().firstTerminal;
+      const offStageScenePending=scene.pending;
+      const offStageMessage=message.textContent;
+      const offStageResult=ui.connectAuthoredHoleTerminals("D13","R1:A",authoredHoleMeta(),2);
+      assert(Object.isFrozen(offStageResult) && offStageResult.accepted === false &&
+        offStageResult.committed === false && offStageResult.reason === "editor-not-active" &&
+        changes.length === offStageChanges && authoredCircuits.get(2) === offStageCircuit &&
+        ui.snapshot().firstTerminal === offStagePending && scene.pending === offStageScenePending &&
+        message.textContent === offStageMessage,
+      "non-3D API rejection adds no graph/callback/pending/status side effect after stage switch");
+      ui.setStage("3d");
+      ui.setScene(null);
+      const noSceneCircuit=authoredCircuits.get(2);
+      const noSceneChanges=changes.length;
+      const noScenePending=ui.snapshot().firstTerminal;
+      const noSceneMessage=message.textContent;
+      const noSceneResult=ui.connectAuthoredHoleTerminals("D13","R1:A",authoredHoleMeta(),2);
+      assert(Object.isFrozen(noSceneResult) && noSceneResult.accepted === false &&
+        noSceneResult.committed === false && noSceneResult.reason === "scene-required" &&
+        changes.length === noSceneChanges && authoredCircuits.get(2) === noSceneCircuit &&
+        ui.snapshot().firstTerminal === noScenePending && message.textContent === noSceneMessage,
+      "missing-scene API rejection adds no graph/callback/pending/status side effect");
+      ui.setScene(scene);
+      assert(ui.selectTerminal("D13") === "D13" && ui.snapshot().firstTerminal === "D13" &&
+        scene.pending === "D13",
+      "valid authored-hole commit starts from the existing pending-terminal state");
+
+      const beforeLayoutDepth=ui.snapshot().layoutUndoDepth;
+      const accepted=ui.connectAuthoredHoleTerminals(
+        "D13","R1:A",
+        authoredHoleMeta({
+          profileId:"busboard-bb830-rev7",
+          fromHoleId:"A1",
+          toHoleId:"J63",
+          placementRevision:7,
+        }),
+        2,
+      );
+      assert(Object.isFrozen(accepted) && accepted.accepted === true && accepted.committed === true &&
+        accepted.reason === "connected" && accepted.lessonId === 2 &&
+        accepted.fromId === "D13" && accepted.toId === "R1:A" && accepted.wireId === "w1" &&
+        accepted.learnerGraphOnly === true && accepted.physicalVerified === false &&
+        Reflect.ownKeys(accepted).length === 9 &&
+        !Object.hasOwn(accepted,"profileId") && !Object.hasOwn(accepted,"fromHoleId") &&
+        !Object.hasOwn(accepted,"toHoleId") && !Object.hasOwn(accepted,"placementRevision"),
+      "valid authored-hole confirmation returns existing truthful committed receipt");
+      assert(changes.length === baselineChanges+1 && authoredCircuits.get(2).wires.length === 1 &&
+        authoredCircuits.get(2).wires[0].from === "D13" && authoredCircuits.get(2).wires[0].to === "R1:A" &&
+        ui.snapshot().firstTerminal === null && scene.pending === null &&
+        ui.snapshot().layoutUndoDepth === beforeLayoutDepth,
+      "valid authored-hole confirmation delegates to canonical learner graph without layout-history write");
+
+      const committedCircuit=authoredCircuits.get(2);
+      const duplicate=ui.connectAuthoredHoleTerminals("D13","R1:A",authoredHoleMeta({placementRevision:8}),2);
+      assert(Object.isFrozen(duplicate) && duplicate.accepted === false && duplicate.committed === false &&
+        duplicate.reason === "router-rejected" && changes.length === baselineChanges+1 &&
+        authoredCircuits.get(2) === committedCircuit && authoredCircuits.get(2).wires.length === 1,
+      "duplicate authored-hole confirmation remains canonical router no-op");
+      if(nativeBrowserDom){
+        const HTMLElement=globalThis.window?.HTMLElement;
+        assert(HTMLElement && message instanceof HTMLElement,
+          "native browser direct contract runs against real DOM status node");
+      }else{
+        assert(message instanceof FakeNode,
+          "Bun direct contract runs against fake DOM status node");
+      }
+    });
+
+    const lesson10Circuit=createCircuit(10);
+    withFixture({circuits:new Map([[10,lesson10Circuit]])},({ui,changes})=>{
+      ui.setLesson(10);
+      assert(ui.openEditor() === true && changes.length === 0,
+        "opening lesson 10 does not auto-create authored-hole learner mutations");
+      const trail10=buildPracticeCheckpointTrail({
+        lesson:lessonById(10),currentStepIndex:0,circuit:lesson10Circuit,
+      });
+      assert(trail10.lessonScope === "signal-only" && trail10.claims.signalOnly === true &&
+        trail10.steps.every(step=>step.kind === "manual" && step.scope === "manual") &&
+        trail10.claims.mutationPerformed === false,
+      "lesson 10 remains signal-only with all authored practice steps manual-only");
+    });
+
+    const lesson14Circuits=new Map([[14,createCircuit(14)]]);
+    withFixture({circuits:lesson14Circuits},({ui,changes})=>{
+      ui.setLesson(14);
+      ui.openEditor();
+      const result=ui.connectAuthoredHoleTerminals(
+        "A0","SOIL:SIG",
+        authoredHoleMeta({
+          profileId:"busboard-bb830-rev7",
+          fromHoleId:"C3",
+          toHoleId:"H61",
+          placementRevision:14,
+        }),
+        14,
+      );
+      const analysis=changes.at(-1)?.analysis;
+      const trail14=buildPracticeCheckpointTrail({
+        lesson:lessonById(14),currentStepIndex:0,circuit:lesson14Circuits.get(14),
+      });
+      assert(result.accepted === true && result.committed === true && changes.length === 1 &&
+        analysis?.scope === "signal-only" && analysis.functional === false && analysis.ok === false &&
+        trail14.lessonScope === "signal-only" && trail14.claims.signalOnly === true &&
+        trail14.steps[0].kind === "wiring" && trail14.steps[0].scope === "signal-only" &&
+        trail14.steps.slice(1).every(step=>step.kind === "manual" && step.scope === "manual"),
+      "lesson 14 authored-hole route preserves signal-only and manual-step practice boundaries");
+    });
+
+    withFixture({circuits:new Map()},({ui,changes})=>{
+      ui.setLesson(1);
+      const result=ui.connectAuthoredHoleTerminals("D13","GND",authoredHoleMeta(),1);
+      const trail1=buildPracticeCheckpointTrail({
+        lesson:lessonById(1),currentStepIndex:0,circuit:null,
+      });
+      assert(Object.isFrozen(result) && result.accepted === false && result.committed === false &&
+        result.reason === "unsupported-lesson" && changes.length === 0 && ui.openEditor() === false &&
+        trail1.lessonScope === "manual-only" && trail1.steps.every(step=>step.scope === "manual") &&
+        trail1.claims.mutationPerformed === false,
+      "lesson 1 remains unsupported/manual-only and cannot gain a learner graph through hole confirmation");
     });
 
     const learnerCircuit = connectCircuit(createCircuit(2), "D13", "R1:A");

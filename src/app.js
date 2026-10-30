@@ -223,6 +223,26 @@ function syncSceneBreadboardHoleStudy(){
       )??false;
     },
   });
+  // Hole-to-hole intent is a separate visual gesture on top of the already
+  // selected, explicitly-authored terminal-to-hole inputs. Only a dedicated
+  // confirmation routed through Lab Editor may commit a circuit-router edge.
+  const link=state.breadboardUI?.getHoleLinkSnapshot?.()??null;
+  const currentLink=enabled&&link?.lessonId===expectedLessonId&&
+    link?.profileId===profileId;
+  state.scene?.setBreadboardHoleLinkIntent?.({
+    mode:currentLink?link.mode:"off",
+    profileId,
+    firstHoleId:currentLink?link.firstHoleId:null,
+    secondHoleId:currentLink?link.secondHoleId:null,
+    onHoleLinkDrop(holeId,meta){
+      if(!currentLink||state.lessonId!==expectedLessonId ||
+         $("bbProfile").value!==profileId||state.stageTab!=="3d"||
+         state.labEditorUI?.isEditingIn3D?.()!==true)return false;
+      return state.breadboardUI?.pickHoleLinkTargetFromDrag?.(
+        holeId,meta,expectedLessonId,profileId
+      )??false;
+    },
+  });
 }
 function acceptCommittedWireInspection(wireId,expectedLessonId=state.lessonId){
   if(expectedLessonId!==state.lessonId||
@@ -958,7 +978,10 @@ function renderInfo() {
   $("safetyNote").textContent=lesson.caution;
 }
 function renderStage() {
-  if(state.stageTab!=="3d")state.bb3dHolePickRequested=false;
+  if(state.stageTab!=="3d"){
+    state.bb3dHolePickRequested=false;
+    state.breadboardUI?.cancelHoleLink?.();
+  }
   if(state.stageTab!=="3d" && state.authoredGuide)clearAuthoredGuide();
   if(state.stageTab!=="3d" && state.inspectedTerminalId!==null){
     state.inspectedTerminalId=null;
@@ -1275,6 +1298,7 @@ function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
   state.bb3dHolePickRequested=false;
+  state.breadboardUI?.cancelHoleLink?.();
   clearAuthoredGuide();
   clearCommittedWireInspection();
   stopClock();
@@ -1421,12 +1445,20 @@ function wireEvents(){
       clearAuthoredGuide();
       clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
+    }else{
+      state.breadboardUI?.cancelHoleLink?.();
     }
     state.bb3dHolePickRequested=!state.bb3dHolePickRequested;
+    // Returning from the 2D stage revokes hole-pick intent while preserving
+    // explicit terminal->hole placements. Re-arming the picker must refresh
+    // the native Confirm workflow's derived enablement as well as the Three.js
+    // projection; the scene setter alone does not re-render Breadboard Study.
+    state.breadboardUI?.update?.();
     syncSceneBreadboardHoleStudy();
   });
   $("bbProfile").addEventListener("change",()=>{
     state.bb3dHolePickRequested=false;
+    state.breadboardUI?.cancelHoleLink?.();
     syncSceneBreadboardHoleStudy();
   });
   $("sceneInspectionStatus").addEventListener("click",event=>{
@@ -1621,7 +1653,10 @@ async function init(){
     onEditModeChange(){
       if(state.authoredGuide)clearAuthoredGuide();
       if(!state.labEditorUI?.isEditingIn3D?.())clearCommittedWireInspection();
-      if(!state.labEditorUI?.isEditingIn3D?.())state.bb3dHolePickRequested=false;
+      if(!state.labEditorUI?.isEditingIn3D?.()){
+        state.bb3dHolePickRequested=false;
+        state.breadboardUI?.cancelHoleLink?.();
+      }
       state.inspectedTerminalId=null;
       state.scene?.setInspectedTerminal?.(null);
       refreshSceneInspectionNote();
@@ -1672,8 +1707,23 @@ async function init(){
   });
   state.breadboardUI=mountBreadboardStudy({
     getLayout:()=>state.labEditorUI?.snapshot()?.layout??null,
-    getSceneEditActive:()=>state.stageTab==="3d" && state.labEditorUI?.isEditingIn3D?.()===true,
+    getSceneEditActive:()=>state.stageTab==="3d" &&
+      state.labEditorUI?.isEditingIn3D?.()===true &&
+      state.bb3dHolePickRequested===true,
     onHoleSelectionChange(){syncSceneBreadboardHoleStudy();},
+    onHoleLinkChange(){syncSceneBreadboardHoleStudy();},
+    onConnectTerminalPair(from,to,meta,expectedLessonId){
+      if(expectedLessonId!==state.lessonId||
+         state.stageTab!=="3d"||state.bb3dHolePickRequested!==true||
+         state.labEditorUI?.isEditingIn3D?.()!==true||
+         !supportedWiringLessons().includes(state.lessonId)){
+        return Object.freeze({accepted:false,committed:false,reason:"stale-or-inactive-hole-confirm"});
+      }
+      const outcome=state.labEditorUI?.connectAuthoredHoleTerminals?.(
+        from,to,meta,expectedLessonId
+      );
+      return outcome??Object.freeze({accepted:false,committed:false,reason:"no-canonical-learner-editor"});
+    },
     getLessonTerminals:()=>({
       lessonId:state.lessonId,
       terminals:supportedWiringLessons().includes(state.lessonId)
@@ -1735,6 +1785,7 @@ async function init(){
       // The 3D hole-picker is a transient visual input mode, never a
       // persistent physical placement or connection. Do not replay on restore.
       state.bb3dHolePickRequested=false;
+      state.breadboardUI?.cancelHoleLink?.();
       clearAuthoredGuide();
       clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();

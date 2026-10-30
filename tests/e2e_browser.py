@@ -84,6 +84,7 @@ def main() -> None:
     cdp_runtime_console_events: list[dict[str, object]] = []
     cdp_sessions: list[object] = []
     cdp_setup_errors: list[str] = []
+    failed_requests: list[dict[str, str]] = []
     page_sequence = 0
 
     def check(name: str, passed: bool, details: str = "") -> None:
@@ -106,7 +107,15 @@ def main() -> None:
                     lesson: document.querySelector('#lessonTitle')?.textContent || '',
                     documentState: document.readyState,
                     url: location.href,
+                    scripts: Array.from(document.querySelectorAll('script[src]'), script => script.getAttribute('src')),
+                    serviceWorkerControlled: !!navigator.serviceWorker?.controller,
                 })""")
+                actual["recentPageErrors"] = errors[-6:]
+                actual["recentConsoleErrors"] = console_errors[-6:]
+                actual["recentFailedRequests"] = [
+                    item for item in failed_requests[-30:]
+                    if item["pageUrl"] == page.url
+                ][-8:]
             except Exception as diagnostic_error:
                 actual = {"diagnosticError": str(diagnostic_error)}
             raise AssertionError("3D readiness failed: " +
@@ -337,6 +346,11 @@ def main() -> None:
         page_sequence += 1
         page_key = f"page-{page_sequence}"
         page.on("pageerror", lambda exc: errors.append(str(exc)))
+        page.on("requestfailed", lambda request: failed_requests.append({
+            "pageUrl": page.url,
+            "requestUrl": request.url,
+            "failure": request.failure or "unknown",
+        }))
 
         # Positive provenance for browser-internal diagnostics. Playwright's
         # Chromium bridge turns CDP Log.entryAdded into ConsoleMessage(args=[])
@@ -697,7 +711,27 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 237
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 280
+                      and "hole-link-source-ghost-is-explicitly-nonauthoritative" in
+                          scene_lifecycle_names
+                      and "hole-link-source-same-profile-study-reprojection-does-not-cancel-hole-link-drag" in
+                          scene_lifecycle_names
+                      and "hole-link-raycast-native-instanced-raycast-selects-exact-instance-id" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-mouse-drop-delegates-exactly-once-with-frozen-meta" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-touch-drop-delegates-exactly-once-with-frozen-meta" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-pen-drop-delegates-exactly-once-with-frozen-meta" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-drop-allows-synchronous-controller-reprojection-without-stale-clear" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-pointercancel-clears-ghost-without-drop" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-link-lostcapture-clears-ghost-without-drop" in
+                          scene_lifecycle_names
+                      and "context-loss-resets-breadboard-hole-link-intent-and-ghost" in
+                          scene_lifecycle_names
                       and "breadboard-hole-study-active-status-and-630-instance-datasets" in
                           scene_lifecycle_names
                       and "breadboard-hole-study-pointer-selects-canonical-A1-exactly-once" in
@@ -930,9 +964,9 @@ def main() -> None:
                 scene_hole_bridge_names = set(scene_hole_bridge_contracts.get("checks", []))
                 check("post-57d8b90-threejs-native-hole-selection-bridge-contracts",
                       scene_hole_bridge_contracts["passed"] ==
-                        scene_hole_bridge_contracts["total"] == 14
+                        scene_hole_bridge_contracts["total"] == 24
                       and scene_hole_bridge_contracts.get("failed",0) == 0
-                      and len(scene_hole_bridge_names)==14
+                      and len(scene_hole_bridge_names)==24
                       and {
                           "scene-pick-pages-selects-contact-and-stays-input-only",
                           "native-strip-picker-notifies-same-read-only-selection-channel",
@@ -942,8 +976,15 @@ def main() -> None:
                           "scene-pick-rejects-noncanonical-or-nonstrip-hole-ids-atomically",
                           "scene-pick-rejects-stale-canonical-terminal-context-atomically",
                           "observer-errors-cannot-upgrade-selection-to-placement-authority",
+                          "hole-link-controls-are-all-or-none-accessible-44px-and-toggle-keeps-focus",
+                          "authored-hole-link-scene-first-direct-drag-confirm-is-explicit-and-canonical",
+                          "denied-or-accessor-connect-receipt-keeps-ready-preview-and-no-auto-graph",
+                          "drag-target-rejects-foreign-meta-profile-unassigned-and-same-hole-without-intent-change",
+                          "successful-placement-mutation-revokes-revision-bound-intent-and-prevents-id-reuse",
+                          "terminal-profile-and-lesson-changes-revoke-active-intent",
+                          "lesson10-and-14-remain-visual-only-before-confirm",
                       }.issubset(scene_hole_bridge_names),
-                      f"{scene_hole_bridge_contracts['passed']}/14 exact lesson/profile/frozen-meta/DOM bridge checks")
+                      f"{scene_hole_bridge_contracts['passed']}/24 exact lesson/profile/frozen-meta/DOM/link-confirm checks")
                 breadboard_profile = page.evaluate("""async () => {
                     const module = await import('./src/breadboard-topology.js');
                     const generic = module.createBreadboardTopology();
@@ -5510,6 +5551,181 @@ def main() -> None:
                           and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
                 finally:
                     bb_scene_context.close()
+
+                # Post-c745aa5 product phase: A-J×63 conceptual 3D hole
+                # coordinates become an EXPLICIT learner authoring route only
+                # when two canonical terminals have already been assigned to
+                # two exact holes. Neither two taps nor a ghost create an edge;
+                # a separate keyboard-accessible Confirm button must delegate
+                # the exact terminals to the existing circuit-router.
+                hole_link_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    hole_link_page=hole_link_context.new_page()
+                    capture_console(hole_link_page)
+                    hole_link_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(hole_link_page)
+                    hole_link_page.locator('.lesson-link[data-lesson="2"]').click()
+                    hole_link_page.locator("#infoTabPractice").click()
+                    hole_initial_progress=hole_link_page.locator("#progressText").inner_text()
+                    hole_canvas=hole_link_page.locator("#sceneMount canvas")
+                    hole_enable=hole_link_page.locator("#bbHoleLinkEnable")
+                    hole_confirm=hole_link_page.locator("#bbHoleLinkConfirm")
+                    hole_cancel=hole_link_page.locator("#bbHoleLinkCancel")
+                    check("post-c745-hole-link-inactive-until-explicit-edit-and-assignments",
+                          hole_enable.is_disabled() and hole_confirm.is_disabled()
+                          and hole_cancel.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0")
+                    hole_link_page.locator("#labEditToggle").click()
+                    hole_link_page.locator("#bb3dHolePickToggle").click()
+                    check("post-c745-hole-link-no-phantom-start-before-two-assignments",
+                          hole_enable.is_disabled()
+                          and hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0")
+                    for terminal,hole in [("D13","C32"),("R1:A","H32")]:
+                        hole_link_page.locator("#bbTerminal").select_option(terminal)
+                        hole_link_page.locator("#bbPlaceHole").fill(hole)
+                        hole_link_page.locator("#bbAssignHole").click()
+                        check("post-c745-explicit-hole-assign-"+terminal.replace(":","-"),
+                              hole_link_page.locator(
+                                  f'#bbPlacedList [data-bb-placement-item="{terminal}"]').count()==1
+                              and hole in hole_link_page.locator(
+                                  f'#bbPlacedList [data-bb-placement-item="{terminal}"]').inner_text()
+                              and hole_canvas.get_attribute("data-lab-wire-count")=="0")
+                    enable_rect=hole_enable.bounding_box()
+                    confirm_rect=hole_confirm.bounding_box()
+                    cancel_rect=hole_cancel.bounding_box()
+                    check("post-c745-hole-link-native-controls-44px-and-confirm-disabled",
+                          not hole_enable.is_disabled() and hole_confirm.is_disabled()
+                          and enable_rect is not None and confirm_rect is not None
+                          and cancel_rect is not None
+                          and min(enable_rect["width"],enable_rect["height"],
+                                  confirm_rect["width"],confirm_rect["height"],
+                                  cancel_rect["width"],cancel_rect["height"])>=44)
+                    hole_enable.focus()
+                    hole_enable.press("Enter")
+                    check("post-c745-hole-link-keyboard-opt-in-never-autoconnects",
+                          hole_enable.get_attribute("aria-pressed")=="true"
+                          and hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+
+                    # Use a page-bounded native A-J button for the first hole;
+                    # the same exact canonical ID is then the starting point
+                    # of a real Three.js pointer-drag to the second hole.
+                    for _ in range(3):
+                        hole_link_page.locator("#bbGridNext").click()
+                    check("post-c745-hole-link-native-grid-page-4-before-first-point",
+                          hole_link_page.locator("#bbHoleGrid").get_attribute("data-page")=="4"
+                          and hole_link_page.locator(
+                              '#bbHoleGrid [data-bb-grid-hole="C32"]').count()==1)
+                    hole_link_page.locator('#bbHoleGrid [data-bb-grid-hole="C32"]').focus()
+                    hole_link_page.locator('#bbHoleGrid [data-bb-grid-hole="C32"]').press("Enter")
+                    check("post-c745-hole-link-first-assigned-hole-is-only-preview",
+                          hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and "C32" in hole_link_page.locator("#bbHoleLinkStatus").inner_text()
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+
+                    hole_link_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    hole_link_page.wait_for_timeout(60)
+                    points=lab_scene_breadboard_hole_points(
+                        hole_link_page,2,["C32","H32"])
+                    start,end=points
+                    check("post-c745-hole-link-live-scene-projection-is-visible",
+                          all(p["visible"] and p["uncovered"] for p in points),
+                          json.dumps(points,ensure_ascii=False))
+                    hole_link_page.mouse.move(start["x"],start["y"])
+                    hole_link_page.mouse.down()
+                    hole_link_page.mouse.move(end["x"],end["y"],steps=8)
+                    hole_link_page.mouse.up()
+                    check("post-c745-hole-link-direct-3d-drag-ends-only-in-ready-intent",
+                          not hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and "D13" in hole_link_page.locator("#bbHoleLinkStatus").inner_text()
+                          and "R1:A" in hole_link_page.locator("#bbHoleLinkStatus").inner_text()
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress,
+                          json.dumps({"start":start,"end":end,
+                                      "status":hole_link_page.locator(
+                                          "#bbHoleLinkStatus").inner_text()},ensure_ascii=False))
+                    hole_confirm.focus()
+                    hole_confirm.press("Enter")
+                    check("post-c745-hole-link-explicit-confirm-commits-one-canonical-learner-wire",
+                          hole_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress
+                          and "D13" in hole_link_page.locator("#bbHoleLinkStatus").inner_text()
+                          and "R1:A" in hole_link_page.locator("#bbHoleLinkStatus").inner_text()
+                          and hole_link_page.evaluate("document.activeElement?.id")=="bbHoleLinkEnable")
+                    hole_link_page.locator("#stageTabWiring").click()
+                    check("post-c745-hole-link-committed-wire-reuses-2d-and-explorer-learner-graph",
+                          hole_link_page.locator('.wiring-view .wire-connected').count()==1
+                          and hole_link_page.locator(
+                              '#labExplorer [data-explorer-wire="w1"]').count()>=1
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+                    hole_link_page.locator("#stageTab3d").click()
+                    check("post-c745-hole-link-stage-switch-revokes-ghost-preserves-wire",
+                          hole_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and hole_enable.get_attribute("aria-pressed")=="false")
+                    hole_link_page.locator("#labUndoWire").click()
+                    check("post-c745-hole-link-undo-uses-existing-canonical-learner-history",
+                          hole_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and hole_link_page.locator(
+                              '#labExplorer [data-explorer-wire="w1"]').count()==0
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+                    hole_link_page.locator("#labRedoWire").click()
+                    check("post-c745-hole-link-redo-restores-existing-canonical-wire",
+                          hole_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and hole_link_page.locator(
+                              '#labExplorer [data-explorer-wire="w1"]').count()==2
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+                    hole_link_page.locator("#bb3dHolePickToggle").click()
+                    check("post-c745-hole-link-rearm-after-stage-and-history-refreshes-native-availability",
+                          hole_link_page.locator("#bb3dHolePickToggle").get_attribute("aria-pressed")=="true"
+                          and not hole_enable.is_disabled()
+                          and hole_confirm.is_disabled()
+                          and hole_link_page.locator(
+                              '#bbPlacedList [data-bb-placement-item="D13"]').count()==1
+                          and hole_link_page.locator(
+                              '#bbPlacedList [data-bb-placement-item="R1:A"]').count()==1
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="1")
+                    hole_enable.click()
+                    current_page=int(hole_link_page.locator("#bbHoleGrid").get_attribute(
+                        "data-page"))
+                    while current_page<4:
+                        hole_link_page.locator("#bbGridNext").click()
+                        current_page+=1
+                    while current_page>4:
+                        hole_link_page.locator("#bbGridPrev").click()
+                        current_page-=1
+                    hole_link_page.locator('#bbHoleGrid [data-bb-grid-hole="C32"]').click()
+                    hole_cancel.focus()
+                    hole_cancel.press("Enter")
+                    check("post-c745-hole-link-explicit-cancel-revokes-ghost-not-learner-wire",
+                          hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="1"
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress
+                          and hole_link_page.evaluate("document.activeElement?.id")=="bbHoleLinkEnable")
+                    hole_link_page.set_viewport_size({"width":375,"height":812})
+                    mobile_enable=hole_enable.bounding_box()
+                    mobile_confirm=hole_confirm.bounding_box()
+                    mobile_cancel=hole_cancel.bounding_box()
+                    check("post-c745-hole-link-mobile-375px-44px-buttons-no-overflow",
+                          mobile_enable is not None and mobile_confirm is not None
+                          and mobile_cancel is not None
+                          and min(mobile_enable["width"],mobile_enable["height"],
+                                  mobile_confirm["width"],mobile_confirm["height"],
+                                  mobile_cancel["width"],mobile_cancel["height"])>=44
+                          and hole_link_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    hole_link_page.set_viewport_size({"width":1280,"height":820})
+                    hole_link_page.locator('.lesson-link[data-lesson="1"]').click()
+                    check("post-c745-hole-link-lesson1-blocks-external-circuit-intent",
+                          hole_enable.is_disabled() and hole_confirm.is_disabled()
+                          and hole_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and hole_link_page.locator("#progressText").inner_text()==hole_initial_progress)
+                finally:
+                    hole_link_context.close()
 
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"

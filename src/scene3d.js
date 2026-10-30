@@ -29,6 +29,8 @@ const BREADBOARD_STUDY_COLUMNS = 63;
 const BREADBOARD_STUDY_HOLE_COUNT = BREADBOARD_STUDY_ROWS.length * BREADBOARD_STUDY_COLUMNS;
 const BREADBOARD_STUDY_PROFILE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROW_Z = Object.freeze([-.30,-.24,-.18,-.12,-.06,.06,.12,.18,.24,.30]);
+const BREADBOARD_HOLE_LINK_ROUTE_POINTS = 3;
+const BREADBOARD_HOLE_LINK_MODES = new Set(["off","await-start","await-end","ready"]);
 const WIRING_LIMITS = Object.freeze({ maxWires: 48, maxTerminals: 32, maxNetLabels: 16, maxIssues: 96 });
 const WIRING_COLORS = Object.freeze({
   checked: 0x188b80,
@@ -100,6 +102,19 @@ const createSharedMaterials = () => ({
   breadboardStudySelectedMat: new T.MeshBasicMaterial({
     color: palette.amber, transparent: true, opacity: .98,
     depthWrite: false, depthTest: false, side: T.DoubleSide,
+  }),
+  breadboardHoleLinkValidMat: new T.LineBasicMaterial({
+    color: 0x74d9c8, transparent: true, opacity: .98,
+    depthWrite: false, depthTest: false,
+  }),
+  breadboardHoleLinkInvalidMat: new T.LineBasicMaterial({
+    color: palette.coral, transparent: true, opacity: .98,
+    depthWrite: false, depthTest: false,
+  }),
+  breadboardHoleLinkReadyMat: new T.LineDashedMaterial({
+    color: palette.amber, transparent: true, opacity: .98,
+    dashSize: .065, gapSize: .035,
+    depthWrite: false, depthTest: false,
   }),
   contactStripMat: material(0xb7c3bf, { metalness: .16, roughness: .48 }),
   hitMat: new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
@@ -1100,6 +1115,10 @@ export function mountScene(host, onSelect = () => {}) {
   };
   let breadboardHoleStudyLayer=null,breadboardHoleStudyMesh=null,breadboardHoleStudyHalo=null;
   let breadboardHoleStudyComponentId=null,breadboardHoleStudyLayoutRef=null;
+  let breadboardHoleLinkIntent={
+    mode:"off",profileId:null,firstHoleId:null,secondHoleId:null,onHoleLinkDrop:null
+  };
+  let breadboardHoleLinkLine=null,breadboardHoleLinkHoverId=null,breadboardHoleLinkPreview="none";
   let focusedLabComponentId=null,currentLod="full",rendererPixelRatio=1,fineDetailCount=0,fineDetailInstanceCount=0;
   let labWireLayer=null;
   let labWireGeometryRevision=0;
@@ -1112,6 +1131,8 @@ export function mountScene(host, onSelect = () => {}) {
   const raycaster=new T.Raycaster(),committedWireRaycaster=new T.Raycaster();
   committedWireRaycaster.params.Line.threshold=LAB_COMMITTED_WIRE_PICK_THRESHOLD;
   const pointerNdc=new T.Vector2(),dragPlane=new T.Plane(new T.Vector3(0,1,0),0);
+  const breadboardHoleLinkMatrix=new T.Matrix4();
+  const breadboardHoleLinkStart=new T.Vector3(),breadboardHoleLinkEnd=new T.Vector3();
   const minZoom=.42,maxZoom=2.25;
 
   try {
@@ -1303,6 +1324,16 @@ export function mountScene(host, onSelect = () => {}) {
         "Đây là định danh học tập trực quan, không xác nhận vị trí lỗ vật lý, rail hoặc kết nối điện."
       );
     }
+    if(breadboardHoleLinkIntent.mode!=="off"){
+      const pair=breadboardHoleLinkIntent.firstHoleId&&breadboardHoleLinkIntent.secondHoleId
+        ? ` Cặp hiện tại ${breadboardHoleLinkIntent.firstHoleId} đến ${breadboardHoleLinkIntent.secondHoleId}.`
+        : breadboardHoleLinkIntent.firstHoleId
+          ? ` Lỗ đầu hiện tại ${breadboardHoleLinkIntent.firstHoleId}.` : "";
+      parts.push(
+        `Intent nối hai lỗ breadboard đang ở chế độ ${breadboardHoleLinkIntent.mode}.${pair} `+
+        "Đường hiển thị chỉ là gợi ý trực quan; không tự tạo dây, placement hoặc circuit-router edge."
+      );
+    }
     canvas.setAttribute("aria-label",parts.join(" "));
     canvas.setAttribute("aria-keyshortcuts",labEdit.enabled
       ? baseShortcuts+" W A S D Q E Escape"
@@ -1352,6 +1383,12 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.labBreadboardHoleSelected="";
     canvas.dataset.labBreadboardHoleCount="0";
     canvas.dataset.labBreadboardHolePhysicalVerified="false";
+    canvas.dataset.labHoleLinkMode="off";
+    canvas.dataset.labHoleLinkFirst="";
+    canvas.dataset.labHoleLinkSecond="";
+    canvas.dataset.labHoleLinkHover="";
+    canvas.dataset.labHoleLinkPreview="none";
+    canvas.dataset.labHoleLinkElectricalAuthority="false";
     canvas.dataset.labHoveredTerminal="";
     canvas.dataset.labTerminalLabelFeedback="none";
     canvas.dataset.labTerminalContrastFeedback="none";
@@ -1732,6 +1769,7 @@ export function mountScene(host, onSelect = () => {}) {
   function clearBreadboardHoleStudyVisual(redraw=false){
     const changed=breadboardHoleStudyLayer!==null||
       canvas.dataset.labBreadboardHoleStudyMode!=="none";
+    resetBreadboardHoleLinkIntent(false);
     if(breadboardHoleStudyLayer){
       breadboardHoleStudyLayer.parent?.remove(breadboardHoleStudyLayer);
       disposeTree(breadboardHoleStudyLayer,sharedMaterialSet);
@@ -1913,6 +1951,213 @@ export function mountScene(host, onSelect = () => {}) {
     };
     const active=syncBreadboardHoleStudy(true);
     return breadboardHoleStudyStatus(active);
+  }
+  function breadboardHoleLinkStatus(ok=true){
+    return Object.freeze({
+      ok:Boolean(ok),
+      mode:breadboardHoleLinkIntent.mode,
+      active:breadboardHoleLinkIntent.mode!=="off"&&breadboardHoleStudyActive(),
+      profileId:breadboardHoleLinkIntent.profileId,
+      firstHoleId:breadboardHoleLinkIntent.firstHoleId,
+      secondHoleId:breadboardHoleLinkIntent.secondHoleId,
+      hoverHoleId:breadboardHoleLinkHoverId,
+      preview:breadboardHoleLinkPreview,
+      physicalVerified:false,
+      electricalAuthority:false,
+    });
+  }
+  function syncBreadboardHoleLinkDatasets(){
+    canvas.dataset.labHoleLinkMode=breadboardHoleLinkIntent.mode;
+    canvas.dataset.labHoleLinkFirst=breadboardHoleLinkIntent.firstHoleId||"";
+    canvas.dataset.labHoleLinkSecond=breadboardHoleLinkIntent.secondHoleId||"";
+    canvas.dataset.labHoleLinkHover=breadboardHoleLinkHoverId||"";
+    canvas.dataset.labHoleLinkPreview=breadboardHoleLinkPreview;
+    canvas.dataset.labHoleLinkElectricalAuthority="false";
+  }
+  function clearBreadboardHoleLinkLine(){
+    if(!breadboardHoleLinkLine)return false;
+    breadboardHoleLinkLine.parent?.remove(breadboardHoleLinkLine);
+    disposeTree(breadboardHoleLinkLine,sharedMaterialSet);
+    breadboardHoleLinkLine=null;
+    return true;
+  }
+  function clearBreadboardHoleLinkHover(redraw=false){
+    const changed=breadboardHoleLinkHoverId!==null||
+      breadboardHoleLinkPreview==="valid"||breadboardHoleLinkPreview==="invalid";
+    breadboardHoleLinkHoverId=null;
+    if(breadboardHoleLinkIntent.mode==="await-end"){
+      clearBreadboardHoleLinkLine();
+      breadboardHoleLinkPreview="none";
+    }
+    syncBreadboardHoleLinkDatasets();
+    if(redraw&&changed)invalidate();
+    return changed;
+  }
+  function resetBreadboardHoleLinkIntent(redraw=false){
+    cancelBreadboardHoleLinkPointer(false);
+    const changed=breadboardHoleLinkIntent.mode!=="off"||breadboardHoleLinkLine!==null||
+      breadboardHoleLinkHoverId!==null||breadboardHoleLinkPreview!=="none";
+    clearBreadboardHoleLinkLine();
+    breadboardHoleLinkHoverId=null;
+    breadboardHoleLinkPreview="none";
+    breadboardHoleLinkIntent={
+      mode:"off",profileId:null,firstHoleId:null,secondHoleId:null,onHoleLinkDrop:null
+    };
+    syncBreadboardHoleLinkDatasets();
+    if(changed)refreshCanvasAccessibility();
+    if(redraw&&changed)invalidate();
+    return breadboardHoleLinkStatus(true);
+  }
+  function normalizeBreadboardHoleLinkMode(value){
+    if(typeof value!=="string"||!BREADBOARD_HOLE_LINK_MODES.has(value)){
+      throw new RangeError("mode breadboard hole link phải là off, await-start, await-end hoặc ready");
+    }
+    return value;
+  }
+  function normalizeBreadboardHoleLinkHole(holeId,label,{nullable=false}={}){
+    if(holeId==null&&nullable)return null;
+    if(typeof holeId!=="string"||breadboardStudyHoleIndex(holeId)<0){
+      throw new RangeError(label+" phải là canonical A1..J63"+(nullable?" hoặc null":""));
+    }
+    return holeId;
+  }
+  function breadboardHoleStudyInstanceLocalPosition(holeId,target=new T.Vector3()){
+    if(!breadboardHoleStudyMesh)return null;
+    const instanceId=breadboardStudyHoleIndex(holeId);
+    if(instanceId<0||instanceId>=breadboardHoleStudyMesh.count)return null;
+    breadboardHoleStudyMesh.getMatrixAt(instanceId,breadboardHoleLinkMatrix);
+    return target.setFromMatrixPosition(breadboardHoleLinkMatrix);
+  }
+  function ensureBreadboardHoleLinkLine(){
+    if(breadboardHoleLinkLine||!breadboardHoleStudyLayer)return breadboardHoleLinkLine;
+    const geometry=new T.BufferGeometry();
+    geometry.setAttribute(
+      "position",new T.Float32BufferAttribute(BREADBOARD_HOLE_LINK_ROUTE_POINTS*3,3)
+    );
+    breadboardHoleLinkLine=new T.Line(geometry,sharedMaterials.breadboardHoleLinkValidMat);
+    breadboardHoleLinkLine.visible=false;
+    breadboardHoleLinkLine.renderOrder=13;
+    breadboardHoleLinkLine.userData={
+      kind:"lab-breadboard-hole-link-ghost",visualOnly:true,committed:false,
+      conceptualStudy:true,breadboardHoleMapping:false,electricalAuthority:false,
+      physicalLocation:false,physicalVerified:false,
+    };
+    breadboardHoleStudyLayer.add(breadboardHoleLinkLine);
+    return breadboardHoleLinkLine;
+  }
+  function updateBreadboardHoleLinkGeometry(targetHoleId,preview){
+    const sourceId=breadboardHoleLinkIntent.firstHoleId;
+    if(!sourceId||!targetHoleId||!breadboardHoleStudyActive()||
+      breadboardHoleLinkIntent.profileId!==breadboardHoleStudy.profileId)return false;
+    const start=breadboardHoleStudyInstanceLocalPosition(sourceId,breadboardHoleLinkStart);
+    const end=breadboardHoleStudyInstanceLocalPosition(targetHoleId,breadboardHoleLinkEnd);
+    const line=ensureBreadboardHoleLinkLine();
+    if(!start||!end||!line)return false;
+    const mid=start.clone().lerp(end,.5);
+    mid.y=Math.max(start.y,end.y)+.075;
+    const position=line.geometry.getAttribute("position");
+    position.setXYZ(0,start.x,start.y+.018,start.z);
+    position.setXYZ(1,mid.x,mid.y,mid.z);
+    position.setXYZ(2,end.x,end.y+.018,end.z);
+    position.needsUpdate=true;
+    line.geometry.computeBoundingSphere();
+    line.material=preview==="ready"
+      ? sharedMaterials.breadboardHoleLinkReadyMat
+      : preview==="valid"
+        ? sharedMaterials.breadboardHoleLinkValidMat
+        : sharedMaterials.breadboardHoleLinkInvalidMat;
+    line.userData={
+      ...line.userData,from:sourceId,to:targetHoleId,preview,
+    };
+    line.visible=true;
+    if(preview==="ready")line.computeLineDistances();
+    breadboardHoleLinkPreview=preview;
+    return true;
+  }
+  function renderBreadboardHoleLinkReady(){
+    if(breadboardHoleLinkIntent.mode!=="ready"||
+      !breadboardHoleLinkIntent.firstHoleId||!breadboardHoleLinkIntent.secondHoleId)return false;
+    const rendered=updateBreadboardHoleLinkGeometry(
+      breadboardHoleLinkIntent.secondHoleId,"ready"
+    );
+    if(!rendered){
+      clearBreadboardHoleLinkLine();
+      breadboardHoleLinkPreview="none";
+    }
+    syncBreadboardHoleLinkDatasets();
+    return rendered;
+  }
+  function sameBreadboardHoleLinkSemantic(left,right){
+    return left.mode===right.mode&&left.profileId===right.profileId&&
+      left.firstHoleId===right.firstHoleId&&left.secondHoleId===right.secondHoleId;
+  }
+  function setBreadboardHoleLinkIntent(options={mode:"off"}){
+    if(disposed)return breadboardHoleLinkStatus(false);
+    if(!options||typeof options!=="object"||Array.isArray(options)){
+      throw new TypeError("Breadboard hole link intent phải là object");
+    }
+    if(Object.getPrototypeOf(options)!==Object.prototype&&Object.getPrototypeOf(options)!==null){
+      throw new TypeError("Breadboard hole link intent phải dùng own properties");
+    }
+    const ownValue=(key,fallback=undefined)=>{
+      if(!Object.prototype.hasOwnProperty.call(options,key))return fallback;
+      const descriptor=Object.getOwnPropertyDescriptor(options,key);
+      if(!descriptor||!Object.prototype.hasOwnProperty.call(descriptor,"value")){
+        throw new TypeError("Breadboard hole link intent không nhận getter/setter: "+key);
+      }
+      return descriptor.value;
+    };
+    const mode=normalizeBreadboardHoleLinkMode(ownValue("mode","off"));
+    if(mode==="off")return resetBreadboardHoleLinkIntent(true);
+    if(!breadboardHoleStudyActive()){
+      throw new RangeError("Breadboard hole link intent cần 630-hole study active hiện tại");
+    }
+    const profileId=normalizeBreadboardHoleStudyProfileId(ownValue("profileId"));
+    if(profileId!==breadboardHoleStudy.profileId){
+      throw new RangeError("Breadboard hole link intent không khớp profile study hiện tại");
+    }
+    let firstHoleId=null,secondHoleId=null;
+    if(mode==="await-start"){
+      if(ownValue("firstHoleId",null)!=null||ownValue("secondHoleId",null)!=null){
+        throw new RangeError("await-start chưa được mang endpoint hole");
+      }
+    }else if(mode==="await-end"){
+      firstHoleId=normalizeBreadboardHoleLinkHole(ownValue("firstHoleId"),"firstHoleId");
+      if(ownValue("secondHoleId",null)!=null){
+        throw new RangeError("await-end chỉ có firstHoleId; secondHoleId phải null");
+      }
+    }else{
+      firstHoleId=normalizeBreadboardHoleLinkHole(ownValue("firstHoleId"),"firstHoleId");
+      secondHoleId=normalizeBreadboardHoleLinkHole(ownValue("secondHoleId"),"secondHoleId");
+      if(firstHoleId===secondHoleId){
+        throw new RangeError("ready cần hai hole ID canonical khác nhau");
+      }
+    }
+    const callback=ownValue("onHoleLinkDrop",breadboardHoleLinkIntent.onHoleLinkDrop);
+    if(callback!==null&&typeof callback!=="function"){
+      throw new TypeError("onHoleLinkDrop phải là function hoặc null");
+    }
+    const next={mode,profileId,firstHoleId,secondHoleId,onHoleLinkDrop:callback};
+    const semanticSame=sameBreadboardHoleLinkSemantic(breadboardHoleLinkIntent,next);
+    if(semanticSame){
+      breadboardHoleLinkIntent={...breadboardHoleLinkIntent,onHoleLinkDrop:callback};
+      if(mode==="ready"&&!breadboardHoleLinkLine)renderBreadboardHoleLinkReady();
+      syncBreadboardHoleLinkDatasets();
+      return breadboardHoleLinkStatus(true);
+    }
+    cancelBreadboardHoleLinkPointer(false);
+    clearBreadboardHoleLinkLine();
+    breadboardHoleLinkHoverId=null;
+    breadboardHoleLinkPreview="none";
+    breadboardHoleLinkIntent=next;
+    if(mode==="ready"&&!renderBreadboardHoleLinkReady()){
+      resetBreadboardHoleLinkIntent(false);
+      throw new RangeError("Không thể dựng ready hole-link trên study hiện tại");
+    }
+    syncBreadboardHoleLinkDatasets();
+    refreshCanvasAccessibility();
+    invalidate();
+    return breadboardHoleLinkStatus(true);
   }
   function refreshLabInteractionFeedback(){
     let highlightedTerminals=0;
@@ -2643,6 +2888,10 @@ export function mountScene(host, onSelect = () => {}) {
   function breadboardHoleStudyHit(event,layoutRef=activeLabLayout,profileId=breadboardHoleStudy.profileId){
     if(!breadboardHoleStudyActive(layoutRef,profileId)||
       typeof breadboardHoleStudy.onHoleSelect!=="function")return null;
+    return breadboardHoleStudyRawHit(event,layoutRef,profileId);
+  }
+  function breadboardHoleStudyRawHit(event,layoutRef=activeLabLayout,profileId=breadboardHoleStudy.profileId){
+    if(!breadboardHoleStudyActive(layoutRef,profileId))return null;
     if(!pointerRay(event))return null;
     scene.updateMatrixWorld(true);
     const hits=raycaster.intersectObject(breadboardHoleStudyMesh,false);
@@ -2659,6 +2908,88 @@ export function mountScene(host, onSelect = () => {}) {
       };
     }
     return null;
+  }
+  function breadboardHoleLinkIntentActive(layoutRef=activeLabLayout,profileId=breadboardHoleLinkIntent.profileId){
+    if(breadboardHoleLinkIntent.mode!=="await-end"||
+      profileId!==breadboardHoleLinkIntent.profileId||
+      profileId!==breadboardHoleStudy.profileId||
+      !breadboardHoleStudyActive(layoutRef,profileId))return false;
+    const first=breadboardHoleLinkIntent.firstHoleId;
+    return typeof first==="string"&&breadboardStudyHoleIndex(first)>=0;
+  }
+  function breadboardHoleLinkHit(event,layoutRef=activeLabLayout,profileId=breadboardHoleLinkIntent.profileId){
+    if(!breadboardHoleLinkIntentActive(layoutRef,profileId))return null;
+    const labPriorityHit=labHit(event);
+    if(labPriorityHit?.object?.userData?.kind==="lab-terminal")return null;
+    if(committedWireHit(event,layoutRef))return null;
+    return breadboardHoleStudyRawHit(event,layoutRef,profileId);
+  }
+  function isCurrentBreadboardHoleLinkSource(hit){
+    if(!hit||!breadboardHoleLinkIntentActive(hit.layoutRef,hit.profileId)||
+      typeof breadboardHoleLinkIntent.onHoleLinkDrop!=="function")return false;
+    const first=breadboardHoleLinkIntent.firstHoleId;
+    return hit.holeId===first&&hit.instanceId===breadboardStudyHoleIndex(first)&&
+      hit.componentId===breadboardHoleStudyComponentId;
+  }
+  function breadboardHoleLinkPointerActive(pointerState){
+    if(!pointerState||pointerState.kind!=="breadboard-hole-link"||
+      pointerState.layoutRef!==activeLabLayout||
+      pointerState.lessonId!==Number(currentLessonId)||
+      pointerState.profileId!==breadboardHoleStudy.profileId||
+      pointerState.profileId!==breadboardHoleLinkIntent.profileId||
+      pointerState.firstHoleId!==breadboardHoleLinkIntent.firstHoleId||
+      pointerState.firstInstanceId!==breadboardStudyHoleIndex(pointerState.firstHoleId)||
+      pointerState.componentId!==breadboardHoleStudyComponentId||
+      typeof breadboardHoleLinkIntent.onHoleLinkDrop!=="function")return false;
+    return breadboardHoleLinkIntentActive(pointerState.layoutRef,pointerState.profileId);
+  }
+  function breadboardHoleLinkDropTarget(event,pointerState){
+    if(!breadboardHoleLinkPointerActive(pointerState))return null;
+    const hit=breadboardHoleLinkHit(event,pointerState.layoutRef,pointerState.profileId);
+    if(!hit||hit.holeId===pointerState.firstHoleId||
+      hit.instanceId!==breadboardStudyHoleIndex(hit.holeId))return null;
+    return hit;
+  }
+  function updateBreadboardHoleLinkHover(event){
+    if(!breadboardHoleLinkIntentActive()){
+      clearBreadboardHoleLinkHover(false);
+      return false;
+    }
+    const hit=breadboardHoleLinkHit(event);
+    const targetId=hit?.holeId??null;
+    if(!targetId){
+      clearBreadboardHoleLinkHover(true);
+      return false;
+    }
+    const preview=targetId===breadboardHoleLinkIntent.firstHoleId?"invalid":"valid";
+    breadboardHoleLinkHoverId=targetId;
+    if(!updateBreadboardHoleLinkGeometry(targetId,preview)){
+      clearBreadboardHoleLinkHover(true);
+      return false;
+    }
+    syncBreadboardHoleLinkDatasets();
+    invalidate();
+    return preview==="valid";
+  }
+  function updateBreadboardHoleLinkDrag(event){
+    if(!drag||drag.kind!=="breadboard-hole-link"||!moved)return false;
+    if(!breadboardHoleLinkPointerActive(drag)){
+      clearBreadboardHoleLinkHover(true);
+      return false;
+    }
+    return updateBreadboardHoleLinkHover(event);
+  }
+  function cancelBreadboardHoleLinkPointer(redraw=false){
+    const ownsPointer=drag?.kind==="breadboard-hole-link";
+    if(ownsPointer){
+      const pointerId=drag.pointerId;
+      drag=null;
+      moved=false;
+      try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    }
+    const changed=clearBreadboardHoleLinkHover(false)||ownsPointer;
+    if(redraw&&changed)invalidate();
+    return changed;
   }
   function cancelBreadboardHoleStudyPointer(redraw=false){
     if(drag?.kind!=="breadboard-hole-study")return;
@@ -2824,6 +3155,7 @@ export function mountScene(host, onSelect = () => {}) {
     clearLabTerminalHover(true);
     clearPendingWireHover(false);
     clearTerminalLinkDragState(false);
+    clearBreadboardHoleLinkHover(false);
     moved=false;
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
@@ -2851,6 +3183,22 @@ export function mountScene(host, onSelect = () => {}) {
               from:wireHit.canonical.from,
               to:wireHit.canonical.to,
             }),
+          });
+          try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+          return;
+        }
+        const linkSourceHit=breadboardHoleLinkHit(
+          event,activeLabLayout,breadboardHoleStudy.profileId
+        );
+        if(linkSourceHit&&isCurrentBreadboardHoleLinkSource(linkSourceHit)){
+          drag=pointerDragBase(event,{
+            kind:"breadboard-hole-link",
+            layoutRef:activeLabLayout,
+            lessonId:Number(currentLessonId),
+            profileId:breadboardHoleStudy.profileId,
+            firstHoleId:linkSourceHit.holeId,
+            firstInstanceId:linkSourceHit.instanceId,
+            componentId:linkSourceHit.componentId,
           });
           try{canvas.setPointerCapture?.(event.pointerId);}catch{}
           return;
@@ -2913,6 +3261,7 @@ export function mountScene(host, onSelect = () => {}) {
   function move(event){
     if(!drag){
       updatePendingWireHover(event);
+      updateBreadboardHoleLinkHover(event);
       return;
     }
     if(event.pointerId!==drag.pointerId)return;
@@ -2939,6 +3288,9 @@ export function mountScene(host, onSelect = () => {}) {
       event.preventDefault();
       if(crossedTapThreshold)emitTerminalDragStart(drag);
       updateTerminalLinkDrag(event);
+    }else if(drag.kind==="breadboard-hole-link"&&moved){
+      event.preventDefault();
+      updateBreadboardHoleLinkDrag(event);
     }else if((drag.kind==="camera"||drag.kind==="committed-wire"||
       drag.kind==="breadboard-hole-study")&&moved){
       theta-=dx*.008;
@@ -2947,16 +3299,54 @@ export function mountScene(host, onSelect = () => {}) {
     }
     drag.x=event.clientX;drag.y=event.clientY;invalidate();
   }
+  function finishBreadboardHoleStudyTap(finished,event){
+    if(!finished||finished.layoutRef!==activeLabLayout||
+      finished.lessonId!==Number(currentLessonId)||
+      finished.profileId!==breadboardHoleStudy.profileId||
+      !breadboardHoleStudy.enabled||!labEdit.enabled||
+      typeof breadboardHoleStudy.onHoleSelect!=="function")return false;
+    const releaseHit=breadboardHoleStudyHit(
+      event,finished.layoutRef,finished.profileId
+    );
+    if(!releaseHit||releaseHit.holeId!==finished.holeId||
+      releaseHit.instanceId!==finished.instanceId||
+      releaseHit.componentId!==finished.componentId)return false;
+    const accepted=breadboardHoleStudy.onHoleSelect(
+      finished.holeId,
+      Object.freeze({source:"pointer",physicalVerified:false})
+    );
+    const selection=accepted?.accepted===true?accepted.selection:null;
+    if(selection&&
+      Number(selection.lessonId)===finished.lessonId&&
+      selection.profileId===finished.profileId&&
+      selection.holeId===finished.holeId&&
+      finished.layoutRef===activeLabLayout&&
+      finished.profileId===breadboardHoleStudy.profileId&&
+      breadboardHoleStudyActive(finished.layoutRef,finished.profileId)){
+      breadboardHoleStudy={
+        ...breadboardHoleStudy,
+        selectedHoleId:finished.holeId,
+      };
+      refreshBreadboardHoleStudySelection();
+      refreshCanvasAccessibility();
+      invalidate();
+    }
+    return true;
+  }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
     const directTerminalTarget=drag.kind==="terminal"&&select&&moved
       ? terminalLinkTargetFromEvent(event,drag.terminalId,drag.layoutRef)
+      : null;
+    const directHoleLinkTarget=drag.kind==="breadboard-hole-link"&&select&&moved
+      ? breadboardHoleLinkDropTarget(event,drag)
       : null;
     clearPendingWireHover(false);
     const finished=drag;
     drag=null;
     try{canvas.releasePointerCapture?.(event.pointerId);}catch{}
     clearTerminalLinkDragState(false);
+    clearBreadboardHoleLinkHover(false);
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -3006,42 +3396,25 @@ export function mountScene(host, onSelect = () => {}) {
       }
       return;
     }
-    if(finished.kind==="breadboard-hole-study"){
-      if(select&&!moved&&
-        finished.layoutRef===activeLabLayout&&
-        finished.lessonId===Number(currentLessonId)&&
-        finished.profileId===breadboardHoleStudy.profileId&&
-        breadboardHoleStudy.enabled&&labEdit.enabled&&
-        typeof breadboardHoleStudy.onHoleSelect==="function"){
-        const releaseHit=breadboardHoleStudyHit(
-          event,finished.layoutRef,finished.profileId
+    if(finished.kind==="breadboard-hole-link"){
+      if(select&&!moved){
+        finishBreadboardHoleStudyTap({
+          ...finished,
+          holeId:finished.firstHoleId,
+          instanceId:finished.firstInstanceId,
+        },event);
+      }else if(select&&moved&&directHoleLinkTarget&&
+        breadboardHoleLinkPointerActive(finished)){
+        const callback=breadboardHoleLinkIntent.onHoleLinkDrop;
+        callback?.(
+          directHoleLinkTarget.holeId,
+          Object.freeze({source:"pointer-drag",physicalVerified:false})
         );
-        if(releaseHit&&
-          releaseHit.holeId===finished.holeId&&
-          releaseHit.instanceId===finished.instanceId&&
-          releaseHit.componentId===finished.componentId){
-          const accepted=breadboardHoleStudy.onHoleSelect(
-            finished.holeId,
-            Object.freeze({source:"pointer",physicalVerified:false})
-          );
-          const selection=accepted?.accepted===true?accepted.selection:null;
-          if(selection&&
-            Number(selection.lessonId)===finished.lessonId&&
-            selection.profileId===finished.profileId&&
-            selection.holeId===finished.holeId&&
-            finished.layoutRef===activeLabLayout&&
-            finished.profileId===breadboardHoleStudy.profileId&&
-            breadboardHoleStudyActive(finished.layoutRef,finished.profileId)){
-            breadboardHoleStudy={
-              ...breadboardHoleStudy,
-              selectedHoleId:finished.holeId,
-            };
-            refreshBreadboardHoleStudySelection();
-            refreshCanvasAccessibility();
-            invalidate();
-          }
-        }
       }
+      return;
+    }
+    if(finished.kind==="breadboard-hole-study"){
+      if(select&&!moved)finishBreadboardHoleStudyTap(finished,event);
       return;
     }
     if(finished.kind==="lab-fixed"){
@@ -3057,7 +3430,7 @@ export function mountScene(host, onSelect = () => {}) {
   }
   const up=event=>finishPointer(event,true);
   const cancel=event=>{clearLabTerminalHover(true);clearPendingWireHover(true);finishPointer(event,false);};
-  const leave=()=>{if(!drag){clearLabTerminalHover(true);clearPendingWireHover(true);}};
+  const leave=()=>{if(!drag){clearLabTerminalHover(true);clearPendingWireHover(true);clearBreadboardHoleLinkHover(true);}};
   function wheel(event) {
     event.preventDefault();
     zoom=Math.min(maxZoom,Math.max(minZoom,zoom+Math.sign(event.deltaY)*.10));
@@ -3272,7 +3645,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setAuthoredPairGuide,setBreadboardHoleStudy,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;

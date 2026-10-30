@@ -144,6 +144,16 @@
                 </div>
                 <p id="bbGridStatus" role="status" aria-live="polite" class="breadboard-study-hint">Chọn lỗ để điền mã; không tự gán vị trí hoặc nối dây.</p>
               </div>
+              <div id="bbHoleLinkSection" class="breadboard-hole-link" role="group" aria-labelledby="bbHoleLinkHeading" aria-describedby="bbAuthoredBoundary bbHoleLinkStatus">
+                <h3 id="bbHoleLinkHeading">Nối dây qua hai lỗ đã gán tường minh</h3>
+                <p>Trước tiên gán riêng hai chân canonical vào hai lỗ A–J của profile đang chọn. Bật chế độ, chạm lần lượt hai lỗ trên 3D hoặc bảng lỗ, kiểm tra hai chân, rồi <strong>xác nhận nối</strong> để gửi đúng cặp chân tới bộ kiểm tra mạch. Đường nét đứt chỉ là xem trước; không suy điện từ khoảng cách hoặc nhóm lỗ.</p>
+                <div class="breadboard-hole-link-actions">
+                  <button id="bbHoleLinkEnable" type="button" class="button button-soft" aria-pressed="false" aria-controls="bbHoleGrid" aria-describedby="bbHoleLinkStatus" disabled>Bắt đầu chọn hai lỗ</button>
+                  <button id="bbHoleLinkConfirm" type="button" class="button button-soft" aria-describedby="bbHoleLinkStatus" disabled>Xác nhận nối chân vào mạch</button>
+                  <button id="bbHoleLinkCancel" type="button" class="button button-soft" aria-describedby="bbHoleLinkStatus" disabled>Hủy xem trước</button>
+                </div>
+                <p id="bbHoleLinkStatus" class="breadboard-hole-link-status" role="status" aria-live="polite">Chưa có yêu cầu nối. Chỉ xác nhận cặp chân học viên sau khi đã gán hai lỗ tường minh.</p>
+              </div>
               <div class="breadboard-authored-actions">
                 <button id="bbAssignHole" type="button" class="button button-soft">Gán lỗ trong bản nháp</button>
                 <button id="bbRemoveHole" type="button" class="button button-soft">Bỏ gán chân này</button>

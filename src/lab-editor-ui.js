@@ -361,6 +361,38 @@ export function mountLabEditor({
     lessonId, fromId, toId, wireId,
     learnerGraphOnly:true, physicalVerified:false,
   });
+  const AUTHORED_HOLE_CONFIRM_PROFILES=new Set([
+    "generic-63x10-terminal-strips",
+    "busboard-bb830-rev7",
+  ]);
+  const AUTHORED_HOLE_CONFIRM_KEYS=Object.freeze([
+    "source","physicalVerified","profileId","fromHoleId","toHoleId","placementRevision",
+  ]);
+  const CANONICAL_HOLE_ID=/^[A-J](?:[1-9]|[1-5]\d|6[0-3])$/;
+  const validAuthoredHoleConfirmMeta=meta=>{
+    try{
+      if(!meta||typeof meta!=="object"||Array.isArray(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||!Object.isFrozen(meta))return false;
+      const keys=Reflect.ownKeys(meta);
+      if(keys.length!==AUTHORED_HOLE_CONFIRM_KEYS.length||keys.some(key=>typeof key!=="string")||
+         AUTHORED_HOLE_CONFIRM_KEYS.some(key=>!keys.includes(key)))return false;
+      const values={};
+      for(const key of AUTHORED_HOLE_CONFIRM_KEYS){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,key);
+        if(!descriptor||!("value" in descriptor)||descriptor.get||descriptor.set)return false;
+        values[key]=descriptor.value;
+      }
+      if(values.source!=="authored-hole-confirm"||values.physicalVerified!==false||
+         typeof values.profileId!=="string"||!AUTHORED_HOLE_CONFIRM_PROFILES.has(values.profileId)||
+         typeof values.fromHoleId!=="string"||typeof values.toHoleId!=="string"||
+         !CANONICAL_HOLE_ID.test(values.fromHoleId)||!CANONICAL_HOLE_ID.test(values.toHoleId)||
+         values.fromHoleId===values.toHoleId||
+         !Number.isSafeInteger(values.placementRevision)||values.placementRevision<0)return false;
+      return true;
+    }catch{
+      return false;
+    }
+  };
   const currentLearnerCircuit = ({ requireExisting = false } = {}) => {
     if (!lessonSupported()) return null;
     const current = getCircuit(lessonId);
@@ -471,6 +503,22 @@ export function mountLabEditor({
       announce("Không thể nối: " + (error?.message || "đường nối không hợp lệ"),"error");
       return terminalLinkResult({reason:"router-rejected",fromId:from,toId:to});
     }
+  };
+  const connectAuthoredHoleTerminals=(from,to,meta,expectedLessonId)=>{
+    const rejected=reason=>terminalLinkResult({
+      reason,fromId:typeof from==="string"?from:null,toId:typeof to==="string"?to:null,
+    });
+    if(!Number.isInteger(expectedLessonId)||expectedLessonId!==lessonId)return rejected("stale-lesson");
+    if(!lessonSupported())return rejected("unsupported-lesson");
+    const terminalIds=new Set(listTerminals(lessonId).map(item=>item.id));
+    if(typeof from!=="string"||typeof to!=="string"||!terminalIds.has(from)||!terminalIds.has(to)){
+      return rejected("invalid-terminal");
+    }
+    if(from===to)return rejected("same-terminal");
+    if(!scene)return rejected("scene-required");
+    if(disposed||!editing||stage!=="3d")return rejected("editor-not-active");
+    if(!validAuthoredHoleConfirmMeta(meta))return rejected("invalid-meta");
+    return connectTerminals(from,to);
   };
   const onTerminalSelect = terminalId => {
     if (!editing || stage!=="3d" || !scene || !lessonSupported()) return false;
@@ -915,6 +963,9 @@ export function mountLabEditor({
     selectComponent(id){selectComponent(id);return selectedId;},
     selectTerminal(id){onTerminalSelect(id);return firstTerminal;},
     connectTerminals(from,to){return connectTerminals(from,to);},
+    connectAuthoredHoleTerminals(from,to,meta,expectedLessonId){
+      return connectAuthoredHoleTerminals(from,to,meta,expectedLessonId);
+    },
     inspectCommittedWire(wireId,meta,expectedLessonId){return inspectCommittedWire(wireId,meta,expectedLessonId);},
     removeWire(wireId,expectedLessonId=lessonId){return removeWireById(wireId,expectedLessonId);},
     undoLayout(){return undoLayout();},

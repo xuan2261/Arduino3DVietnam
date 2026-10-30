@@ -44,6 +44,8 @@ export function mountBreadboardStudy({
   getLessonTerminals = () => ({ lessonId: 1, terminals: [] }),
   getSceneEditActive = () => false,
   onHoleSelectionChange = () => undefined,
+  onConnectTerminalPair = () => Object.freeze({accepted:false,committed:false,wireId:null}),
+  onHoleLinkChange = () => undefined,
   doc = document,
 } = {}) {
   if (typeof getLayout !== "function") throw new TypeError("getLayout phải là function.");
@@ -52,6 +54,8 @@ export function mountBreadboardStudy({
   }
   if(typeof getSceneEditActive!=="function")throw new TypeError("getSceneEditActive phải là function.");
   if(typeof onHoleSelectionChange!=="function")throw new TypeError("onHoleSelectionChange phải là function.");
+  if(typeof onConnectTerminalPair!=="function")throw new TypeError("onConnectTerminalPair phải là function.");
+  if(typeof onHoleLinkChange!=="function")throw new TypeError("onHoleLinkChange phải là function.");
   if(!doc || typeof doc.getElementById!=="function" ||
       typeof doc.createElement!=="function" || typeof doc.createElementNS!=="function"){
     throw new TypeError("Breadboard study cần document DOM hợp lệ.");
@@ -79,6 +83,10 @@ export function mountBreadboardStudy({
   const gridRailHole = $("bbGridRailHole");
   const pickRail = $("bbPickRail");
   const gridStatus = $("bbGridStatus");
+  const holeLinkEnable=$("bbHoleLinkEnable");
+  const holeLinkConfirm=$("bbHoleLinkConfirm");
+  const holeLinkCancel=$("bbHoleLinkCancel");
+  const holeLinkStatus=$("bbHoleLinkStatus");
   if ([
     profile,from,to,compare,result,warning,diagram,
     terminalSelect,placeHole,assignHole,removeHole,placedList,placementStatus,authoredBoundary,
@@ -93,6 +101,12 @@ export function mountBreadboardStudy({
     throw new Error("Breadboard hole picker thiếu các điều khiển HTML.");
   }
   const hasHolePicker=pickerPresent===pickerNodes.length;
+  const holeLinkNodes=[holeLinkEnable,holeLinkConfirm,holeLinkCancel,holeLinkStatus];
+  const holeLinkPresent=holeLinkNodes.filter(Boolean).length;
+  if(holeLinkPresent>0&&holeLinkPresent!==holeLinkNodes.length){
+    throw new Error("Breadboard authored-hole link thiếu các điều khiển HTML.");
+  }
+  const hasHoleLinkControls=holeLinkPresent===holeLinkNodes.length;
   if(hasHolePicker){
     gridStatus.setAttribute("role","status");
     gridStatus.setAttribute("aria-live","polite");
@@ -100,6 +114,16 @@ export function mountBreadboardStudy({
     gridRail.setAttribute("aria-describedby","bbGridStatus");
     gridRailHole.setAttribute("aria-describedby","bbGridStatus");
     pickRail.setAttribute("aria-describedby","bbGridStatus");
+  }
+  if(hasHoleLinkControls){
+    for(const control of [holeLinkEnable,holeLinkConfirm,holeLinkCancel]){
+      control.type="button";
+      control.style.minWidth="44px";
+      control.style.minHeight="44px";
+    }
+    holeLinkStatus.setAttribute("role","status");
+    holeLinkStatus.setAttribute("aria-live","polite");
+    holeLinkStatus.setAttribute("aria-atomic","true");
   }
   const placementSession = createBreadboardPlacementSession();
   let disposed = false;
@@ -110,6 +134,12 @@ export function mountBreadboardStudy({
   let renderedGridButtons=[];
   let contactInspection=null;
   let holeSelection=null;
+  let holeLinkObserverReady=false;
+  let holeLinkSnapshot=Object.freeze({
+    mode:"off",lessonId:1,profileId:"generic-63x10-terminal-strips",
+    firstHoleId:null,secondHoleId:null,firstTerminalId:null,secondTerminalId:null,
+    revision:0,physicalVerified:false,claim:"visual-only-before-confirm",
+  });
 
   const announce = (message,kind) => {
     result.textContent = message;
@@ -137,6 +167,233 @@ export function mountBreadboardStudy({
     }
     if(notify)notifyHoleSelection(null);
     return true;
+  };
+  const safeSceneEditActive=()=>{
+    try{return getSceneEditActive()===true;}catch{return false;}
+  };
+  const readCurrentLessonForLink=()=>{
+    const context=getLessonTerminals();
+    if(!context || typeof context!=="object" || Array.isArray(context) ||
+        Object.getPrototypeOf(context)!==Object.prototype){
+      throw new TypeError("Current lesson context cho hole-link không hợp lệ.");
+    }
+    const lessonDescriptor=Object.getOwnPropertyDescriptor(context,"lessonId");
+    const terminalsDescriptor=Object.getOwnPropertyDescriptor(context,"terminals");
+    if(!lessonDescriptor || !("value" in lessonDescriptor) || lessonDescriptor.get || lessonDescriptor.set ||
+        !terminalsDescriptor || !("value" in terminalsDescriptor) || terminalsDescriptor.get || terminalsDescriptor.set ||
+        !Number.isInteger(lessonDescriptor.value) || !Array.isArray(terminalsDescriptor.value) ||
+        Object.getPrototypeOf(terminalsDescriptor.value)!==Array.prototype){
+      throw new TypeError("Current lesson context hole-link phải có own data lessonId/terminals.");
+    }
+    const terminals=[];
+    for(let index=0;index<terminalsDescriptor.value.length;index+=1){
+      const element=Object.getOwnPropertyDescriptor(terminalsDescriptor.value,String(index));
+      if(!element || !("value" in element) || element.get || element.set ||
+          !element.value || typeof element.value!=="object" || Array.isArray(element.value) ||
+          Object.getPrototypeOf(element.value)!==Object.prototype){
+        throw new TypeError("Current lesson terminal hole-link phải là own plain data record.");
+      }
+      const id=Object.getOwnPropertyDescriptor(element.value,"id");
+      const component=Object.getOwnPropertyDescriptor(element.value,"component");
+      if(!id || !("value" in id) || id.get || id.set || typeof id.value!=="string" || !id.value ||
+          !component || !("value" in component) || component.get || component.set ||
+          typeof component.value!=="string" || !component.value){
+        throw new TypeError("Current lesson terminal hole-link thiếu own data id/component.");
+      }
+      terminals.push({id:id.value,component:component.value});
+    }
+    return {lessonId:lessonDescriptor.value,terminals};
+  };
+  const terminalSignature=terminals=>JSON.stringify(terminals.map(terminal=>[terminal.id,terminal.component]));
+  const explicitTerminalStripPlacements=state=>{
+    const placement=placementSession.getPlacement();
+    if(!placement)return [];
+    const validation=validateBreadboardPlacement(placement,state.terminals);
+    if(!validation.ok){
+      throw new RangeError("Authored placement hiện tại không còn hợp lệ: "+validation.errors.join("; "));
+    }
+    if(placement.profileId!==state.profileId || !Array.isArray(placement.placements)){
+      throw new RangeError("Authored placement/profile hiện tại không nhất quán.");
+    }
+    return placement.placements.filter(record=>
+      record && typeof record.terminalId==="string" && TERMINAL_STRIP_HOLE.test(record.holeId)
+    );
+  };
+  const exactPlacementOwner=(holeId,state)=>{
+    if(typeof holeId!=="string" || !TERMINAL_STRIP_HOLE.test(holeId))return null;
+    const matches=explicitTerminalStripPlacements(state).filter(record=>record.holeId===holeId);
+    if(matches.length>1)throw new RangeError("Một hole không được có nhiều authored terminal owners.");
+    return matches[0]??null;
+  };
+  const linkSnapshotFor=(mode,state,fields={})=>Object.freeze({
+    mode,
+    lessonId:state.lessonId,
+    profileId:state.profileId,
+    firstHoleId:fields.firstHoleId??null,
+    secondHoleId:fields.secondHoleId??null,
+    firstTerminalId:fields.firstTerminalId??null,
+    secondTerminalId:fields.secondTerminalId??null,
+    revision:state.revision,
+    physicalVerified:false,
+    claim:"visual-only-before-confirm",
+  });
+  const sameHoleLinkSnapshot=(left,right)=>
+    left.mode===right.mode&&left.lessonId===right.lessonId&&left.profileId===right.profileId&&
+    left.firstHoleId===right.firstHoleId&&left.secondHoleId===right.secondHoleId&&
+    left.firstTerminalId===right.firstTerminalId&&left.secondTerminalId===right.secondTerminalId&&
+    left.revision===right.revision&&left.physicalVerified===right.physicalVerified&&left.claim===right.claim;
+  const notifyHoleLink=snapshot=>{
+    if(!holeLinkObserverReady)return;
+    try{onHoleLinkChange(snapshot);}catch{/* Observer has no graph authority. */}
+  };
+  const currentHoleLinkContext=({
+    expectedLessonId=null,expectedProfileId=null,expectedRevision=null,
+    requireEdit=true,minimumPlacements=0,
+  }={})=>{
+    if(!hasHolePicker)throw new RangeError("Hole-link cần native breadboard hole picker đầy đủ.");
+    const current=readCurrentLessonForLink();
+    const state=placementSession.snapshot();
+    if(current.lessonId!==state.lessonId || terminalSignature(current.terminals)!==terminalSignature(state.terminals)){
+      throw new RangeError("Hole-link stale: current lesson terminal context đã thay đổi.");
+    }
+    if(profile.value!==state.profileId){
+      throw new RangeError("Hole-link stale: current profile không khớp authored placement session.");
+    }
+    if(expectedLessonId!==null && state.lessonId!==expectedLessonId){
+      throw new RangeError("Hole-link stale: lesson không khớp expectedLessonId.");
+    }
+    if(expectedProfileId!==null && state.profileId!==expectedProfileId){
+      throw new RangeError("Hole-link stale: profile không khớp expectedProfileId.");
+    }
+    if(expectedRevision!==null && state.revision!==expectedRevision){
+      throw new RangeError("Hole-link stale: authored placement revision đã thay đổi.");
+    }
+    if(!state.enabled || !state.terminals.length){
+      throw new RangeError("Hole-link bị khóa vì lesson hiện tại không hỗ trợ authored breadboard terminals.");
+    }
+    if(requireEdit && !safeSceneEditActive()){
+      throw new RangeError("Hole-link chỉ hoạt động khi 3D edit + hole-pick mode đang bật.");
+    }
+    const placements=explicitTerminalStripPlacements(state);
+    if(placements.length<minimumPlacements){
+      throw new RangeError(`Hole-link cần ít nhất ${minimumPlacements} authored terminal-strip placements.`);
+    }
+    return {state,current,placements};
+  };
+  const holeLinkAvailability=()=>{
+    try{return {ok:true,...currentHoleLinkContext({minimumPlacements:2})};}
+    catch(error){return {ok:false,error};}
+  };
+  const holeLinkStatusText=availability=>{
+    if(holeLinkSnapshot.mode==="await-start"){
+      return "Chế độ nối bằng lỗ đã bật. Chọn lỗ A1..J63 đã được Gán cho đúng một terminal để arm đầu thứ nhất. Chưa có dây nào được tạo.";
+    }
+    if(holeLinkSnapshot.mode==="await-end"){
+      return `Đầu 1: ${holeLinkSnapshot.firstHoleId} → ${holeLinkSnapshot.firstTerminalId}. Chọn một lỗ Gán khác để tạo preview cặp; chưa nối graph.`;
+    }
+    if(holeLinkSnapshot.mode==="ready"){
+      return `Preview sẵn sàng: ${holeLinkSnapshot.firstHoleId} → ${holeLinkSnapshot.firstTerminalId} và ${holeLinkSnapshot.secondHoleId} → ${holeLinkSnapshot.secondTerminalId}. Bấm Xác nhận để yêu cầu Lab Editor nối hai terminal; preview chưa phải wire.`;
+    }
+    return availability?.ok
+      ? "Có ít nhất hai Gán lỗ tường minh. Bấm Bắt đầu chọn hai lỗ để tạo preview; chỉ Xác nhận mới được gọi controller nối terminal."
+      : "Hole-link bị khóa: cần 3D edit + chế độ chọn lỗ 3D và ít nhất hai Gán terminal→lỗ A1..J63 hiện tại.";
+  };
+  const renderHoleLinkControls=(message=null,kind=null)=>{
+    if(!hasHoleLinkControls)return;
+    const availability=holeLinkAvailability();
+    const active=holeLinkSnapshot.mode!=="off";
+    holeLinkEnable.disabled=!active&&!availability.ok;
+    holeLinkEnable.setAttribute("aria-pressed",String(active));
+    holeLinkConfirm.disabled=holeLinkSnapshot.mode!=="ready";
+    holeLinkCancel.disabled=!active;
+    holeLinkStatus.dataset.mode=holeLinkSnapshot.mode;
+    holeLinkStatus.dataset.lesson=String(holeLinkSnapshot.lessonId);
+    holeLinkStatus.dataset.profile=holeLinkSnapshot.profileId;
+    holeLinkStatus.dataset.revision=String(holeLinkSnapshot.revision);
+    holeLinkStatus.dataset.result=kind??(active?"preview":"idle");
+    holeLinkStatus.textContent=message??holeLinkStatusText(availability);
+  };
+  const canRestoreHoleLinkEnableFocus=()=>{
+    if(!hasHoleLinkControls||holeLinkEnable.disabled||holeLinkEnable.hidden===true||
+       holeLinkEnable.getAttribute("aria-hidden")==="true"||typeof holeLinkEnable.focus!=="function"){
+      return false;
+    }
+    if(typeof holeLinkEnable.isConnected==="boolean" && !holeLinkEnable.isConnected)return false;
+    if(typeof holeLinkEnable.getClientRects==="function" && holeLinkEnable.getClientRects().length===0)return false;
+    return true;
+  };
+  const setHoleLinkSnapshot=(next,{notify=true,message=null,kind=null}={})=>{
+    const changed=!sameHoleLinkSnapshot(holeLinkSnapshot,next);
+    const focusedBeforeRender=doc.activeElement;
+    const restoreEnableFocus=next.mode==="off" &&
+      (focusedBeforeRender===holeLinkConfirm||focusedBeforeRender===holeLinkCancel);
+    holeLinkSnapshot=next;
+    renderHoleLinkControls(message,kind);
+    if(restoreEnableFocus&&canRestoreHoleLinkEnableFocus()){
+      holeLinkEnable.focus({preventScroll:true});
+    }
+    if(changed&&notify)notifyHoleLink(holeLinkSnapshot);
+    return holeLinkSnapshot;
+  };
+  const cancelHoleLink=(reason="cancelled",{notify=true,announce=true}={})=>{
+    const state=placementSession.snapshot();
+    const next=linkSnapshotFor("off",state);
+    const message=announce
+      ? reason==="committed"
+        ? "Đã xác nhận cặp terminal qua controller canonical; preview hole-link đã đóng."
+        : "Đã hủy preview hole-link; không có graph edge nào được tạo bởi thao tác chọn lỗ."
+      : null;
+    return setHoleLinkSnapshot(next,{notify,message,kind:reason});
+  };
+  const revokeHoleLinkForContext=(reason,{notify=true}={})=>{
+    if(holeLinkSnapshot.mode==="off"){
+      const state=placementSession.snapshot();
+      return setHoleLinkSnapshot(linkSnapshotFor("off",state),{notify});
+    }
+    return cancelHoleLink(reason,{notify,announce:true});
+  };
+  const advanceHoleLinkIntent=(holeId,{source="native-grid"}={})=>{
+    if(holeLinkSnapshot.mode==="off")return Object.freeze({accepted:false,reason:"hole-link-off",snapshot:holeLinkSnapshot});
+    try{
+      const context=currentHoleLinkContext({
+        expectedLessonId:holeLinkSnapshot.lessonId,
+        expectedProfileId:holeLinkSnapshot.profileId,
+        expectedRevision:holeLinkSnapshot.revision,
+        minimumPlacements:2,
+      });
+      const owner=exactPlacementOwner(holeId,context.state);
+      if(!owner){
+        renderHoleLinkControls(`Lỗ ${holeId} chưa thuộc một Gán terminal→lỗ tường minh hiện tại; hole-link intent không thay đổi.`,"unassigned-hole");
+        return Object.freeze({accepted:false,reason:"hole-not-explicitly-assigned",snapshot:holeLinkSnapshot});
+      }
+      if(holeLinkSnapshot.mode==="await-start"){
+        const next=linkSnapshotFor("await-end",context.state,{
+          firstHoleId:holeId,firstTerminalId:owner.terminalId,
+        });
+        setHoleLinkSnapshot(next,{message:`Đã arm đầu 1: ${holeId} → ${owner.terminalId}. Chọn lỗ Gán khác; chưa tạo wire.`,kind:"await-end"});
+        return Object.freeze({accepted:true,reason:"first-armed",snapshot:holeLinkSnapshot,source});
+      }
+      if(holeId===holeLinkSnapshot.firstHoleId || owner.terminalId===holeLinkSnapshot.firstTerminalId){
+        renderHoleLinkControls("Đầu 2 phải là một lỗ Gán khác thuộc terminal khác; preview hiện tại được giữ nguyên.","same-endpoint-rejected");
+        return Object.freeze({accepted:false,reason:"same-hole-or-terminal",snapshot:holeLinkSnapshot});
+      }
+      const firstOwner=exactPlacementOwner(holeLinkSnapshot.firstHoleId,context.state);
+      if(!firstOwner || firstOwner.terminalId!==holeLinkSnapshot.firstTerminalId){
+        revokeHoleLinkForContext("stale-first-owner");
+        return Object.freeze({accepted:false,reason:"stale-first-owner",snapshot:holeLinkSnapshot});
+      }
+      const next=linkSnapshotFor("ready",context.state,{
+        firstHoleId:holeLinkSnapshot.firstHoleId,
+        firstTerminalId:holeLinkSnapshot.firstTerminalId,
+        secondHoleId:holeId,
+        secondTerminalId:owner.terminalId,
+      });
+      setHoleLinkSnapshot(next,{message:`Preview: ${next.firstHoleId} → ${next.firstTerminalId}; ${next.secondHoleId} → ${next.secondTerminalId}. Bấm Xác nhận để yêu cầu controller canonical nối hai terminal.`,kind:"ready"});
+      return Object.freeze({accepted:true,reason:"ready-before-confirm",snapshot:holeLinkSnapshot,source});
+    }catch(error){
+      revokeHoleLinkForContext("stale-or-inactive");
+      return Object.freeze({accepted:false,reason:error?.message||"hole-link-rejected",snapshot:holeLinkSnapshot});
+    }
   };
   const freezeSelectionProjection=(selection,origin,lessonId)=>Object.freeze({
     origin,
@@ -311,6 +568,9 @@ export function mountBreadboardStudy({
     gridStatus.dataset.selectionKind=selection.selectionKind;
     gridStatus.dataset.selectionLabel=label;
     gridStatus.dataset.selectionSource=origin;
+    if(TERMINAL_STRIP_HOLE.test(selection.holeId) && holeLinkSnapshot.mode!=="off"){
+      advanceHoleLinkIntent(selection.holeId,{source:origin});
+    }
     recordHoleSelection(selection,origin);
     return selection;
   };
@@ -599,6 +859,7 @@ export function mountBreadboardStudy({
       profileId:"generic-63x10-terminal-strips",
     });
     const state=placementSession.snapshot();
+    revokeHoleLinkForContext("context-error");
     renderTerminalOptions(state);
     setAuthoredEnabled(state);
     terminalSelect.setAttribute("aria-invalid","true");
@@ -626,6 +887,13 @@ export function mountBreadboardStudy({
       });
       const state=syncResult.state;
       if(syncResult.reset)clearHoleSelection();
+      if(syncResult.reset){
+        revokeHoleLinkForContext(syncResult.reason||"context-reset");
+      }else if(holeLinkSnapshot.mode!=="off"&&!safeSceneEditActive()){
+        revokeHoleLinkForContext("edit-off");
+      }else{
+        renderHoleLinkControls();
+      }
       renderTerminalOptions(state);
       if(syncResult.reset){
         terminalSelect.value=state.terminals[0]?.id??"";
@@ -784,7 +1052,11 @@ export function mountBreadboardStudy({
     const state=syncAuthoredContext({announceReset:true});
     if(!state?.enabled || !state.terminals.length)return null;
     try{
+      const revisionBefore=placementSession.snapshot().revision;
       const placement=placementSession.assign(terminalSelect.value,placeHole.value);
+      if(placementSession.snapshot().revision!==revisionBefore){
+        revokeHoleLinkForContext("placement-mutation");
+      }
       const canonicalHole=placement.terminalToHole[terminalSelect.value];
       placeHole.value=canonicalHole;
       placeHole.setAttribute("aria-invalid","false");
@@ -795,6 +1067,7 @@ export function mountBreadboardStudy({
       );
       renderAuthoredList();
       refreshMappingBoundary();
+      renderHoleLinkControls();
       return placement;
     }catch(error){
       placeHole.setAttribute("aria-invalid","true");
@@ -804,6 +1077,7 @@ export function mountBreadboardStudy({
       );
       renderAuthoredList();
       refreshMappingBoundary();
+      renderHoleLinkControls();
       return null;
     }
   }
@@ -815,6 +1089,7 @@ export function mountBreadboardStudy({
     try{
       const terminalId=terminalSelect.value;
       const outcome=placementSession.remove(terminalId);
+      if(outcome.removed)revokeHoleLinkForContext("placement-mutation");
       placeHole.setAttribute("aria-invalid","false");
       terminalSelect.setAttribute("aria-invalid","false");
       announcePlacement(
@@ -825,6 +1100,7 @@ export function mountBreadboardStudy({
       );
       renderAuthoredList();
       refreshMappingBoundary();
+      renderHoleLinkControls();
       return outcome;
     }catch(error){
       terminalSelect.setAttribute("aria-invalid","true");
@@ -832,6 +1108,7 @@ export function mountBreadboardStudy({
         "Không thể bỏ gán: "+(error?.message||"Terminal không hợp lệ"),
         "error",
       );
+      renderHoleLinkControls();
       return null;
     }
   }
@@ -945,6 +1222,7 @@ export function mountBreadboardStudy({
     if(contactInspection)renderContactInspection();
   };
   const onTerminal=()=>{
+    revokeHoleLinkForContext("terminal-change");
     clearHoleSelection();
     const mapped=placementSession.snapshot().terminalToHole[terminalSelect.value];
     placeHole.value=mapped??"";
@@ -962,6 +1240,177 @@ export function mountBreadboardStudy({
   const updateStudy=()=>{
     syncAuthoredContext({announceReset:true});
     refreshMappingBoundary();
+    if(holeLinkSnapshot.mode!=="off"&&!safeSceneEditActive()){
+      revokeHoleLinkForContext("edit-off");
+    }else{
+      renderHoleLinkControls();
+    }
+  };
+
+  const enableHoleLink=()=>{
+    if(disposed)return holeLinkSnapshot;
+    try{
+      const context=currentHoleLinkContext({minimumPlacements:2});
+      return setHoleLinkSnapshot(
+        linkSnapshotFor("await-start",context.state),
+        {
+          message:"Hole-link preview đã bật. Chọn lỗ A1..J63 đã được Gán cho đúng một terminal để arm đầu thứ nhất; chưa có wire nào được tạo.",
+          kind:"await-start",
+        },
+      );
+    }catch(error){
+      renderHoleLinkControls("Không thể bật hole-link: "+(error?.message||"ngữ cảnh không hợp lệ"),"rejected");
+      return holeLinkSnapshot;
+    }
+  };
+  const readConnectReceipt=receipt=>{
+    if(!receipt || typeof receipt!=="object" || Array.isArray(receipt)){
+      return {accepted:false,committed:false,wireId:null};
+    }
+    const accepted=Object.getOwnPropertyDescriptor(receipt,"accepted");
+    const committed=Object.getOwnPropertyDescriptor(receipt,"committed");
+    const wire=Object.getOwnPropertyDescriptor(receipt,"wireId");
+    if(!accepted || !("value" in accepted) || accepted.get || accepted.set ||
+        !committed || !("value" in committed) || committed.get || committed.set ||
+        !wire || !("value" in wire) || wire.get || wire.set ||
+        typeof accepted.value!=="boolean" || typeof committed.value!=="boolean" ||
+        !(wire.value===null || typeof wire.value==="string")){
+      return {accepted:false,committed:false,wireId:null};
+    }
+    const wireId=typeof wire.value==="string"&&/^w[1-9]\d*$/.test(wire.value)?wire.value:null;
+    if(committed.value && (!accepted.value || wireId===null)){
+      return {accepted:false,committed:false,wireId:null};
+    }
+    return {accepted:accepted.value,committed:committed.value,wireId};
+  };
+  const confirmHoleLink=()=>{
+    if(disposed || holeLinkSnapshot.mode!=="ready"){
+      renderHoleLinkControls("Hole-link chưa có đủ hai đầu tường minh để xác nhận.","not-ready");
+      return Object.freeze({accepted:false,committed:false,wireId:null,snapshot:holeLinkSnapshot});
+    }
+    try{
+      const context=currentHoleLinkContext({
+        expectedLessonId:holeLinkSnapshot.lessonId,
+        expectedProfileId:holeLinkSnapshot.profileId,
+        expectedRevision:holeLinkSnapshot.revision,
+        minimumPlacements:2,
+      });
+      const first=exactPlacementOwner(holeLinkSnapshot.firstHoleId,context.state);
+      const second=exactPlacementOwner(holeLinkSnapshot.secondHoleId,context.state);
+      if(!first || !second || first.terminalId!==holeLinkSnapshot.firstTerminalId ||
+          second.terminalId!==holeLinkSnapshot.secondTerminalId ||
+          first.holeId===second.holeId || first.terminalId===second.terminalId){
+        throw new RangeError("Hole-link stale: exact authored hole ownership đã thay đổi.");
+      }
+      const meta=Object.freeze({
+        source:"authored-hole-confirm",
+        physicalVerified:false,
+        profileId:context.state.profileId,
+        fromHoleId:first.holeId,
+        toHoleId:second.holeId,
+        placementRevision:context.state.revision,
+      });
+      let rawReceipt=null;
+      try{
+        rawReceipt=onConnectTerminalPair(
+          first.terminalId,second.terminalId,meta,context.state.lessonId,
+        );
+      }catch{
+        rawReceipt=null;
+      }
+      const receipt=readConnectReceipt(rawReceipt);
+      if(receipt.accepted && receipt.committed && receipt.wireId){
+        const next=setHoleLinkSnapshot(
+          linkSnapshotFor("off",placementSession.snapshot()),
+          {
+            message:`Controller canonical đã commit ${receipt.wireId}: ${first.terminalId} (${first.holeId}) ↔ ${second.terminalId} (${second.holeId}). Preview đã đóng; kết quả chỉ là learner graph canonical, không xác nhận continuity hay lắp ráp vật lý.`,
+            kind:"committed",
+          },
+        );
+        return Object.freeze({...receipt,snapshot:next});
+      }
+      renderHoleLinkControls(
+        "Controller chưa commit cặp terminal. Preview ready được giữ nguyên để người học xem lại hoặc hủy; không có wire tự sinh từ selection.",
+        "commit-denied",
+      );
+      return Object.freeze({...receipt,snapshot:holeLinkSnapshot});
+    }catch(error){
+      revokeHoleLinkForContext("stale-confirm");
+      return Object.freeze({
+        accepted:false,committed:false,wireId:null,
+        reason:error?.message||"stale-confirm",snapshot:holeLinkSnapshot,
+      });
+    }
+  };
+  const readFrozenHoleLinkDragMeta=meta=>{
+    if(!meta || typeof meta!=="object" || Array.isArray(meta) || !Object.isFrozen(meta) ||
+        Object.getPrototypeOf(meta)!==Object.prototype){
+      throw new TypeError("Hole-link drag meta phải là frozen plain object.");
+    }
+    const keys=Reflect.ownKeys(meta);
+    if(keys.length!==2 || keys.some(key=>typeof key!=="string") ||
+        !keys.includes("source") || !keys.includes("physicalVerified")){
+      throw new TypeError("Hole-link drag meta phải có đúng source/physicalVerified.");
+    }
+    const source=Object.getOwnPropertyDescriptor(meta,"source");
+    const physical=Object.getOwnPropertyDescriptor(meta,"physicalVerified");
+    if(!source || !("value" in source) || source.get || source.set ||
+        !physical || !("value" in physical) || physical.get || physical.set ||
+        source.value!=="pointer-drag" || physical.value!==false){
+      throw new RangeError("Hole-link drag meta không khớp pointer-drag/read-only contract.");
+    }
+  };
+  const pickHoleLinkTargetFromDrag=(holeId,meta,expectedLessonId,expectedProfileId)=>{
+    if(disposed)return Object.freeze({accepted:false,reason:"disposed",snapshot:holeLinkSnapshot});
+    try{
+      if(holeLinkSnapshot.mode!=="await-end"){
+        throw new RangeError("Hole-link drag cần đầu thứ nhất đã được arm và chưa có đầu thứ hai.");
+      }
+      if(typeof holeId!=="string" || !TERMINAL_STRIP_HOLE.test(holeId)){
+        throw new RangeError("Hole-link drag chỉ nhận exact terminal-strip hole A1..J63.");
+      }
+      if(!Number.isInteger(expectedLessonId) || expectedLessonId!==holeLinkSnapshot.lessonId){
+        throw new RangeError("Hole-link drag stale lesson.");
+      }
+      if(typeof expectedProfileId!=="string" || expectedProfileId!==holeLinkSnapshot.profileId){
+        throw new RangeError("Hole-link drag stale profile.");
+      }
+      readFrozenHoleLinkDragMeta(meta);
+      const result=advanceHoleLinkIntent(holeId,{source:"scene-drag"});
+      if(!result.accepted || holeLinkSnapshot.mode!=="ready"){
+        return Object.freeze({accepted:false,reason:result.reason,snapshot:holeLinkSnapshot});
+      }
+      return Object.freeze({accepted:true,reason:"ready-before-confirm",snapshot:holeLinkSnapshot});
+    }catch(error){
+      return Object.freeze({accepted:false,reason:error?.message||"drag-target-rejected",snapshot:holeLinkSnapshot});
+    }
+  };
+  const getHoleLinkSnapshot=()=>{
+    if(holeLinkSnapshot.mode!=="off"){
+      try{
+        currentHoleLinkContext({
+          expectedLessonId:holeLinkSnapshot.lessonId,
+          expectedProfileId:holeLinkSnapshot.profileId,
+          expectedRevision:holeLinkSnapshot.revision,
+          minimumPlacements:2,
+        });
+      }catch{
+        revokeHoleLinkForContext("stale-or-edit-off");
+      }
+    }
+    return holeLinkSnapshot;
+  };
+  const onHoleLinkEnable=()=>{
+    if(!hasHoleLinkControls||holeLinkEnable.disabled)return;
+    if(holeLinkSnapshot.mode!=="off")cancelHoleLink("toggle-off");
+    else enableHoleLink();
+  };
+  const onHoleLinkConfirm=()=>{if(hasHoleLinkControls&&!holeLinkConfirm.disabled)confirmHoleLink();};
+  const onHoleLinkCancel=()=>{if(hasHoleLinkControls&&!holeLinkCancel.disabled)cancelHoleLink("cancelled");};
+  const onHoleLinkEscape=event=>{
+    if(event?.key!=="Escape" || holeLinkSnapshot.mode==="off")return;
+    event.preventDefault?.();
+    cancelHoleLink("escape");
   };
 
   const rejectScenePick=reason=>Object.freeze({accepted:false,reason:String(reason),selection:null});
@@ -988,39 +1437,6 @@ export function mountBreadboardStudy({
     }
     return values;
   };
-  const readCurrentLessonForScene=()=>{
-    const context=getLessonTerminals();
-    if(!context || typeof context!=="object" || Array.isArray(context) ||
-        Object.getPrototypeOf(context)!==Object.prototype){
-      throw new TypeError("getLessonTerminals không trả current lesson context hợp lệ.");
-    }
-    const lessonDescriptor=Object.getOwnPropertyDescriptor(context,"lessonId");
-    const terminalsDescriptor=Object.getOwnPropertyDescriptor(context,"terminals");
-    if(!lessonDescriptor || !("value" in lessonDescriptor) || lessonDescriptor.get || lessonDescriptor.set ||
-        !terminalsDescriptor || !("value" in terminalsDescriptor) || terminalsDescriptor.get || terminalsDescriptor.set ||
-        !Number.isInteger(lessonDescriptor.value) || !Array.isArray(terminalsDescriptor.value) ||
-        Object.getPrototypeOf(terminalsDescriptor.value)!==Array.prototype){
-      throw new TypeError("Current lesson context phải có own data lessonId/terminals.");
-    }
-    const terminals=[];
-    for(let index=0;index<terminalsDescriptor.value.length;index+=1){
-      const element=Object.getOwnPropertyDescriptor(terminalsDescriptor.value,String(index));
-      if(!element || !("value" in element) || element.get || element.set ||
-          !element.value || typeof element.value!=="object" || Array.isArray(element.value) ||
-          Object.getPrototypeOf(element.value)!==Object.prototype){
-        throw new TypeError("Current lesson terminal phải là own plain data record.");
-      }
-      const id=Object.getOwnPropertyDescriptor(element.value,"id");
-      const component=Object.getOwnPropertyDescriptor(element.value,"component");
-      if(!id || !("value" in id) || id.get || id.set || typeof id.value!=="string" || !id.value ||
-          !component || !("value" in component) || component.get || component.set ||
-          typeof component.value!=="string" || !component.value){
-        throw new TypeError("Current lesson terminal thiếu own data id/component.");
-      }
-      terminals.push({id:id.value,component:component.value});
-    }
-    return {lessonId:lessonDescriptor.value,terminals};
-  };
   const pickHoleFromScene=(holeId,frozenMeta,expectedLessonId,expectedProfileId)=>{
     if(disposed)return rejectScenePick("disposed");
     try{
@@ -1035,7 +1451,7 @@ export function mountBreadboardStudy({
       }
       readFrozenSceneMeta(frozenMeta);
       if(!hasHolePicker)throw new RangeError("Breadboard hole picker không được mount.");
-      const current=readCurrentLessonForScene();
+      const current=readCurrentLessonForLink();
       const state=placementSession.snapshot();
       if(current.lessonId!==expectedLessonId || state.lessonId!==expectedLessonId){
         throw new RangeError("Scene pick stale: lesson hiện tại không khớp expectedLessonId.");
@@ -1051,7 +1467,7 @@ export function mountBreadboardStudy({
       if(profile.value!==expectedProfileId || state.profileId!==expectedProfileId){
         throw new RangeError("Scene pick stale: profile hiện tại không khớp expectedProfileId.");
       }
-      if(getSceneEditActive()!==true){
+      if(!safeSceneEditActive()){
         throw new RangeError("Scene pick chỉ khả dụng khi stage 3D edit đang bật.");
       }
       const column=Number(/^([A-J])(\d+)$/.exec(holeId)[2]);
@@ -1079,6 +1495,15 @@ export function mountBreadboardStudy({
       return rejectScenePick(error?.message||"scene-pick-rejected");
     }
   };
+  if(hasHoleLinkControls){
+    holeLinkEnable.addEventListener("click",onHoleLinkEnable);
+    holeLinkConfirm.addEventListener("click",onHoleLinkConfirm);
+    holeLinkCancel.addEventListener("click",onHoleLinkCancel);
+    for(const node of [holeLinkEnable,holeLinkConfirm,holeLinkCancel,holeLinkStatus,placeHole,terminalSelect,profile]){
+      node.addEventListener("keydown",onHoleLinkEscape);
+    }
+    if(hasHolePicker)holeGrid.addEventListener("keydown",onHoleLinkEscape);
+  }
   compare.addEventListener("click",onCompare);
   profile.addEventListener("change",onProfile);
   from.addEventListener("keydown",onHoleKeydown);
@@ -1097,6 +1522,8 @@ export function mountBreadboardStudy({
     placeHole.addEventListener("input",onPlaceInput);
   }
   syncAuthoredContext();
+  holeLinkObserverReady=true;
+  renderHoleLinkControls();
   refreshMappingBoundary();
   renderDiagram();
 
@@ -1106,13 +1533,26 @@ export function mountBreadboardStudy({
     snapshot:()=>comparison,
     pickHoleFromScene,
     getHoleSelection:()=>holeSelection,
+    getHoleLinkSnapshot,
+    cancelHoleLink:()=>disposed?holeLinkSnapshot:cancelHoleLink("api-cancel"),
+    pickHoleLinkTargetFromDrag,
     getAuthoredPlacement:()=>placementSession.getPlacement(),
     getAuthoredGroups:()=>placementSession.getAuthoredGroups(),
     getContactInspection:()=>contactInspection,
     dispose(){
       if(disposed)return;
       disposed=true;
+      holeLinkObserverReady=false;
       clearHoleSelection({notify:false});
+      if(hasHoleLinkControls){
+        holeLinkEnable.removeEventListener("click",onHoleLinkEnable);
+        holeLinkConfirm.removeEventListener("click",onHoleLinkConfirm);
+        holeLinkCancel.removeEventListener("click",onHoleLinkCancel);
+        for(const node of [holeLinkEnable,holeLinkConfirm,holeLinkCancel,holeLinkStatus,placeHole,terminalSelect,profile]){
+          node.removeEventListener("keydown",onHoleLinkEscape);
+        }
+        if(hasHolePicker)holeGrid.removeEventListener("keydown",onHoleLinkEscape);
+      }
       compare.removeEventListener("click",onCompare);
       profile.removeEventListener("change",onProfile);
       from.removeEventListener("keydown",onHoleKeydown);

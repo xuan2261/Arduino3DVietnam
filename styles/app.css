@@ -339,6 +339,20 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .breadboard-authored-grid [aria-invalid="true"] { border-color:#a65143; box-shadow:inset 0 0 0 1px #a65143; }
 .breadboard-authored-actions { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
 .breadboard-authored-actions button { min-height:44px; font-size:11.5px; max-width:100%; }
+.breadboard-hole-link { min-width:0; padding:12px 13px; margin:13px 0; border:1px solid #a4ccc0; border-left:4px solid #308070; border-radius:8px; background:#f1faf5; }
+.breadboard-hole-link h3 { color:#21584c; font-size:12px; margin:0 0 7px; font-weight:800; }
+.breadboard-hole-link p { color:#375d51; line-height:1.65; overflow-wrap:anywhere; }
+.breadboard-hole-link-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:stretch; margin:10px 0; }
+.breadboard-hole-link-actions button { flex:1 1 145px; min-width:44px; min-height:44px; white-space:normal; font-size:11.5px; padding:8px 11px; }
+.breadboard-hole-link-actions button[aria-pressed="true"] { color:#0e5546; border-color:#318877; background:#d6f1e4; box-shadow:inset 0 0 0 1px #318877; }
+.breadboard-hole-link-actions button:disabled { opacity:.58; cursor:not-allowed; }
+.breadboard-hole-link-actions button:focus-visible { outline:3px solid #137e70; outline-offset:2px; }
+.breadboard-hole-link-status { border-radius:7px; padding:9px 10px; background:#e6f3ea; min-width:0; }
+.breadboard-hole-link-status[data-mode="ready"] { border-left:3px solid #358c72; background:#e0f4e9; font-weight:750; }
+.breadboard-hole-link-status[data-result="unassigned-hole"],
+.breadboard-hole-link-status[data-result="same-endpoint-rejected"],
+.breadboard-hole-link-status[data-result="commit-denied"],
+.breadboard-hole-link-status[data-result="rejected"] { border-left:3px solid #a96739; background:#fff3e7; }
 .breadboard-authored-list { max-width:100%; min-width:0; font-size:11.5px; line-height:1.65; overflow-wrap:anywhere; }
 .breadboard-authored-list ul { margin:7px 0 0; padding-left:19px; }
 .breadboard-authored-list li { margin:4px 0; }
@@ -379,6 +393,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .breadboard-hole-picker button:disabled,.breadboard-rail-picker select:disabled,.breadboard-rail-picker input:disabled { opacity:.54; cursor:not-allowed; }
 @media (max-width:580px) {
   .breadboard-authored { padding:12px; }
+  .breadboard-hole-link { padding:11px; }
+  .breadboard-hole-link-actions { display:grid; grid-template-columns:minmax(0,1fr); }
+  .breadboard-hole-link-actions button { width:100%; }
   .breadboard-authored-grid { grid-template-columns:minmax(0,1fr); gap:7px; }
   .breadboard-authored-actions { display:grid; grid-template-columns:minmax(0,1fr); }
   .breadboard-authored-actions button { width:100%; }

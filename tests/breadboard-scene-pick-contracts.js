@@ -90,10 +90,11 @@ class FakeNode {
   click() { return this.dispatch("click"); }
   change() { return this.dispatch("change"); }
   input() { return this.dispatch("input"); }
+  focus() { this.ownerDocument.activeElement = this; }
 }
 
 class FakeDocument {
-  constructor() { this.byId = new Map(); }
+  constructor() { this.byId = new Map(); this.activeElement = null; }
   createElement(tagName) { return new FakeNode(tagName, this); }
   createElementNS(namespaceURI, tagName) {
     return new FakeNode(tagName, this, namespaceURI);
@@ -133,7 +134,7 @@ function lessonContext(lessonId) {
   return { lessonId, terminals: lessonId === 1 ? [] : listTerminals(lessonId) };
 }
 
-function registerControls(document, profileId = GENERIC) {
+function registerControls(document, profileId = GENERIC, { linkControls = false } = {}) {
   const profile = document.register("bbProfile", "select");
   profile.value = profileId;
   const holeA = document.register("bbHoleA", "input");
@@ -162,6 +163,12 @@ function registerControls(document, profileId = GENERIC) {
   railHole.value = "1";
   document.register("bbPickRail", "button");
   document.register("bbGridStatus", "p");
+  if (linkControls) {
+    document.register("bbHoleLinkEnable", "button");
+    document.register("bbHoleLinkConfirm", "button");
+    document.register("bbHoleLinkCancel", "button");
+    document.register("bbHoleLinkStatus", "p");
+  }
   return document;
 }
 
@@ -169,11 +176,21 @@ function pointerMeta() {
   return Object.freeze({ source: "pointer", physicalVerified: false });
 }
 
-function fixture({ lessonId = 2, profileId = GENERIC, editActive = true, observer = null } = {}) {
-  const document = registerControls(new FakeDocument(), profileId);
+function fixture({
+  lessonId = 2,
+  profileId = GENERIC,
+  editActive = true,
+  observer = null,
+  linkControls = false,
+  connect = null,
+  linkObserver = null,
+} = {}) {
+  const document = registerControls(new FakeDocument(), profileId, { linkControls });
   const lessonRef = { current: lessonContext(lessonId) };
   const editRef = { current: editActive };
   const events = [];
+  const linkEvents = [];
+  const connectCalls = [];
   const ui = mountBreadboardStudy({
     doc: document,
     getLayout: () => ({ claims: { breadboardHoleMapping: false } }),
@@ -183,8 +200,31 @@ function fixture({ lessonId = 2, profileId = GENERIC, editActive = true, observe
       events.push(selection);
       observer?.(selection);
     },
+    onHoleLinkChange: snapshot => {
+      linkEvents.push(snapshot);
+      linkObserver?.(snapshot);
+    },
+    onConnectTerminalPair: (...args) => {
+      connectCalls.push(args);
+      return connect?.(...args) ?? Object.freeze({accepted:false,committed:false,wireId:null});
+    },
   });
-  return { document, lessonRef, editRef, events, ui };
+  return { document, lessonRef, editRef, events, linkEvents, connectCalls, ui };
+}
+
+function assignTerminalHole(fixtureValue, terminalId, holeId) {
+  const terminal = fixtureValue.document.getElementById("bbTerminal");
+  const input = fixtureValue.document.getElementById("bbPlaceHole");
+  terminal.value = terminalId;
+  terminal.change();
+  input.value = holeId;
+  input.input();
+  fixtureValue.document.getElementById("bbAssignHole").click();
+  return fixtureValue.ui.getAuthoredPlacement();
+}
+
+function dragMeta() {
+  return Object.freeze({ source: "pointer-drag", physicalVerified: false });
 }
 
 function sideEffectSnapshot(fixtureValue) {
@@ -216,11 +256,25 @@ export function runBreadboardScenePickContracts() {
       /onHoleSelectionChange.*function/i,
       "bad observer",
     );
+    expectThrow(
+      () => mountBreadboardStudy({ doc: document, onConnectTerminalPair: "bad" }),
+      /onConnectTerminalPair.*function/i,
+      "bad connect callback",
+    );
+    expectThrow(
+      () => mountBreadboardStudy({ doc: document, onHoleLinkChange: "bad" }),
+      /onHoleLinkChange.*function/i,
+      "bad link observer",
+    );
     const f = fixture();
     try {
       assert(typeof f.ui.pickHoleFromScene === "function", "pickHoleFromScene missing");
       assert(typeof f.ui.getHoleSelection === "function", "getHoleSelection missing");
+      assert(typeof f.ui.getHoleLinkSnapshot === "function", "getHoleLinkSnapshot missing");
+      assert(typeof f.ui.cancelHoleLink === "function", "cancelHoleLink missing");
+      assert(typeof f.ui.pickHoleLinkTargetFromDrag === "function", "pickHoleLinkTargetFromDrag missing");
       assert(f.ui.getHoleSelection() === null, "initial hole selection must be null");
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "initial hole-link must be off");
     } finally { f.ui.dispose(); }
   });
 
@@ -439,10 +493,342 @@ export function runBreadboardScenePickContracts() {
     } finally { f.ui.dispose(); }
   });
 
+  check("hole-link-controls-are-all-or-none-accessible-44px-and-toggle-keeps-focus", () => {
+    const partial = registerControls(new FakeDocument());
+    partial.register("bbHoleLinkEnable", "button");
+    expectThrow(
+      () => mountBreadboardStudy({
+        doc: partial,
+        getLayout: () => ({ claims: { breadboardHoleMapping: false } }),
+        getLessonTerminals: () => lessonContext(2),
+      }),
+      /hole link|hole-link|điều khiển HTML/i,
+      "partial link controls",
+    );
+
+    const f = fixture({ linkControls: true });
+    try {
+      const enable = f.document.getElementById("bbHoleLinkEnable");
+      const confirm = f.document.getElementById("bbHoleLinkConfirm");
+      const cancel = f.document.getElementById("bbHoleLinkCancel");
+      const status = f.document.getElementById("bbHoleLinkStatus");
+      assert(status.getAttribute("role") === "status" && status.getAttribute("aria-live") === "polite",
+        "link status live region");
+      assert([enable, confirm, cancel].every(button =>
+        button.type === "button" && button.style.minWidth === "44px" && button.style.minHeight === "44px"),
+      "native link buttons keep 44px target");
+      assert(enable.disabled === true && confirm.disabled === true && cancel.disabled === true,
+        "no placements keeps link controls disabled");
+
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      assert(enable.disabled === false, "two explicit terminal-strip placements enable link mode");
+      enable.focus();
+      enable.click();
+      assert(f.ui.getHoleLinkSnapshot().mode === "await-start", "toggle enters await-start");
+      assert(enable.disabled === false && enable.getAttribute("aria-pressed") === "true",
+        "active toggle remains enabled and pressed");
+      assert(f.document.activeElement === enable, "active toggle keeps native focus");
+      enable.click();
+      assert(f.ui.getHoleLinkSnapshot().mode === "off" && enable.getAttribute("aria-pressed") === "false",
+        "second toggle click cancels mode");
+      assert(f.document.activeElement === enable, "toggle-off keeps focus on enabled control");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("authored-hole-link-scene-first-direct-drag-confirm-is-explicit-and-canonical", () => {
+    const f = fixture({
+      linkControls: true,
+      connect: () => Object.freeze({accepted:true, committed:true, wireId:"w1"}),
+    });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      const placementBefore = f.ui.getAuthoredPlacement();
+      f.linkEvents.length = 0;
+
+      f.document.getElementById("bbHoleLinkEnable").click();
+      const start = f.ui.getHoleLinkSnapshot();
+      const expectedKeys = [
+        "claim", "firstHoleId", "firstTerminalId", "lessonId", "mode",
+        "physicalVerified", "profileId", "revision", "secondHoleId", "secondTerminalId",
+      ];
+      assert(Object.isFrozen(start) && Reflect.ownKeys(start).sort().join(",") === expectedKeys.sort().join(","),
+        "link snapshot exact frozen shape");
+      assert(start.mode === "await-start" && start.lessonId === 2 && start.profileId === GENERIC &&
+        start.physicalVerified === false && start.claim === "visual-only-before-confirm",
+      "link start boundary");
+
+      const first = f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      assert(first.accepted === true && f.ui.getHoleLinkSnapshot().mode === "await-end",
+        "scene hole selection arms first authored endpoint");
+      assert(f.ui.getHoleLinkSnapshot().firstHoleId === "C32" &&
+        f.ui.getHoleLinkSnapshot().firstTerminalId === "D13",
+      "first hole resolves only explicit D13 placement");
+      assert(f.connectCalls.length === 0, "first selection never calls graph callback");
+
+      const drag = f.ui.pickHoleLinkTargetFromDrag("H32", dragMeta(), 2, GENERIC);
+      const ready = f.ui.getHoleLinkSnapshot();
+      assert(drag.accepted === true && ready.mode === "ready" && ready.secondHoleId === "H32" &&
+        ready.secondTerminalId === "R1:A", "direct 3D drag arms exact second authored endpoint");
+      assert(ready.revision === start.revision, "pair remains bound to same placement revision");
+      assert(f.connectCalls.length === 0, "drag preview never auto-commits graph edge");
+      assert(f.ui.getAuthoredPlacement() === placementBefore, "preview never mutates authored placement");
+      assert(f.ui.getHoleSelection()?.holeId === "C32",
+        "direct drag target does not fabricate a second native picker selection");
+      assert(f.document.getElementById("bbHoleLinkConfirm").disabled === false,
+        "ready pair enables explicit Confirm only");
+
+      const confirm=f.document.getElementById("bbHoleLinkConfirm");
+      const enable=f.document.getElementById("bbHoleLinkEnable");
+      confirm.focus();
+      assert(f.document.activeElement===confirm,"ready Confirm receives focus before native activation");
+      confirm.click();
+      assert(f.connectCalls.length === 1, "Confirm invokes canonical callback exactly once");
+      const [from, to, meta, expectedLessonId] = f.connectCalls[0];
+      assert(from === "D13" && to === "R1:A" && expectedLessonId === 2,
+        "Confirm delegates exact terminal pair/current lesson");
+      assert(Object.isFrozen(meta) && Object.getPrototypeOf(meta) === Object.prototype,
+        "Confirm meta frozen plain object");
+      assert(Reflect.ownKeys(meta).sort().join(",") === [
+        "fromHoleId", "physicalVerified", "placementRevision", "profileId", "source", "toHoleId",
+      ].sort().join(","), "Confirm meta exact six keys");
+      assert(meta.source === "authored-hole-confirm" && meta.physicalVerified === false &&
+        meta.profileId === GENERIC && meta.fromHoleId === "C32" && meta.toHoleId === "H32" &&
+        meta.placementRevision === ready.revision,
+      "Confirm meta exact values");
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "committed true closes preview intent");
+      assert(confirm.disabled===true && enable.disabled===false && f.document.activeElement===enable,
+        "accepted focused Confirm disables itself then transfers focus to actionable Enable");
+      const status = f.document.getElementById("bbHoleLinkStatus").textContent;
+      assert(/w1/.test(status) && /D13/.test(status) && /R1:A/.test(status) && /C32/.test(status) && /H32/.test(status),
+        "commit status preserves wire/terminal/hole learner feedback");
+      assert(/không xác nhận.*vật lý/i.test(status), "commit status keeps physical-continuity boundary");
+      assert(f.ui.getAuthoredPlacement() === placementBefore, "Confirm callback does not mutate placement session");
+      assert(f.linkEvents.map(item => item.mode).join(",") === "await-start,await-end,ready,off",
+        "link observer sees every changed intent state after update");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("denied-or-accessor-connect-receipt-keeps-ready-preview-and-no-auto-graph", () => {
+    const runDenied = connect => {
+      const f = fixture({ linkControls: true, connect });
+      try {
+        assignTerminalHole(f, "D13", "C32");
+        assignTerminalHole(f, "R1:A", "H32");
+        const placement = f.ui.getAuthoredPlacement();
+        f.document.getElementById("bbHoleLinkEnable").click();
+        f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+        f.ui.pickHoleLinkTargetFromDrag("H32", dragMeta(), 2, GENERIC);
+        assert(f.connectCalls.length === 0, "ready preview makes no callback before Confirm");
+        const confirm=f.document.getElementById("bbHoleLinkConfirm");
+        confirm.focus();
+        confirm.click();
+        assert(f.connectCalls.length === 1, "explicit Confirm is sole callback path");
+        assert(f.ui.getHoleLinkSnapshot().mode === "ready", "noncommitted receipt keeps ready preview");
+        assert(confirm.disabled === false && f.document.activeElement===confirm,
+          "denied commit keeps Confirm available and preserves its focus for review/retry");
+        assert(f.ui.getAuthoredPlacement() === placement, "denied callback cannot mutate placement session");
+      } finally { f.ui.dispose(); }
+    };
+    runDenied(() => Object.freeze({accepted:false, committed:false, wireId:null}));
+    runDenied(() => {
+      const receipt = { accepted: true, wireId: "w9" };
+      Object.defineProperty(receipt, "committed", {
+        enumerable: true,
+        get() { throw new Error("receipt getter must never execute"); },
+      });
+      return receipt;
+    });
+  });
+
+  check("drag-target-rejects-foreign-meta-profile-unassigned-and-same-hole-without-intent-change", () => {
+    const f = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      f.document.getElementById("bbHoleLinkEnable").click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const baseline = f.ui.getHoleLinkSnapshot();
+      const variants = [
+        { hole: "H32", meta: { source: "pointer-drag", physicalVerified: false }, lesson: 2, profile: GENERIC },
+        { hole: "H32", meta: Object.freeze({ source: "pointer", physicalVerified: false }), lesson: 2, profile: GENERIC },
+        { hole: "H32", meta: Object.freeze({ source: "pointer-drag", physicalVerified: false, extra: 1 }), lesson: 2, profile: GENERIC },
+        { hole: "H32", meta: dragMeta(), lesson: 2, profile: BB830 },
+        { hole: "A1", meta: dragMeta(), lesson: 2, profile: GENERIC },
+        { hole: "C32", meta: dragMeta(), lesson: 2, profile: GENERIC },
+        { hole: "P1+1", meta: dragMeta(), lesson: 2, profile: GENERIC },
+      ];
+      const symbolMeta = { source: "pointer-drag", physicalVerified: false };
+      symbolMeta[Symbol("extra")] = true;
+      variants.push({ hole: "H32", meta: Object.freeze(symbolMeta), lesson: 2, profile: GENERIC });
+      const accessorMeta = { source: "pointer-drag" };
+      Object.defineProperty(accessorMeta, "physicalVerified", {
+        enumerable: true,
+        get() { throw new Error("drag meta getter must never execute"); },
+      });
+      variants.push({ hole: "H32", meta: Object.freeze(accessorMeta), lesson: 2, profile: GENERIC });
+
+      for (const item of variants) {
+        const before = f.ui.getHoleLinkSnapshot();
+        const receipt = f.ui.pickHoleLinkTargetFromDrag(item.hole, item.meta, item.lesson, item.profile);
+        assert(receipt.accepted === false, "foreign/stale/unassigned/same drag target rejected");
+        assert(f.ui.getHoleLinkSnapshot() === before, "rejected drag does not mutate link intent");
+        assert(f.connectCalls.length === 0, "rejected drag never calls graph callback");
+      }
+      assert(f.ui.getHoleLinkSnapshot() === baseline, "all drag negatives preserve first-arm snapshot identity");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("cancel-escape-and-public-cancel-revoke-preview-without-graph-callback", () => {
+    const f = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      const enable = f.document.getElementById("bbHoleLinkEnable");
+      enable.click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      f.document.getElementById("bbHoleGrid").dispatch("keydown", { key: "Escape" });
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "Escape revokes active intent");
+      assert(f.connectCalls.length === 0, "Escape never commits graph");
+
+      enable.click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const cancel=f.document.getElementById("bbHoleLinkCancel");
+      cancel.focus();
+      assert(f.document.activeElement===cancel,"active Cancel receives focus before native activation");
+      cancel.click();
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "Cancel button revokes active intent");
+      assert(cancel.disabled===true && enable.disabled===false && f.document.activeElement===enable,
+        "focused Cancel disables itself then transfers focus to actionable Enable");
+
+      enable.click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const unrelated=f.document.getElementById("bbHoleA");
+      unrelated.focus();
+      const canceled = f.ui.cancelHoleLink();
+      assert(canceled.mode === "off" && Object.isFrozen(canceled), "public cancel returns frozen off snapshot");
+      assert(f.document.activeElement===unrelated,
+        "mode-off transition does not steal focus from an unrelated control");
+      assert(f.connectCalls.length === 0, "all cancellation paths remain graph no-op");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("terminal-profile-and-lesson-changes-revoke-active-intent", () => {
+    const f = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      const enable = f.document.getElementById("bbHoleLinkEnable");
+      enable.click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const terminal = f.document.getElementById("bbTerminal");
+      terminal.value = "GND";
+      terminal.change();
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "terminal change revokes intent");
+
+      enable.click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const profile = f.document.getElementById("bbProfile");
+      profile.value = BB830;
+      profile.change();
+      assert(f.ui.getHoleLinkSnapshot().mode === "off", "profile change revokes intent");
+      assert(f.document.getElementById("bbHoleLinkEnable").disabled === true,
+        "profile reset clears placements and disables mode");
+    } finally { f.ui.dispose(); }
+
+    const g = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(g, "D13", "C32");
+      assignTerminalHole(g, "R1:A", "H32");
+      g.document.getElementById("bbHoleLinkEnable").click();
+      g.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      g.lessonRef.current = lessonContext(3);
+      g.ui.update();
+      assert(g.ui.getHoleLinkSnapshot().mode === "off", "lesson change revokes intent");
+      assert(g.ui.getAuthoredPlacement() === null, "lesson reset clears explicit placement session");
+    } finally { g.ui.dispose(); }
+  });
+
+  check("successful-placement-mutation-revokes-revision-bound-intent-and-prevents-id-reuse", () => {
+    const f = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      f.document.getElementById("bbHoleLinkEnable").click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      const armed = f.ui.getHoleLinkSnapshot();
+      assert(armed.mode === "await-end", "pre-mutation first arm");
+      assignTerminalHole(f, "GND", "B2");
+      const afterMutation = f.ui.getHoleLinkSnapshot();
+      assert(afterMutation.mode === "off" && afterMutation.revision > armed.revision,
+        "placement revision mutation revokes old intent");
+      const staleDrag = f.ui.pickHoleLinkTargetFromDrag("H32", dragMeta(), 2, GENERIC);
+      assert(staleDrag.accepted === false && f.connectCalls.length === 0,
+        "old first endpoint cannot be reused after revision change");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("edit-off-revokes-active-intent-and-disables-reenable", () => {
+    const f = fixture({ linkControls: true });
+    try {
+      assignTerminalHole(f, "D13", "C32");
+      assignTerminalHole(f, "R1:A", "H32");
+      f.document.getElementById("bbHoleLinkEnable").click();
+      f.ui.pickHoleFromScene("C32", pointerMeta(), 2, GENERIC);
+      f.editRef.current = false;
+      const current = f.ui.getHoleLinkSnapshot();
+      assert(current.mode === "off", "get snapshot fail-closes active intent when edit turns off");
+      assert(f.document.getElementById("bbHoleLinkEnable").disabled === true,
+        "edit-off disables re-enable until authority callback returns true");
+      assert(f.connectCalls.length === 0, "edit-off revocation never commits");
+    } finally { f.ui.dispose(); }
+  });
+
+  check("lesson01-and-rail-only-explicit-placements-cannot-enable-terminal-strip-link", () => {
+    const lessonOne = fixture({ lessonId: 1, linkControls: true });
+    try {
+      assert(lessonOne.document.getElementById("bbHoleLinkEnable").disabled === true,
+        "lesson1 link mode disabled");
+      assert(lessonOne.ui.getHoleLinkSnapshot().mode === "off", "lesson1 snapshot off");
+    } finally { lessonOne.ui.dispose(); }
+
+    const rails = fixture({ profileId: BB830, linkControls: true });
+    try {
+      assignTerminalHole(rails, "D13", "P1+1");
+      assignTerminalHole(rails, "R1:A", "P2-1");
+      assert(rails.document.getElementById("bbHoleLinkEnable").disabled === true,
+        "rail placements do not count as terminal-strip link targets");
+      assert(rails.ui.getHoleLinkSnapshot().mode === "off", "rail grouping/proximity never arms link");
+    } finally { rails.ui.dispose(); }
+  });
+
+  check("lesson10-and-14-remain-visual-only-before-confirm", () => {
+    for (const lessonId of [10, 14]) {
+      const terminals = listTerminals(lessonId);
+      const f = fixture({ lessonId, linkControls: true });
+      try {
+        assignTerminalHole(f, terminals[0].id, "C32");
+        assignTerminalHole(f, terminals[1].id, "H32");
+        const enable = f.document.getElementById("bbHoleLinkEnable");
+        assert(enable.disabled === false, `lesson ${lessonId} explicit placements may preview`);
+        enable.click();
+        f.ui.pickHoleFromScene("C32", pointerMeta(), lessonId, GENERIC);
+        const drag = f.ui.pickHoleLinkTargetFromDrag("H32", dragMeta(), lessonId, GENERIC);
+        const ready = f.ui.getHoleLinkSnapshot();
+        assert(drag.accepted === true && ready.mode === "ready" && ready.physicalVerified === false &&
+          ready.claim === "visual-only-before-confirm", `lesson ${lessonId} preview boundary`);
+        assert(f.connectCalls.length === 0, `lesson ${lessonId} signal-only preview never auto-commits`);
+        assert(f.ui.getAuthoredPlacement()?.claims?.circuitRouterMutated === false,
+          `lesson ${lessonId} authored placement remains graph read-only`);
+      } finally { f.ui.dispose(); }
+    }
+  });
+
   return Object.freeze({
     total: checks.length,
     passed: checks.length,
     checks: Object.freeze(checks),
-    api: "mountBreadboardStudy({getSceneEditActive,onHoleSelectionChange}).pickHoleFromScene(holeId,frozenMeta,expectedLessonId,expectedProfileId)",
+    api: "mountBreadboardStudy({getSceneEditActive,onHoleSelectionChange,onConnectTerminalPair,onHoleLinkChange}) => {pickHoleFromScene,getHoleSelection,getHoleLinkSnapshot,cancelHoleLink,pickHoleLinkTargetFromDrag}",
   });
 }
