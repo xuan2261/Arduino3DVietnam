@@ -61,6 +61,9 @@ const state = {
   authoredGuide: null,
   // Only the exact currently owned learner edge may be inspected across views.
   selectedCommittedWire: null,
+  // Learner opt-in for a visual BB hole picker. It is not an electrical
+  // connection, and profile holes never derive from arbitrary 3D proximity.
+  bb3dHolePickRequested: false,
   breadboardUI: null, resistiveUI: null, avrEvidence: null,
   learningSteps: new Map(), learningHints: new Set(),
   practiceObservations: createPracticeObservationJournal(),
@@ -185,6 +188,41 @@ function clearCommittedWireInspection(){
   refreshSceneInspectionNote();
   refreshLabExplorer();
   return true;
+}
+function syncSceneBreadboardHoleStudy(){
+  const toggle=$("bb3dHolePickToggle");
+  const status=$("bb3dHolePickStatus");
+  const supported=supportedWiringLessons().includes(state.lessonId);
+  const expectedLessonId=state.lessonId;
+  const active=state.stageTab==="3d" && supported &&
+    state.labEditorUI?.isEditingIn3D?.()===true;
+  const profileId=$("bbProfile")?.value;
+  const profileKnown=["generic-63x10-terminal-strips","busboard-bb830-rev7"].includes(profileId);
+  const enabled=active && state.bb3dHolePickRequested && profileKnown;
+  toggle.disabled=!active||!profileKnown;
+  toggle.setAttribute("aria-pressed",String(enabled));
+  status.dataset.bbScenePickMode=enabled?"on":"off";
+  status.textContent=!supported
+    ?"Bài này không có vị trí breadboard ngoài bo để chọn."
+    :!active
+      ?"Bật chỉnh bố trí 3D để chọn lỗ A1–J63; không tạo dây hoặc kết nối điện."
+      :enabled
+        ?"Chế độ chọn lỗ 3D đang bật. Chạm/click một lỗ để điền ô gán; phải bấm Gán lỗ riêng. Chỉ là hình học khái niệm."
+        :"Chế độ chọn lỗ 3D tắt. Có thể tiếp tục chọn chân, di chuyển linh kiện hoặc nối dây bình thường.";
+  const selected=state.breadboardUI?.getHoleSelection?.()??null;
+  const selectedHoleId=selected?.profileId===profileId &&
+    /^[A-J](?:[1-9]|[1-5][0-9]|6[0-3])$/.test(selected?.holeId)
+    ? selected.holeId : null;
+  state.scene?.setBreadboardHoleStudy?.({
+    enabled,profileId,selectedHoleId,
+    onHoleSelect(holeId,meta){
+      if(!enabled||state.stageTab!=="3d"||state.lessonId!==expectedLessonId ||
+          $("bbProfile").value!==profileId)return false;
+      return state.breadboardUI?.pickHoleFromScene?.(
+        holeId,meta,expectedLessonId,profileId
+      )??false;
+    },
+  });
 }
 function acceptCommittedWireInspection(wireId,expectedLessonId=state.lessonId){
   if(expectedLessonId!==state.lessonId||
@@ -920,6 +958,7 @@ function renderInfo() {
   $("safetyNote").textContent=lesson.caution;
 }
 function renderStage() {
+  if(state.stageTab!=="3d")state.bb3dHolePickRequested=false;
   if(state.stageTab!=="3d" && state.authoredGuide)clearAuthoredGuide();
   if(state.stageTab!=="3d" && state.inspectedTerminalId!==null){
     state.inspectedTerminalId=null;
@@ -1001,6 +1040,7 @@ function renderStage() {
   }else state.scene?.resize();
   refresh3DWiring();
   refreshLabExplorer();
+  syncSceneBreadboardHoleStudy();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1234,6 +1274,7 @@ function resetSimulation() {
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
+  state.bb3dHolePickRequested=false;
   clearAuthoredGuide();
   clearCommittedWireInspection();
   stopClock();
@@ -1373,6 +1414,21 @@ function wireRovingTabs(selector) {
   });
 }
 function wireEvents(){
+  $("bb3dHolePickToggle").addEventListener("click",()=>{
+    if($("bb3dHolePickToggle").disabled)return;
+    if(!state.bb3dHolePickRequested){
+      // Breadboard study picking is separate from wiring gestures/overlays.
+      clearAuthoredGuide();
+      clearCommittedWireInspection();
+      if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
+    }
+    state.bb3dHolePickRequested=!state.bb3dHolePickRequested;
+    syncSceneBreadboardHoleStudy();
+  });
+  $("bbProfile").addEventListener("change",()=>{
+    state.bb3dHolePickRequested=false;
+    syncSceneBreadboardHoleStudy();
+  });
   $("sceneInspectionStatus").addEventListener("click",event=>{
     if(!event.target.closest("[data-committed-wire-dismiss]"))return;
     if(clearCommittedWireInspection())$("stageTab3d").focus({preventScroll:true});
@@ -1565,15 +1621,43 @@ async function init(){
     onEditModeChange(){
       if(state.authoredGuide)clearAuthoredGuide();
       if(!state.labEditorUI?.isEditingIn3D?.())clearCommittedWireInspection();
+      if(!state.labEditorUI?.isEditingIn3D?.())state.bb3dHolePickRequested=false;
       state.inspectedTerminalId=null;
       state.scene?.setInspectedTerminal?.(null);
       refreshSceneInspectionNote();
       refresh3DWiring();
       refreshLabExplorer();
       refreshLearnerHistoryControls();
+      syncSceneBreadboardHoleStudy();
     },
     onSelectionChange:refreshLabExplorer,
-    onLayoutChange:refreshLabExplorer,
+    onLayoutChange(){
+      refreshLabExplorer();
+      syncSceneBreadboardHoleStudy();
+    },
+    onSceneReconciled(layout,meta,lessonId){
+      // A rejected conceptual move can restore the Three.js layout without
+      // producing an accepted layout/history change. Re-arm only the still
+      // explicitly opted-in visual hole overlay; never synthesize a graph edge
+      // or an onLayoutChange/progress event for this rollback.
+      if(lessonId!==state.lessonId ||
+          layout!==state.labEditorUI?.snapshot?.()?.layout ||
+          !Object.isFrozen(meta) ||
+          Object.getPrototypeOf(meta)!==Object.prototype ||
+          Reflect.ownKeys(meta).length!==4)return;
+      const fields=["reason","operation","componentId","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor)||
+            descriptor.get||descriptor.set)return;
+        values[field]=descriptor.value;
+      }
+      if(values.reason!=="layout-rollback"||values.operation!=="move"||
+          typeof values.componentId!=="string"||
+          values.physicalVerified!==false)return;
+      syncSceneBreadboardHoleStudy();
+    },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
       // the 3D controller never supplies authority to create/remove an edge.
@@ -1588,6 +1672,8 @@ async function init(){
   });
   state.breadboardUI=mountBreadboardStudy({
     getLayout:()=>state.labEditorUI?.snapshot()?.layout??null,
+    getSceneEditActive:()=>state.stageTab==="3d" && state.labEditorUI?.isEditingIn3D?.()===true,
+    onHoleSelectionChange(){syncSceneBreadboardHoleStudy();},
     getLessonTerminals:()=>({
       lessonId:state.lessonId,
       terminals:supportedWiringLessons().includes(state.lessonId)
@@ -1646,9 +1732,13 @@ async function init(){
   // Capture on the stable host also catches non-bubbling canvas loss events.
   $("sceneMount").addEventListener("webglcontextlost", event=>{
     if(event.target?.tagName==="CANVAS"){
+      // The 3D hole-picker is a transient visual input mode, never a
+      // persistent physical placement or connection. Do not replay on restore.
+      state.bb3dHolePickRequested=false;
       clearAuthoredGuide();
       clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
+      syncSceneBreadboardHoleStudy();
     }
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -1659,6 +1749,7 @@ async function init(){
     state.labEditorUI?.setScene(state.scene);
     refresh3DWiring();
     refreshLabExplorer();
+    syncSceneBreadboardHoleStudy();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

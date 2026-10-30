@@ -24,13 +24,14 @@ const create = (tag, text = "") => {
 export function mountLabEditor({
   getCircuit, onCircuitChange, onEditModeChange = () => {},
   onSelectionChange = () => {}, onLayoutChange = () => {},
-  onWireInspection = null,
+  onWireInspection = null, onSceneReconciled = null,
 }) {
   if (typeof getCircuit !== "function" || typeof onCircuitChange !== "function") {
     throw new TypeError("Lab editor requires real circuit read/write callbacks.");
   }
   if ([onEditModeChange,onSelectionChange,onLayoutChange].some(callback=>typeof callback!=="function") ||
-      (onWireInspection!==null && typeof onWireInspection!=="function")) {
+      (onWireInspection!==null && typeof onWireInspection!=="function") ||
+      (onSceneReconciled!==null && typeof onSceneReconciled!=="function")) {
     throw new TypeError("Lab editor change observers must be functions.");
   }
   const entry = $("labEditEntry"), panel = $("labEditor"), toggle = $("labEditToggle");
@@ -38,7 +39,8 @@ export function mountLabEditor({
   const fromSelect = $("labFromPin"), toSelect = $("labToPin");
   const message = $("labStatus"), terminalNote = $("labSelectedTerminal"), avrNote = $("labAvrStatus");
   const cancelPending = $("labCancelPendingWire");
-  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,message,terminalNote,avrNote,cancelPending].some(node=>!node)) {
+  const resetPositions = $("labResetPositions");
+  if ([entry,panel,toggle,componentSelect,posX,posZ,fromSelect,toSelect,message,terminalNote,avrNote,cancelPending,resetPositions].some(node=>!node)) {
     throw new Error("Missing 3D lab editor DOM controls.");
   }
 
@@ -51,6 +53,8 @@ export function mountLabEditor({
   // Scene owns disposable WebGL objects. Avoid rebuilding meshes/textures on
   // every status or wiring update when the immutable layout has not changed.
   let renderedScene = null, renderedLayout = null;
+  const LAYOUT_HISTORY_LIMIT=32;
+  let layoutHistory=Object.seal({lessonId:null,terminalSignature:"",past:[],future:[]});
 
   const wireFieldset = fromSelect.closest("fieldset") || panel;
   const precisionWireList = create("div");
@@ -68,9 +72,86 @@ export function mountLabEditor({
   precisionWireList.append(precisionWireHeading, precisionWireProvenance, precisionWireRows);
   wireFieldset.append(precisionWireList);
 
+  const layoutHistoryControls=create("div");
+  layoutHistoryControls.className="lab-layout-history-controls";
+  layoutHistoryControls.dataset.labLayoutHistoryControls="";
+  layoutHistoryControls.setAttribute("role","group");
+  layoutHistoryControls.setAttribute("aria-label","Lịch sử bố trí khái niệm trong phiên");
+  const undoLayoutButton=create("button","↶ Hoàn tác bố trí");
+  undoLayoutButton.type="button";
+  undoLayoutButton.dataset.labLayoutUndo="";
+  undoLayoutButton.style.minHeight="44px";
+  undoLayoutButton.style.minWidth="44px";
+  undoLayoutButton.setAttribute("aria-label","Hoàn tác thay đổi bố trí khái niệm gần nhất trong phiên");
+  const redoLayoutButton=create("button","↷ Làm lại bố trí");
+  redoLayoutButton.type="button";
+  redoLayoutButton.dataset.labLayoutRedo="";
+  redoLayoutButton.style.minHeight="44px";
+  redoLayoutButton.style.minWidth="44px";
+  redoLayoutButton.setAttribute("aria-label","Làm lại thay đổi bố trí khái niệm vừa hoàn tác trong phiên");
+  layoutHistoryControls.append(undoLayoutButton,redoLayoutButton);
+  (resetPositions.parentNode||panel).append(layoutHistoryControls);
+
   const lessonSupported = () => supported.has(lessonId);
   const guideActive = () => !disposed && readOnlyGuideMode && lessonSupported() &&
     stage === "3d" && !!scene && !editing;
+  const terminalContextSignature=()=>lessonSupported()
+    ? listTerminals(lessonId).map(item=>item.id).join("\u001f") : "";
+  const resetLayoutHistory=()=>{
+    layoutHistory.lessonId=lessonId;
+    layoutHistory.terminalSignature=terminalContextSignature();
+    layoutHistory.past=[];
+    layoutHistory.future=[];
+  };
+  const ensureLayoutHistoryContext=()=>{
+    const signature=terminalContextSignature();
+    if(layoutHistory.lessonId===lessonId&&layoutHistory.terminalSignature===signature)return false;
+    const sameLesson=layoutHistory.lessonId===lessonId;
+    layoutHistory.lessonId=lessonId;
+    layoutHistory.terminalSignature=signature;
+    layoutHistory.past=[];
+    layoutHistory.future=[];
+    if(sameLesson&&lessonSupported()){
+      layouts.delete(lessonId);
+      renderedLayout=null;
+    }
+    return true;
+  };
+  const boundedLayoutPush=(items,value)=>{
+    const next=[...items,value];
+    return next.length>LAYOUT_HISTORY_LIMIT?next.slice(next.length-LAYOUT_HISTORY_LIMIT):next;
+  };
+  const sameLayoutPlacement=(a,b)=>{
+    if(a===b)return true;
+    if(!a||!b||a.lessonId!==b.lessonId||a.components?.length!==b.components?.length)return false;
+    return a.components.every((component,index)=>{
+      const other=b.components[index];
+      return !!other&&component.id===other.id&&component.x===other.x&&component.z===other.z&&
+        component.quarterTurns===other.quarterTurns;
+    });
+  };
+  const layoutHistoryEntry=layout=>Object.freeze({
+    layout,
+    selectedId,
+    explicitlyDeselected:Boolean(explicitlyDeselected),
+  });
+  const layoutHistoryAvailable=()=>{
+    ensureLayoutHistoryContext();
+    return Object.freeze({
+      canUndo:layoutHistory.past.length>0,
+      canRedo:layoutHistory.future.length>0,
+      undoDepth:layoutHistory.past.length,
+      redoDepth:layoutHistory.future.length,
+    });
+  };
+  const refreshLayoutHistoryControls=()=>{
+    const state=layoutHistoryAvailable();
+    const active=lessonSupported()&&editing&&stage==="3d"&&!!scene&&!disposed;
+    undoLayoutButton.disabled=!active||!state.canUndo;
+    redoLayoutButton.disabled=!active||!state.canRedo;
+    undoLayoutButton.setAttribute("aria-disabled",String(undoLayoutButton.disabled));
+    redoLayoutButton.setAttribute("aria-disabled",String(redoLayoutButton.disabled));
+  };
   // Pending two-terminal wiring intent belongs to this controller only.
   // The Three.js overlay mirrors it for feedback; it cannot create a wire.
   const syncPendingScenePreview = () => {
@@ -87,6 +168,7 @@ export function mountLabEditor({
   };
   const layoutFor = () => {
     if (!lessonSupported()) return null;
+    ensureLayoutHistoryContext();
     let layout = layouts.get(lessonId);
     if (!layout) {
       const terminals = listTerminals(lessonId);
@@ -96,6 +178,70 @@ export function mountLabEditor({
       layouts.set(lessonId, layout);
     }
     return layout;
+  };
+  const clearPendingForLayoutChange=()=>{
+    if(firstTerminal===null)return false;
+    firstTerminal=null;
+    terminalNote.textContent="Đã hủy chọn chân đầu tiên vì bố trí khái niệm đã thay đổi; chưa tạo dây mới.";
+    syncPendingScenePreview();
+    return true;
+  };
+  const commitLayoutMutation=(current,next,{selected=selectedId,deselected=explicitlyDeselected,detail="Đã cập nhật bố trí khái niệm."}={})=>{
+    ensureLayoutHistoryContext();
+    if(!current||!next||sameLayoutPlacement(current,next))return false;
+    const check=validateLabLayout(next,listTerminals(lessonId));
+    if(!check.ok)throw new RangeError("Bố trí 3D không hợp lệ: "+check.errors.join("; "));
+    layoutHistory.past=boundedLayoutPush(layoutHistory.past,layoutHistoryEntry(current));
+    layoutHistory.future=[];
+    layouts.set(lessonId,next);
+    selectedId=selected&&next.components.some(item=>item.id===selected)?selected:null;
+    explicitlyDeselected=selectedId===null?Boolean(deselected):false;
+    clearPendingForLayoutChange();
+    announce(detail);
+    render();
+    onLayoutChange(next,lessonId);
+    return true;
+  };
+  const restoreLayoutHistoryEntry=(entry,detail)=>{
+    if(!entry?.layout)return false;
+    const check=validateLabLayout(entry.layout,listTerminals(lessonId));
+    if(!check.ok)return false;
+    layouts.set(lessonId,entry.layout);
+    selectedId=entry.selectedId&&entry.layout.components.some(item=>item.id===entry.selectedId)
+      ? entry.selectedId : null;
+    explicitlyDeselected=selectedId===null?Boolean(entry.explicitlyDeselected):false;
+    clearPendingForLayoutChange();
+    announce(detail);
+    render();
+    onLayoutChange(entry.layout,lessonId);
+    return true;
+  };
+  const canMutateLayoutHistory=()=>lessonSupported()&&editing&&stage==="3d"&&!!scene&&!disposed;
+  const undoLayout=()=>{
+    ensureLayoutHistoryContext();
+    if(!canMutateLayoutHistory()||layoutHistory.past.length===0)return false;
+    const current=layoutHistoryEntry(layoutFor());
+    const target=layoutHistory.past.at(-1);
+    layoutHistory.past=layoutHistory.past.slice(0,-1);
+    layoutHistory.future=boundedLayoutPush(layoutHistory.future,current);
+    if(restoreLayoutHistoryEntry(target,"Đã hoàn tác thay đổi bố trí khái niệm trong phiên."))return true;
+    layoutHistory.past=boundedLayoutPush(layoutHistory.past,target);
+    layoutHistory.future=layoutHistory.future.slice(0,-1);
+    refreshLayoutHistoryControls();
+    return false;
+  };
+  const redoLayout=()=>{
+    ensureLayoutHistoryContext();
+    if(!canMutateLayoutHistory()||layoutHistory.future.length===0)return false;
+    const current=layoutHistoryEntry(layoutFor());
+    const target=layoutHistory.future.at(-1);
+    layoutHistory.future=layoutHistory.future.slice(0,-1);
+    layoutHistory.past=boundedLayoutPush(layoutHistory.past,current);
+    if(restoreLayoutHistoryEntry(target,"Đã làm lại thay đổi bố trí khái niệm trong phiên."))return true;
+    layoutHistory.future=boundedLayoutPush(layoutHistory.future,target);
+    layoutHistory.past=layoutHistory.past.slice(0,-1);
+    refreshLayoutHistoryControls();
+    return false;
   };
   const announce = (text, kind = "") => {
     lastMessage = String(text || "");
@@ -134,6 +280,17 @@ export function mountLabEditor({
     onSelectionChange(selectedId, lessonId);
     return true;
   };
+  const rollbackRejectedMove=(layout,id,detail)=>{
+    announce("Không thể đặt linh kiện: " + detail,"error");
+    scene?.setLabLayout?.(layout);
+    if(scene?.setLabLayout && onSceneReconciled){
+      const meta=Object.freeze({
+        reason:"layout-rollback",operation:"move",componentId:id,physicalVerified:false,
+      });
+      try{onSceneReconciled(layout,meta,lessonId);}catch{}
+    }
+    return false;
+  };
   const moveComponent = (id, x, z) => {
     const layout = layoutFor();
     if (!layout || !editing) return false;
@@ -143,19 +300,15 @@ export function mountLabEditor({
     }
     try {
       const next = moveLabComponent(layout,id,x,z);
-      const check = validateLabLayout(next,listTerminals(lessonId));
-      if (!check.ok) throw new Error(check.errors.join("; "));
-      layouts.set(lessonId,next);
-      selectedId = id;
-      explicitlyDeselected = false;
-      announce("Đã cập nhật vị trí minh họa của " + id + ". Netlist điện không thay đổi.");
-      render();
-      onLayoutChange(next,lessonId);
-      return true;
+      const changed=commitLayoutMutation(layout,next,{
+        selected:id,deselected:false,
+        detail:"Đã cập nhật vị trí minh họa của "+id+". Netlist điện không thay đổi.",
+      });
+      if(!changed)announce("Vị trí của "+id+" không thay đổi; không tạo bước lịch sử bố trí.");
+      return changed;
     } catch (error) {
-      announce("Không thể đặt linh kiện: " + (error?.message || "tọa độ không hợp lệ"),"error");
-      scene?.setLabLayout?.(layout);
-      return false;
+      const detail=error?.message || "tọa độ không hợp lệ";
+      return rollbackRejectedMove(layout,id,detail);
     }
   };
   const rotateComponent = turns => {
@@ -167,13 +320,12 @@ export function mountLabEditor({
     }
     try {
       const next = rotateLabComponent(layout, selectedId, turns);
-      const check = validateLabLayout(next, listTerminals(lessonId));
-      if (!check.ok) throw new Error(check.errors.join("; "));
-      layouts.set(lessonId,next);
-      announce("Đã xoay " + selectedId + " theo ô 90° của mô hình khái niệm.");
-      render();
-      onLayoutChange(next,lessonId);
-      return true;
+      const changed=commitLayoutMutation(layout,next,{
+        selected:selectedId,deselected:false,
+        detail:"Đã xoay "+selectedId+" theo ô 90° của mô hình khái niệm.",
+      });
+      if(!changed)announce("Góc của "+selectedId+" không thay đổi; không tạo bước lịch sử bố trí.");
+      return changed;
     } catch(error) {
       announce("Không thể xoay: " + (error?.message || "không hỗ trợ"),"error");
       return false;
@@ -426,6 +578,7 @@ export function mountLabEditor({
     toggle.setAttribute("aria-expanded",String(!panel.hidden));
     toggle.setAttribute("aria-pressed",String(editing));
     toggle.textContent = editing ? "✓ Đóng bàn bố trí 3D" : "✣ Bố trí và nối dây 3D";
+    refreshLayoutHistoryControls();
     if (!available) {
       scene?.setLabEdit?.({ ...sceneCallbacks, enabled:false });
       if (scene !== renderedScene || renderedLayout !== null) {
@@ -517,7 +670,22 @@ export function mountLabEditor({
     onCancelPending();
   };
   const onComponent=()=>selectComponent(componentSelect.value);
-  const onPlace=()=>moveComponent(selectedId,Number(posX.value),Number(posZ.value));
+  const coordinateInputValue=node=>{
+    const value=Number(node.value);
+    const min=node.min===""?-Infinity:Number(node.min);
+    const max=node.max===""?Infinity:Number(node.max);
+    return Number.isFinite(value)&&Number.isFinite(min)&&Number.isFinite(max)&&value>=min&&value<=max
+      ? value : null;
+  };
+  const onPlace=()=>{
+    const x=coordinateInputValue(posX),z=coordinateInputValue(posZ);
+    if(x===null||z===null){
+      const layout=layoutFor();
+      if(!layout||!editing||!scene||!selectedId)return false;
+      return rollbackRejectedMove(layout,selectedId,"tọa độ nằm ngoài giới hạn bố trí khái niệm");
+    }
+    return moveComponent(selectedId,x,z);
+  };
   const onNudge=event=>{
     const button=event.target.closest("[data-lab-nudge]");
     if (!button || !selectedId || !editing) return;
@@ -625,16 +793,17 @@ export function mountLabEditor({
   };
   const onReset=()=>{
     if (!editing||stage!=="3d"||!scene||!lessonSupported()) return false;
-    layouts.delete(lessonId);
-    selectedId=null;
-    explicitlyDeselected=false;
-    firstTerminal=null;
-    lastMessage="";
-    render();
-    announce("Đã khôi phục bố trí minh họa mặc định; các dây netlist được giữ nguyên.");
-    onLayoutChange(layoutFor(),lessonId);
-    return true;
+    const current=layoutFor();
+    const next=createLabLayout(lessonId,listTerminals(lessonId));
+    const changed=commitLayoutMutation(current,next,{
+      selected:null,deselected:false,
+      detail:"Đã khôi phục bố trí minh họa mặc định; các dây netlist được giữ nguyên.",
+    });
+    if(!changed)announce("Bố trí đã ở trạng thái mặc định; không tạo bước lịch sử bố trí.");
+    return changed;
   };
+  const onUndoLayout=()=>undoLayout();
+  const onRedoLayout=()=>redoLayout();
 
   const listeners=[
     [toggle,"click",onToggle],
@@ -645,6 +814,8 @@ export function mountLabEditor({
     [$("labRotateLeft"),"click",()=>rotateComponent(-1)],
     [$("labRotateRight"),"click",()=>rotateComponent(1)],
     [$("labResetPositions"),"click",onReset],
+    [undoLayoutButton,"click",onUndoLayout],
+    [redoLayoutButton,"click",onRedoLayout],
     [panel,"click",onNudge],
     [$("labConnect"),"click",onWire],
     [$("labSampleWires"),"click",onSample],
@@ -669,6 +840,7 @@ export function mountLabEditor({
       if(readOnlyGuideMode)scene?.setLabLayout?.(null);
       readOnlyGuideMode=false;
       lessonId=id;editing=false;selectedId=null;explicitlyDeselected=false;firstTerminal=null;lastMessage="";
+      resetLayoutHistory();
       renderedLayout=null;
       render();
     },
@@ -737,6 +909,8 @@ export function mountLabEditor({
     connectTerminals(from,to){return connectTerminals(from,to);},
     inspectCommittedWire(wireId,meta,expectedLessonId){return inspectCommittedWire(wireId,meta,expectedLessonId);},
     removeWire(wireId,expectedLessonId=lessonId){return removeWireById(wireId,expectedLessonId);},
+    undoLayout(){return undoLayout();},
+    redoLayout(){return redoLayout();},
     clearTerminalSelection(){
       if(firstTerminal===null)return false;
       firstTerminal=null;
@@ -747,8 +921,11 @@ export function mountLabEditor({
     isEditingIn3D(){return lessonSupported() && editing && stage==="3d";},
     setAvrEvidence(evidence){avrEvidence=evidence;showAvrEvidence();},
     snapshot(){
+      const history=layoutHistoryAvailable();
       return Object.freeze({
         lessonId,stage,editing,readOnlyGuideIn3D:guideActive(),selectedId,firstTerminal,layout:layoutFor(),
+        canUndoLayout:history.canUndo,canRedoLayout:history.canRedo,
+        layoutUndoDepth:history.undoDepth,layoutRedoDepth:history.redoDepth,
         circuit:lessonSupported()?getCircuit(lessonId):null,
       });
     },
@@ -761,7 +938,10 @@ export function mountLabEditor({
       for(const [node,event,fn] of listeners) node.removeEventListener(event,fn);
       scene?.setLabEdit?.({...sceneCallbacks,enabled:false});
       layouts.clear();
+      layoutHistory.past=[];
+      layoutHistory.future=[];
       precisionWireList.remove();
+      layoutHistoryControls.remove();
     },
   });
 }

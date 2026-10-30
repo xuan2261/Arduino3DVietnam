@@ -408,6 +408,12 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .sketch-review-boundary { padding:8px 10px; background:#eef3f0; border-left:3px solid #9aa7a0; }
 @media (max-width:580px) { .sketch-review-mount { margin:0 13px 13px; } .sketch-review { padding:11px; } }
 .update-notice { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:13px 16px; border:1px solid #e6c495; border-radius:10px; background:#fff5e5; color:#765425; font-size:12px; line-height:1.6; margin-bottom:17px; }
+.lab-edit-entry #bb3dHolePickToggle { min-width:44px; min-height:44px; max-width:100%; white-space:normal; }
+.lab-edit-entry #bb3dHolePickToggle[aria-pressed="true"] { border-color:#237a6a; background:#d9f1e5; color:#155345; box-shadow:inset 0 0 0 1px #237a6a; }
+.lab-edit-entry #bb3dHolePickToggle:focus-visible { outline:3px solid #176e64; outline-offset:2px; }
+.lab-edit-entry #bb3dHolePickStatus { flex-basis:100%; max-width:100%; overflow-wrap:anywhere; font-size:11px; line-height:1.6; }
+.lab-edit-entry #bb3dHolePickStatus[data-bb-scene-pick-mode="on"] { font-weight:700; color:#125946; }
+@media(max-width:580px) { .lab-edit-entry #bb3dHolePickToggle { flex:1 1 100%; } }
 .update-notice .button { flex:none; min-height:37px; }
 .loading-text { color: var(--muted); font-size: 12px; }
 .wiring-view,.parts-view { position: absolute; inset: 0; z-index: 2; overflow-y: auto; background: #e9f0eb; padding: 54px 27px 72px; }

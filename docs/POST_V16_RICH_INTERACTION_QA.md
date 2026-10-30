@@ -284,3 +284,67 @@ compiled learner-edited Sketch, firmware running on a physical Uno, precise
 CAD/breadboard mapping, release readiness or production deployment. Final
 feature commit SHA, same-SHA manual compiler/Chromium/read-only preflight CI
 and protected production-ref verification must be recorded separately.
+
+### Next 3D product block — exact conceptual breadboard hole selection and layout undo/redo
+
+**2026-10-30 local pre-commit candidate, based on accepted feature HEAD
+`57d8b9092dffd710e72f5286431536a88b0563c2`.** This phase is distinct
+from the preceding accepted committed-wire inspection and does not alter
+production `main`, `v1.6.0`, draft release or backup.
+
+- `src/scene3d.js` offers an opt-in, visually selectable A1..J63 hole study
+  built with **one 630-instance Three.js InstancedMesh**, deterministic row-major
+  IDs and a selected-instance halo. Mouse/touch/pen pointer down/up is
+  revalidated across lesson, layout, component, profile, hole identity and
+  instance index; dragging, cancel/lost capture, stage/lesson/context loss and
+  disposal must not create a selection or connection. Existing terminal and
+  committed learner-wire picking take priority.
+- `src/breadboard-topology-ui.js` only accepts the exact frozen pointer
+  metadata shape `{source:'pointer',physicalVerified:false}` plus the current
+  exact lesson/profile. It projects the selected A1..J63 ID into the existing
+  page-8 native HTML hole grid, input and contact-group inspector. **Selecting a
+  hole only fills input; explicit Assign separately records an authored
+  in-session placement**, never a `circuit-router` edge or evidence of
+  physical insertion or measured contact.
+- `src/lab-editor-ui.js` adds separate bounded **32-step conceptual layout**
+  undo/redo for accepted component placement/rotation, not a replacement for
+  learner graph history. No-op, invalid, wrong-stage and stale-lesson commands
+  do not write layout history, graph, progress or mastery. Native buttons have
+  keyboard focus and >=44 px targets. A rejected native `X=999` placement now
+  restores the accepted scene layout, then emits a distinct, frozen
+  `onSceneReconciled` observer so `app.js` can restore an **already opted-in**
+  read-only hole overlay without manufacturing an accepted layout change.
+
+| Final local gate | Observed result |
+| --- | --- |
+| 37 Bun/JS pure-contract suites (including new scene-hole bridge) | **919/919 PASS** |
+| Scene browser contract expansion | **237 runtime contracts**, vs prior 200 |
+| Python unit and release tests | **100/100 + 29/29 PASS** |
+| Site export | **137 dist files** (136 allowlisted public/SW assets + marker) |
+| Exclusive installed Google Chrome real E2E, incl. offline/PWA | **492/492 PASS**, 0 failed |
+| Browser diagnostics | **0** JS console errors, **0** unexpected warnings, **0** GPU diagnostics |
+| AST historical E2E callsites | Baseline HEAD **339**, current **362**, **all 339 retained**, 23 added |
+| Independent P0/P1 audits | UX auditor on pre-hardening candidate and security auditor on **exact post-rollback diff**: **no P0/P1**, conditional feature-branch CI GO only |
+
+The final Chrome JSON contains 492 `passed:true` check records and is:
+`screenshots/post-57d8b90-breadboard-3d-rollback-final-20261030.json`
+SHA-256
+`5a3a1d06790dea1d37a6ee380ab5ea9a1c9b57621d1b88793f2dec4407be2d49`.
+This is **local** proof, not a new GitHub Actions artifact or learner-edited
+Sketch compilation. The previous 491/491 candidate run preceded rollback
+hardening; its PASS does not replace the final 492/492 receipt. The earlier
+Chromium fixture failure on `HTMLButtonElement.click()` returning
+`undefined` was fixed by verifying an actual layout-change callback and
+focus retention instead of the fake DOM return value; no regression assertion
+was deleted or relaxed.
+
+The visually positioned 630 holes are **conceptual** and not manufacturer CAD,
+millimeters, real contact mapping or physical snap. BB830 profile contact
+grouping is separate from actual 3D hole geometry; four external rails are not
+automatically inferred or energized. Existing 16 Vietnamese lessons, 48
+authored checkpoints, teacher validation/mastery boundaries, lesson 10/14
+signal-only limitations, verified firmware and bounded AVR remain unchanged.
+An isolated learner-edited C++ compile backend still does not exist on the
+static GitHub Pages surface: CI compiler covers **16 checked-in reference
+Sketches** only. Commit/CI/release evidence must be verified separately after
+this local gate.

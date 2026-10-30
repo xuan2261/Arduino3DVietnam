@@ -188,11 +188,12 @@ export async function runScene3DContracts() {
     /sameRenderedCommittedWireIdentity\(rendered,canonical\)/.test(committedInspectSource) &&
     /hasOwnProperty\.call\(terminalMap,terminalId\)/.test(committedInspectSource) &&
     /labTerminals\.has\(terminalId\)/.test(committedInspectSource));
-  check("committed-wire-inspect-source-preserves-terminal-component-priority-and-camera-drag",
+  check("committed-wire-inspect-source-preserves-mode-off-component-priority-and-camera-drag",
     pointerDownSource.indexOf('kind==="lab-terminal"') >= 0 &&
+    /if\(breadboardHoleStudyActive\(\)\)[\s\S]*wireHit=committedWireHit/.test(pointerDownSource) &&
     pointerDownSource.indexOf('kind==="lab-component-hit"') >
-      pointerDownSource.indexOf('kind==="lab-terminal"') &&
-    pointerDownSource.indexOf("const wireHit=committedWireHit") >
+      pointerDownSource.indexOf("const holeHit=breadboardHoleStudyHit") &&
+    pointerDownSource.indexOf("wireHit=wireHit||committedWireHit") >
       pointerDownSource.indexOf('kind==="lab-component-hit"') &&
     /drag\.kind==="camera"\|\|drag\.kind==="committed-wire"/.test(pointerMoveSource));
   check("committed-wire-inspect-source-tap-only-visual-highlight-and-frozen-callback",
@@ -208,6 +209,70 @@ export async function runScene3DContracts() {
     /function clearLabLayout[\s\S]*cancelCommittedWireInspectPointer\(false\)/.test(sceneSource) &&
     /const onContextLost=event=>\{[\s\S]*if\(drag\)\{try\{canvas\.releasePointerCapture/.test(sceneSource) &&
     /const onContextLost=event=>\{[\s\S]*drag=null/.test(sceneSource));
+  const breadboardStudyMapStart = sceneSource.indexOf("function breadboardStudyHoleIndex");
+  const breadboardStudyMapEnd = sceneSource.indexOf("function unrotateLabVector", breadboardStudyMapStart);
+  const breadboardStudyMapSource = sceneSource.slice(breadboardStudyMapStart, breadboardStudyMapEnd);
+  const breadboardStudyStateStart = sceneSource.indexOf("function breadboardHoleStudyStatus");
+  const breadboardStudyStateEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", breadboardStudyStateStart);
+  const breadboardStudySource = sceneSource.slice(breadboardStudyStateStart, breadboardStudyStateEnd);
+  check("breadboard-hole-study-source-has-deterministic-630-row-major-canonical-identity",
+    /BREADBOARD_STUDY_ROWS = Object\.freeze\("ABCDEFGHIJ"\.split\(""\)\)/.test(sceneSource) &&
+    /BREADBOARD_STUDY_COLUMNS = 63/.test(sceneSource) &&
+    /BREADBOARD_STUDY_HOLE_COUNT = BREADBOARD_STUDY_ROWS\.length \* BREADBOARD_STUDY_COLUMNS/.test(sceneSource) &&
+    /\^\(\[A-J\]\)\(\[1-9\]\|\[1-5\]\[0-9\]\|6\[0-3\]\)\$/.test(breadboardStudyMapSource) &&
+    /rowIndex\*BREADBOARD_STUDY_COLUMNS\+\(Number\(match\[2\]\)-1\)/.test(breadboardStudyMapSource) &&
+    /BREADBOARD_STUDY_ROWS\[rowIndex\]\+String\(column\)/.test(breadboardStudyMapSource));
+  check("breadboard-hole-study-source-is-single-instanced-conceptual-overlay-with-no-rail-authority",
+    /new T\.InstancedMesh\([\s\S]*BREADBOARD_STUDY_HOLE_COUNT/.test(breadboardStudySource) &&
+    /visualInstanceCount:BREADBOARD_STUDY_HOLE_COUNT/.test(breadboardStudySource) &&
+    /identityModel:"row-major-A1-through-J63"/.test(breadboardStudySource) &&
+    /new T\.RingGeometry\(/.test(breadboardStudySource) &&
+    /kind:"lab-breadboard-hole-study-selection"/.test(breadboardStudySource) &&
+    /conceptualStudy:true,railInference:false,breadboardHoleMapping:false/.test(breadboardStudySource) &&
+    /electricalAuthority:false,physicalLocation:false,physicalVerified:false/.test(breadboardStudySource) &&
+    !/setWiring\(|connectCircuit\(|disconnectCircuit\(|lastWiringModel\s*=|labWireObjects\.push/.test(breadboardStudySource));
+  check("breadboard-hole-study-source-api-disabled-path-is-harmless-and-status-truthful",
+    /function setBreadboardHoleStudy\(options=\{\}\)/.test(breadboardStudySource) &&
+    /if\(options\.enabled!==true\)\{\s*return resetBreadboardHoleStudy\(true\);\s*\}/.test(breadboardStudySource) &&
+    /holeCount:BREADBOARD_STUDY_HOLE_COUNT/.test(breadboardStudySource) &&
+    /mode:active\?"conceptual-strip-study":"none"/.test(breadboardStudySource) &&
+    /physicalVerified:false/.test(breadboardStudySource));
+  check("breadboard-hole-study-source-validates-profile-and-selected-canonical-hole",
+    /profileId\.trim\(\)!==profileId/.test(breadboardStudySource) &&
+    /BREADBOARD_STUDY_PROFILE_ID_MAX/.test(breadboardStudySource) &&
+    /\["__proto__","prototype","constructor"\]\.includes\(profileId\)/.test(breadboardStudySource) &&
+    /selectedHoleId breadboard hole study phải là canonical A1\.\.J63/.test(breadboardStudySource) &&
+    /profileChanged\?null:breadboardHoleStudy\.selectedHoleId/.test(breadboardStudySource));
+  check("breadboard-hole-study-source-requires-explicit-mode-edit-layout-visible-breadboard",
+    /breadboardHoleStudy\.enabled===true&&labEdit\.enabled===true/.test(breadboardStudySource) &&
+    /activeBreadboardStudyEntry\(\)!==null/.test(breadboardStudySource) &&
+    /entry\?\.component\?\.visualKind!=="breadboard"/.test(breadboardStudySource) &&
+    /entry\.root\?\.visible===false/.test(breadboardStudySource));
+  check("breadboard-hole-study-source-pointer-priority-and-tap-camera-boundary",
+    pointerDownSource.indexOf('kind==="lab-terminal"') >= 0 &&
+    pointerDownSource.indexOf("wireHit=committedWireHit") >
+      pointerDownSource.indexOf('kind==="lab-terminal"') &&
+    pointerDownSource.indexOf("const holeHit=breadboardHoleStudyHit") >
+      pointerDownSource.indexOf("wireHit=committedWireHit") &&
+    pointerDownSource.indexOf('kind==="lab-component-hit"') >
+      pointerDownSource.indexOf("const holeHit=breadboardHoleStudyHit") &&
+    /drag\.kind==="breadboard-hole-study"/.test(pointerMoveSource) &&
+    /drag\.kind==="camera"\|\|drag\.kind==="committed-wire"[\s\S]*drag\.kind==="breadboard-hole-study"/.test(pointerMoveSource));
+  check("breadboard-hole-study-source-pointer-revalidates-and-callback-meta-remains-exact",
+    /finished\.kind==="breadboard-hole-study"/.test(finishPointerSource) &&
+    /finished\.layoutRef===activeLabLayout/.test(finishPointerSource) &&
+    /finished\.lessonId===Number\(currentLessonId\)/.test(finishPointerSource) &&
+    /releaseHit\.holeId===finished\.holeId/.test(finishPointerSource) &&
+    /releaseHit\.instanceId===finished\.instanceId/.test(finishPointerSource) &&
+    /Object\.freeze\(\{source:"pointer",physicalVerified:false\}\)/.test(finishPointerSource) &&
+    /accepted\?\.accepted===true\?accepted\.selection:null/.test(finishPointerSource) &&
+    /selection\.profileId===finished\.profileId/.test(finishPointerSource) &&
+    /selection\.holeId===finished\.holeId/.test(finishPointerSource));
+  check("breadboard-hole-study-source-fail-closed-lifecycle-and-public-api",
+    /function clearLabLayout[\s\S]*resetBreadboardHoleStudy\(false\)/.test(sceneSource) &&
+    /const onContextLost=event=>\{[\s\S]*resetBreadboardHoleStudy\(false\)/.test(sceneSource) &&
+    /canvas\.removeEventListener\("webglcontextrestored"[\s\S]*resetBreadboardHoleStudy\(false\)/.test(sceneSource) &&
+    /setBreadboardHoleStudy/.test(sceneSource.slice(sceneSource.indexOf("return {setLesson"))));
   const authoredGuideStart = sceneSource.indexOf("function authoredGuideResult");
   const authoredGuideEnd = sceneSource.indexOf("function refreshLabInteractionFeedback", authoredGuideStart);
   const authoredGuideSource = sceneSource.slice(authoredGuideStart, authoredGuideEnd);
@@ -456,6 +521,29 @@ export async function runScene3DContracts() {
         component.z * .72,
       ));
     };
+    const projectedBreadboardStudyHolePoint = (sceneCanvas, labLayout, holeId) => {
+      const match = /^([A-J])([1-9]|[1-5][0-9]|6[0-3])$/.exec(holeId);
+      if (!match) throw new Error("Invalid conceptual breadboard study hole: " + holeId);
+      const breadboardComponent = labLayout.components.find(item => item.visualKind === "breadboard");
+      if (!breadboardComponent) throw new Error("Missing conceptual breadboard component");
+      const rowIndex = "ABCDEFGHIJ".indexOf(match[1]);
+      const columnIndex = Number(match[2]) - 1;
+      const rowZ = [-.30, -.24, -.18, -.12, -.06, .06, .12, .18, .24, .30][rowIndex];
+      const width = breadboardComponent.width * .72;
+      const depth = breadboardComponent.depth * .72;
+      const local = new T.Vector3(
+        -width * .39 + width * .78 * columnIndex / 62,
+        .318,
+        depth * rowZ,
+      );
+      local.applyAxisAngle(
+        new T.Vector3(0, 1, 0),
+        -breadboardComponent.quarterTurns * Math.PI / 2,
+      );
+      local.x += breadboardComponent.x * .72;
+      local.z += breadboardComponent.z * .72;
+      return projectedWorldPoint(sceneCanvas, labLayout, local);
+    };
     const projectedCommittedWirePoint = (sceneCanvas, labLayout, wire, wireIndex = 0) => {
       const terminalWorld = terminalId => {
         const anchor = labTerminalAnchor(labLayout, terminalId);
@@ -504,6 +592,38 @@ export async function runScene3DContracts() {
     const terminals = listTerminals(2);
     const layout = createLabLayout(2, terminals);
     check("public-inspected-terminal-api", typeof mounted.setInspectedTerminal === "function");
+    check("public-breadboard-hole-study-api", typeof mounted.setBreadboardHoleStudy === "function");
+    const disabledStudyBeforeLayout = mounted.setBreadboardHoleStudy({
+      enabled: false,
+      profileId: { invalid: true },
+      selectedHoleId: "Z99",
+      onHoleSelect: "invalid",
+    });
+    check("breadboard-hole-study-disabled-is-harmless-before-layout",
+      Object.isFrozen(disabledStudyBeforeLayout) &&
+      disabledStudyBeforeLayout.ok === true &&
+      disabledStudyBeforeLayout.enabled === false &&
+      disabledStudyBeforeLayout.active === false &&
+      disabledStudyBeforeLayout.profileId === null &&
+      disabledStudyBeforeLayout.selectedHoleId === null &&
+      disabledStudyBeforeLayout.holeCount === 630 &&
+      disabledStudyBeforeLayout.mode === "none" &&
+      disabledStudyBeforeLayout.physicalVerified === false &&
+      canvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      canvas.dataset.labBreadboardHoleCount === "0");
+    const inactiveStudyBeforeLayout = mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: "pre-layout-study",
+      selectedHoleId: null,
+      onHoleSelect: null,
+    });
+    check("breadboard-hole-study-enabled-without-layout-fails-closed",
+      inactiveStudyBeforeLayout.ok === false &&
+      inactiveStudyBeforeLayout.enabled === true &&
+      inactiveStudyBeforeLayout.active === false &&
+      inactiveStudyBeforeLayout.profileId === "pre-layout-study" &&
+      inactiveStudyBeforeLayout.mode === "none" &&
+      canvas.dataset.labBreadboardHoleStudyMode === "none");
 
     let noLayoutProofRejected = false;
     try { mounted.setInspectedTerminal("D13"); }
@@ -722,6 +842,318 @@ export async function runScene3DContracts() {
       editModeGuideRejected &&
       canvas.dataset.labAuthoredGuideMode === "none" &&
       canvas.dataset.labPendingWirePreview === "none");
+
+    const holeSelectEvents = [];
+    const holeComponentEvents = [];
+    const holeTerminalEvents = [];
+    let holeAcceptanceMode = "accept";
+    let holeAcceptedProfile = "bb-study-v1";
+    const onHoleSelect = (holeId, meta) => {
+      holeSelectEvents.push({ holeId, meta });
+      if (holeAcceptanceMode === "reject") {
+        return { accepted: false, reason: "fixture-reject" };
+      }
+      if (holeAcceptanceMode === "mismatch") {
+        return {
+          accepted: true,
+          selection: { lessonId: 2, profileId: "wrong-profile", holeId },
+        };
+      }
+      return {
+        accepted: true,
+        selection: { lessonId: 2, profileId: holeAcceptedProfile, holeId },
+      };
+    };
+    mounted.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onSelectComponent: componentId => holeComponentEvents.push(componentId),
+      onTerminalSelect: terminalId => holeTerminalEvents.push(terminalId),
+    });
+    flushFrames();
+    const fineInstancesBeforeStudy = canvas.dataset.sceneFineDetailInstanceCount;
+    const studyEnabled = mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      selectedHoleId: null,
+      onHoleSelect,
+    });
+    check("breadboard-hole-study-active-status-and-630-instance-datasets",
+      Object.isFrozen(studyEnabled) &&
+      studyEnabled.ok === true &&
+      studyEnabled.enabled === true &&
+      studyEnabled.active === true &&
+      studyEnabled.profileId === "bb-study-v1" &&
+      studyEnabled.selectedHoleId === null &&
+      studyEnabled.holeCount === 630 &&
+      studyEnabled.mode === "conceptual-strip-study" &&
+      studyEnabled.physicalVerified === false &&
+      Object.keys(studyEnabled).sort().join(",") ===
+        "active,enabled,holeCount,mode,ok,physicalVerified,profileId,selectedHoleId" &&
+      canvas.dataset.labBreadboardHoleStudyMode === "conceptual-strip-study" &&
+      canvas.dataset.labBreadboardHoleStudyProfile === "bb-study-v1" &&
+      canvas.dataset.labBreadboardHoleSelected === "" &&
+      canvas.dataset.labBreadboardHoleCount === "630" &&
+      canvas.dataset.labBreadboardHolePhysicalVerified === "false");
+    check("breadboard-hole-study-instancing-does-not-expand-fine-detail-budget",
+      canvas.dataset.sceneFineDetailInstanceCount === fineInstancesBeforeStudy &&
+      queuedFrames.size === 1);
+    flushFrames();
+
+    const invalidHoleStudyInputs = [
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: "A0", onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: "A64", onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: "K1", onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: "A01", onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: "a1", onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: " A1", onHoleSelect },
+      { enabled: true, profileId: " constructor ", selectedHoleId: null, onHoleSelect },
+      { enabled: true, profileId: "constructor", selectedHoleId: null, onHoleSelect },
+      { enabled: true, profileId: "x".repeat(81), selectedHoleId: null, onHoleSelect },
+      { enabled: true, profileId: "bb-study-v1", selectedHoleId: null, onHoleSelect: "bad" },
+    ];
+    const invalidHoleStudyResults = invalidHoleStudyInputs.map(options => {
+      try {
+        mounted.setBreadboardHoleStudy(options);
+        return false;
+      } catch (error) {
+        return error instanceof TypeError || error instanceof RangeError;
+      }
+    });
+    check("breadboard-hole-study-invalid-profile-hole-callback-inputs-are-transactional",
+      invalidHoleStudyResults.every(Boolean) &&
+      canvas.dataset.labBreadboardHoleStudyMode === "conceptual-strip-study" &&
+      canvas.dataset.labBreadboardHoleStudyProfile === "bb-study-v1" &&
+      canvas.dataset.labBreadboardHoleSelected === "" &&
+      canvas.dataset.labBreadboardHoleCount === "630");
+
+    const apiSelected = mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: "bb-study-v1",
+      selectedHoleId: "J63",
+      onHoleSelect,
+    });
+    check("breadboard-hole-study-api-selected-hole-is-visual-only",
+      apiSelected.active === true &&
+      apiSelected.selectedHoleId === "J63" &&
+      canvas.dataset.labBreadboardHoleSelected === "J63" &&
+      holeSelectEvents.length === 0 &&
+      canvas.dataset.labBreadboardHoleMapping === "false" &&
+      canvas.dataset.sceneElectricalAuthority === "none");
+
+    holeAcceptedProfile = "bb-study-v2";
+    const profileChanged = mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      onHoleSelect,
+    });
+    check("breadboard-hole-study-profile-change-resets-stale-selection",
+      profileChanged.ok === true &&
+      profileChanged.active === true &&
+      profileChanged.selectedHoleId === null &&
+      canvas.dataset.labBreadboardHoleStudyProfile === "bb-study-v2" &&
+      canvas.dataset.labBreadboardHoleSelected === "");
+
+    holeAcceptedProfile = "bb-study-v1";
+    mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      selectedHoleId: null,
+      onHoleSelect,
+    });
+    resetCameraForTerminalProjection(canvas);
+    const holeA1Point = projectedBreadboardStudyHolePoint(canvas, layout, "A1");
+    const componentCountBeforeHoleTap = holeComponentEvents.length;
+    const terminalCountBeforeHoleTap = holeTerminalEvents.length;
+    const wireCountBeforeHoleTap = canvas.dataset.labWireCount;
+    const revisionBeforeHoleTap = canvas.dataset.labWireGeometryRevision;
+    const stateBeforeHoleTap = mounted.getLabViewState();
+    dispatchScenePointer(canvas, "pointerdown", holeA1Point, 960, "mouse");
+    dispatchScenePointer(canvas, "pointerup", holeA1Point, 960, "mouse");
+    const firstHolePick = holeSelectEvents.at(-1);
+    const stateAfterHoleTap = mounted.getLabViewState();
+    check("breadboard-hole-study-pointer-selects-canonical-A1-exactly-once",
+      holeSelectEvents.length === 1 &&
+      firstHolePick?.holeId === "A1" &&
+      firstHolePick?.meta?.source === "pointer" &&
+      firstHolePick?.meta?.physicalVerified === false &&
+      Object.isFrozen(firstHolePick.meta) &&
+      Object.keys(firstHolePick.meta).sort().join(",") === "physicalVerified,source" &&
+      canvas.dataset.labBreadboardHoleSelected === "A1" &&
+      holeComponentEvents.length === componentCountBeforeHoleTap &&
+      holeTerminalEvents.length === terminalCountBeforeHoleTap);
+    check("breadboard-hole-study-pointer-selection-has-no-electrical-or-wire-authority",
+      canvas.dataset.labWireCount === wireCountBeforeHoleTap &&
+      canvas.dataset.labWireGeometryRevision === revisionBeforeHoleTap &&
+      canvas.dataset.labPendingWireTerminal === "" &&
+      canvas.dataset.labPendingWirePreview === "none" &&
+      canvas.dataset.labBreadboardHoleMapping === "false" &&
+      canvas.dataset.labElectricalPower === "false" &&
+      canvas.dataset.sceneElectricalAuthority === "none" &&
+      stateAfterHoleTap.selectedComponentId === stateBeforeHoleTap.selectedComponentId &&
+      stateAfterHoleTap.focusedComponentId === stateBeforeHoleTap.focusedComponentId &&
+      JSON.stringify(stateAfterHoleTap.camera) === JSON.stringify(stateBeforeHoleTap.camera));
+
+    const holeJ63Point = projectedBreadboardStudyHolePoint(canvas, layout, "J63");
+    const holeCountBeforeJ63 = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", holeJ63Point, 961, "touch");
+    dispatchScenePointer(canvas, "pointerup", holeJ63Point, 961, "touch");
+    check("breadboard-hole-study-row-major-endpoint-J63-is-pointer-selectable",
+      holeSelectEvents.length === holeCountBeforeJ63 + 1 &&
+      holeSelectEvents.at(-1)?.holeId === "J63" &&
+      canvas.dataset.labBreadboardHoleSelected === "J63");
+
+    const holeH40Point = projectedBreadboardStudyHolePoint(canvas, layout, "H40");
+    const holeCountBeforePenPick = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", holeH40Point, 973, "pen");
+    dispatchScenePointer(canvas, "pointerup", holeH40Point, 973, "pen");
+    check("breadboard-hole-study-pen-tap-selects-canonical-hole",
+      holeSelectEvents.length === holeCountBeforePenPick + 1 &&
+      holeSelectEvents.at(-1)?.holeId === "H40" &&
+      canvas.dataset.labBreadboardHoleSelected === "H40");
+
+    holeAcceptanceMode = "reject";
+    const holeE32Point = projectedBreadboardStudyHolePoint(canvas, layout, "E32");
+    const holeCountBeforeReject = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", holeE32Point, 962, "pen");
+    dispatchScenePointer(canvas, "pointerup", holeE32Point, 962, "pen");
+    check("breadboard-hole-study-rejected-controller-pick-does-not-change-halo",
+      holeSelectEvents.length === holeCountBeforeReject + 1 &&
+      holeSelectEvents.at(-1)?.holeId === "E32" &&
+      canvas.dataset.labBreadboardHoleSelected === "H40");
+
+    holeAcceptanceMode = "mismatch";
+    const holeD31Point = projectedBreadboardStudyHolePoint(canvas, layout, "D31");
+    const holeCountBeforeMismatch = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", holeD31Point, 963, "mouse");
+    dispatchScenePointer(canvas, "pointerup", holeD31Point, 963, "mouse");
+    check("breadboard-hole-study-mismatched-acceptance-context-does-not-change-halo",
+      holeSelectEvents.length === holeCountBeforeMismatch + 1 &&
+      holeSelectEvents.at(-1)?.holeId === "D31" &&
+      canvas.dataset.labBreadboardHoleSelected === "H40");
+    holeAcceptanceMode = "accept";
+
+    const holeCountBeforeDrag = holeSelectEvents.length;
+    const cameraBeforeHoleDrag = mounted.getLabViewState().camera;
+    const holeDragPoint = { clientX: holeA1Point.clientX + 24, clientY: holeA1Point.clientY + 8 };
+    dispatchScenePointer(canvas, "pointerdown", holeA1Point, 964, "mouse");
+    dispatchScenePointer(canvas, "pointermove", holeDragPoint, 964, "mouse");
+    dispatchScenePointer(canvas, "pointerup", holeDragPoint, 964, "mouse");
+    const cameraAfterHoleDrag = mounted.getLabViewState().camera;
+    check("breadboard-hole-study-drag-becomes-camera-not-selection",
+      holeSelectEvents.length === holeCountBeforeDrag &&
+      (cameraAfterHoleDrag.theta !== cameraBeforeHoleDrag.theta ||
+        cameraAfterHoleDrag.phi !== cameraBeforeHoleDrag.phi));
+
+    resetCameraForTerminalProjection(canvas);
+    const holeCancelPoint = projectedBreadboardStudyHolePoint(canvas, layout, "A1");
+    const holeCountBeforeCancel = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", holeCancelPoint, 965, "touch");
+    dispatchScenePointer(canvas, "pointercancel", holeCancelPoint, 965, "touch");
+    check("breadboard-hole-study-pointercancel-emits-no-selection",
+      holeSelectEvents.length === holeCountBeforeCancel);
+    dispatchScenePointer(canvas, "pointerdown", holeCancelPoint, 966, "pen");
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      pointerId: 966,
+      pointerType: "pen",
+      clientX: holeCancelPoint.clientX,
+      clientY: holeCancelPoint.clientY,
+      bubbles: true,
+      cancelable: true,
+    }));
+    check("breadboard-hole-study-lostcapture-emits-no-selection",
+      holeSelectEvents.length === holeCountBeforeCancel);
+
+    const terminalPriorityPoint = findTerminalPoint(canvas, layout, "D13", 967);
+    const holeCountBeforeTerminalPriority = holeSelectEvents.length;
+    const terminalCountBeforeStudyPriority = holeTerminalEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", terminalPriorityPoint, 968, "mouse");
+    dispatchScenePointer(canvas, "pointerup", terminalPriorityPoint, 968, "mouse");
+    check("breadboard-hole-study-does-not-steal-terminal-priority",
+      holeSelectEvents.length === holeCountBeforeTerminalPriority &&
+      holeTerminalEvents.length === terminalCountBeforeStudyPriority + 1 &&
+      holeTerminalEvents.at(-1) === "D13");
+
+    const studyComponentPriorityPoint = projectedComponentPoint(canvas, layout, "arduino");
+    const holeCountBeforeComponentPriority = holeSelectEvents.length;
+    const componentCountBeforeStudyPriority = holeComponentEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", studyComponentPriorityPoint, 969, "mouse");
+    dispatchScenePointer(canvas, "pointerup", studyComponentPriorityPoint, 969, "mouse");
+    check("breadboard-hole-study-does-not-steal-nonbreadboard-component-priority",
+      holeSelectEvents.length === holeCountBeforeComponentPriority &&
+      holeComponentEvents.length === componentCountBeforeStudyPriority + 1 &&
+      holeComponentEvents.at(-1) === "arduino");
+
+    const disabledStudy = mounted.setBreadboardHoleStudy({
+      enabled: false,
+      profileId: { ignored: true },
+      selectedHoleId: "ignored",
+      onHoleSelect: "ignored",
+    });
+    check("breadboard-hole-study-disabled-clears-overlay-and-selection",
+      disabledStudy.ok === true &&
+      disabledStudy.enabled === false &&
+      disabledStudy.active === false &&
+      disabledStudy.profileId === null &&
+      disabledStudy.selectedHoleId === null &&
+      canvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      canvas.dataset.labBreadboardHoleSelected === "" &&
+      canvas.dataset.labBreadboardHoleCount === "0");
+    resetCameraForTerminalProjection(canvas);
+    const breadboardComponentPoint = projectedComponentPoint(canvas, layout, "breadboard");
+    const componentCountBeforeModeOffTap = holeComponentEvents.length;
+    const holeCountBeforeModeOffTap = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", breadboardComponentPoint, 970, "mouse");
+    dispatchScenePointer(canvas, "pointerup", breadboardComponentPoint, 970, "mouse");
+    check("breadboard-hole-study-mode-off-does-not-swallow-existing-component-tap",
+      holeSelectEvents.length === holeCountBeforeModeOffTap &&
+      holeComponentEvents.length === componentCountBeforeModeOffTap + 1 &&
+      holeComponentEvents.at(-1) === "breadboard");
+
+    holeAcceptedProfile = "bb-study-v1";
+    mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      selectedHoleId: null,
+      onHoleSelect,
+    });
+    resetCameraForTerminalProjection(canvas);
+    const stageHolePoint = projectedBreadboardStudyHolePoint(canvas, layout, "B2");
+    const holeCountBeforeStageReset = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", stageHolePoint, 971, "mouse");
+    mounted.setLabLayout(null);
+    dispatchScenePointer(canvas, "pointerup", stageHolePoint, 971, "mouse");
+    check("breadboard-hole-study-layout-clear-cancels-pointer-and-resets-mode",
+      holeSelectEvents.length === holeCountBeforeStageReset &&
+      canvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      canvas.dataset.labBreadboardHoleSelected === "" &&
+      canvas.dataset.labBreadboardHoleCount === "0");
+    mounted.setLabLayout(layout);
+    mounted.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      selectedHoleId: null,
+      onHoleSelect,
+    });
+    resetCameraForTerminalProjection(canvas);
+    const lessonHolePoint = projectedBreadboardStudyHolePoint(canvas, layout, "C3");
+    const holeCountBeforeLessonReset = holeSelectEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lessonHolePoint, 972, "mouse");
+    mounted.setLesson({ id: 3 });
+    dispatchScenePointer(canvas, "pointerup", lessonHolePoint, 972, "mouse");
+    check("breadboard-hole-study-lesson-change-cancels-pointer-and-resets-mode",
+      holeSelectEvents.length === holeCountBeforeLessonReset &&
+      canvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      canvas.dataset.labBreadboardHoleCount === "0");
+    mounted.setLesson({ id: 2 });
+    mounted.setLabLayout(layout);
+    mounted.setLabEdit({
+      enabled: true,
+      selectedComponentId: "arduino",
+      onSelectComponent: null,
+      onTerminalSelect: null,
+    });
 
     resetCameraForTerminalProjection(canvas);
     const noHandlerSourcePoint = findTerminalPoint(canvas, layout, "D13", 799);
@@ -989,6 +1421,14 @@ export async function runScene3DContracts() {
       onCommittedWireInspect: (wireId, meta) => wireInspectEvents.push({ wireId, meta }),
     });
     mounted.setLabEdit({ enabled: true, selectedComponentId: null });
+    holeAcceptedProfile = "bb-wire-priority";
+    mounted.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: holeAcceptedProfile,
+      selectedHoleId: null,
+      onHoleSelect,
+    });
+    const holeCountBeforeCommittedWirePriority = holeSelectEvents.length;
     resetCameraForTerminalProjection(canvas);
     const committedWirePoint = projectedCommittedWirePoint(
       canvas, layout, sampleCircuit.wires[0], 0
@@ -1020,6 +1460,12 @@ export async function runScene3DContracts() {
       wireStateAfterInspect.selectedComponentId === wireStateBeforeInspect.selectedComponentId &&
       wireStateAfterInspect.focusedComponentId === wireStateBeforeInspect.focusedComponentId &&
       JSON.stringify(wireStateAfterInspect.camera) === JSON.stringify(wireStateBeforeInspect.camera));
+    check("breadboard-hole-study-does-not-steal-committed-wire-priority",
+      holeSelectEvents.length === holeCountBeforeCommittedWirePriority &&
+      wireInspectEvents.length === 1 &&
+      canvas.dataset.labBreadboardHoleStudyMode === "conceptual-strip-study" &&
+      canvas.dataset.labHighlightedWire === committedWireId);
+    mounted.setBreadboardHoleStudy({ enabled: false });
 
     const inspectCountBeforeAltPointers = wireInspectEvents.length;
     for (const [pointerType, pointerId] of [["touch", 944], ["pen", 945]]) {
@@ -1712,6 +2158,99 @@ export async function runScene3DContracts() {
       guideLossCanvas.dataset.labAuthoredGuideTo === "");
     flushFrames();
     guideLoss.dispose();
+
+    host.remove();
+    host = makeHost();
+    const holeLoss = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const holeLossCanvas = host.querySelector("canvas");
+    holeLossCanvas.setPointerCapture = () => {};
+    holeLossCanvas.releasePointerCapture = () => {};
+    const holeLossEvents = [];
+    holeLoss.setLesson({ id: 2 });
+    holeLoss.setLabLayout(layout);
+    holeLoss.setLabEdit({ enabled: true, selectedComponentId: "arduino" });
+    holeLoss.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: "context-hole-study",
+      selectedHoleId: null,
+      onHoleSelect: (holeId, meta) => {
+        holeLossEvents.push({ holeId, meta });
+        return {
+          accepted: true,
+          selection: { lessonId: 2, profileId: "context-hole-study", holeId },
+        };
+      },
+    });
+    resetCameraForTerminalProjection(holeLossCanvas);
+    const holeLossPoint = projectedBreadboardStudyHolePoint(
+      holeLossCanvas, layout, "F33"
+    );
+    dispatchScenePointer(holeLossCanvas, "pointerdown", holeLossPoint, 952, "mouse");
+    check("context-loss-breadboard-hole-study-fixture-is-active",
+      holeLossCanvas.dataset.labBreadboardHoleStudyMode === "conceptual-strip-study" &&
+      holeLossCanvas.dataset.labBreadboardHoleCount === "630");
+    const holeLossGl = holeLossCanvas.getContext("webgl2");
+    const holeLossExtension = holeLossGl?.getExtension("WEBGL_lose_context");
+    const holeLossPromise = waitEvent(holeLossCanvas, "webglcontextlost");
+    if (holeLossExtension) holeLossExtension.loseContext();
+    else holeLossCanvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    await holeLossPromise;
+    dispatchScenePointer(holeLossCanvas, "pointerup", holeLossPoint, 952, "mouse");
+    check("context-loss-resets-breadboard-hole-study-and-cancels-pointer",
+      holeLossEvents.length === 0 &&
+      holeLossCanvas.dataset.sceneContext === "lost" &&
+      holeLossCanvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      holeLossCanvas.dataset.labBreadboardHoleSelected === "" &&
+      holeLossCanvas.dataset.labBreadboardHoleCount === "0");
+    const disabledAfterHoleLoss = holeLoss.setBreadboardHoleStudy({
+      enabled: false,
+      profileId: { ignored: true },
+      selectedHoleId: "ignored",
+      onHoleSelect: "ignored",
+    });
+    check("breadboard-hole-study-disabled-remains-harmless-during-context-loss",
+      disabledAfterHoleLoss.ok === true &&
+      disabledAfterHoleLoss.enabled === false &&
+      disabledAfterHoleLoss.active === false &&
+      disabledAfterHoleLoss.mode === "none");
+    await waitTask();
+    const holeRestorePromise = waitEvent(holeLossCanvas, "webglcontextrestored");
+    if (holeLossExtension) holeLossExtension.restoreContext();
+    else holeLossCanvas.dispatchEvent(new Event("webglcontextrestored"));
+    await holeRestorePromise;
+    check("context-restore-does-not-resurrect-breadboard-hole-study",
+      holeLossEvents.length === 0 &&
+      holeLossCanvas.dataset.sceneContext === "ready" &&
+      holeLossCanvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      holeLossCanvas.dataset.labBreadboardHoleCount === "0");
+    flushFrames();
+    holeLoss.setBreadboardHoleStudy({
+      enabled: true,
+      profileId: "dispose-hole-study",
+      selectedHoleId: null,
+      onHoleSelect: (holeId, meta) => {
+        holeLossEvents.push({ holeId, meta });
+        return {
+          accepted: true,
+          selection: { lessonId: 2, profileId: "dispose-hole-study", holeId },
+        };
+      },
+    });
+    resetCameraForTerminalProjection(holeLossCanvas);
+    const holeDisposePoint = projectedBreadboardStudyHolePoint(
+      holeLossCanvas, layout, "G34"
+    );
+    dispatchScenePointer(holeLossCanvas, "pointerdown", holeDisposePoint, 953, "touch");
+    const holeEventsBeforeDispose = holeLossEvents.length;
+    holeLoss.dispose();
+    check("dispose-resets-breadboard-hole-study-and-cancels-pointer",
+      holeLossEvents.length === holeEventsBeforeDispose &&
+      holeLossCanvas.dataset.labBreadboardHoleStudyMode === "none" &&
+      holeLossCanvas.dataset.labBreadboardHoleSelected === "" &&
+      holeLossCanvas.dataset.labBreadboardHoleCount === "0" &&
+      !holeLossCanvas.isConnected);
 
     host.remove();
     host = makeHost();

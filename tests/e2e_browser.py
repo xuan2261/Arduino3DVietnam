@@ -207,6 +207,68 @@ def main() -> None:
             {"lessonId": lesson_id, "componentId": component_id, "terminalId": terminal_id},
         )
 
+    def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
+        """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
+
+        This duplicates only the published scene's drawing transform for the
+        test ray origin. The production raycaster + study controller still own
+        and validate the actual pointer interaction and canonical ID.
+        The coordinates are neither CAD/mm nor an electrical hole mapping.
+        """
+        return page.evaluate(
+            """async ({lessonId,ids}) => {
+                const [T, layoutModule, router] = await Promise.all([
+                    import('./assets/vendor/three.module.min.js'),
+                    import('./src/lab-layout.js'),
+                    import('./src/circuit-router.js'),
+                ]);
+                const layout=layoutModule.createLabLayout(lessonId,router.listTerminals(lessonId));
+                const component=layout.components.find(item=>item.visualKind==='breadboard');
+                const canvas=document.querySelector('#sceneMount canvas');
+                if(!component||!canvas)throw Error('Conceptual breadboard layout/canvas missing');
+                const rect=canvas.getBoundingClientRect();
+                const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+                const fov=38,theta=.48,phi=.94,zoom=1;
+                const fitted=Math.max(16.7,18.5/
+                    (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+                const radius=Math.min(48,Math.max(8,fitted*zoom));
+                const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+                camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+                    radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+                camera.lookAt(
+                    ((layout.bounds.minX+layout.bounds.maxX)/2)*.72,
+                    .35,((layout.bounds.minZ+layout.bounds.maxZ)/2)*.72
+                );
+                camera.updateProjectionMatrix();
+                camera.updateMatrixWorld(true);
+                const rowZ=[-.30,-.24,-.18,-.12,-.06,.06,.12,.18,.24,.30];
+                return ids.map(id=>{
+                    const m=/^([A-J])([1-9]|[1-5][0-9]|6[0-3])$/.exec(id);
+                    if(!m)throw Error('Noncanonical test hole '+id);
+                    const row=m[1].charCodeAt(0)-65,col=Number(m[2])-1;
+                    const localX=-component.width*.72*.39+
+                        component.width*.72*.78*col/62;
+                    const localZ=component.depth*.72*rowZ[row];
+                    const angle=-component.quarterTurns*Math.PI/2;
+                    const worldX=component.x*.72+
+                        localX*Math.cos(angle)+localZ*Math.sin(angle);
+                    const worldZ=component.z*.72+
+                        -localX*Math.sin(angle)+localZ*Math.cos(angle);
+                    const projected=new T.Vector3(worldX,.33,worldZ).project(camera);
+                    const x=rect.left+(projected.x+1)*rect.width/2;
+                    const y=rect.top+(1-projected.y)*rect.height/2;
+                    return {
+                        id,x,y,
+                        visible:projected.z>=-1&&projected.z<=1&&
+                            x>=rect.left&&x<=rect.right&&
+                            y>=rect.top&&y<=rect.bottom,
+                        uncovered:document.elementFromPoint(x,y)===canvas,
+                    };
+                });
+            }""",
+            {"lessonId":lesson_id,"ids":hole_ids},
+        )
+
     def lab_scene_committed_wire_points(page, lesson_id: int, from_id: str, to_id: str,
                                         wire_index: int = 0):
         """Candidate screen points on a COMMITTED 8-point conceptual route.
@@ -635,7 +697,23 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 200
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 237
+                      and "breadboard-hole-study-active-status-and-630-instance-datasets" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-pointer-selects-canonical-A1-exactly-once" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-row-major-endpoint-J63-is-pointer-selectable" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-rejected-controller-pick-does-not-change-halo" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-drag-becomes-camera-not-selection" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-pointercancel-emits-no-selection" in
+                          scene_lifecycle_names
+                      and "context-loss-resets-breadboard-hole-study-and-cancels-pointer" in
+                          scene_lifecycle_names
+                      and "breadboard-hole-study-does-not-steal-committed-wire-priority" in
+                          scene_lifecycle_names
                       and "committed-wire-pointer-tap-inspects-current-canonical-wire" in scene_lifecycle_names
                       and "committed-wire-pointer-inspection-is-visual-only" in scene_lifecycle_names
                       and "committed-wire-pointercancel-emits-no-inspection" in scene_lifecycle_names
@@ -846,6 +924,26 @@ def main() -> None:
                       and "negative-dom-partial-picker-controls-rejected" in
                           hole_grid_contract_names,
                       f"{hole_grid_contracts['passed']}/{hole_grid_contracts['total']} passed")
+                scene_hole_bridge_contracts = run_page_contract(
+                    page, "./tests/breadboard-scene-pick-contracts.js",
+                    "runBreadboardScenePickContracts")
+                scene_hole_bridge_names = set(scene_hole_bridge_contracts.get("checks", []))
+                check("post-57d8b90-threejs-native-hole-selection-bridge-contracts",
+                      scene_hole_bridge_contracts["passed"] ==
+                        scene_hole_bridge_contracts["total"] == 14
+                      and scene_hole_bridge_contracts.get("failed",0) == 0
+                      and len(scene_hole_bridge_names)==14
+                      and {
+                          "scene-pick-pages-selects-contact-and-stays-input-only",
+                          "native-strip-picker-notifies-same-read-only-selection-channel",
+                          "scene-pick-rejects-when-3d-edit-is-not-active-with-no-side-effects",
+                          "scene-pick-rejects-stale-lesson-and-profile-with-no-side-effects",
+                          "scene-meta-must-be-exact-frozen-plain-own-data-pointer-boundary",
+                          "scene-pick-rejects-noncanonical-or-nonstrip-hole-ids-atomically",
+                          "scene-pick-rejects-stale-canonical-terminal-context-atomically",
+                          "observer-errors-cannot-upgrade-selection-to-placement-authority",
+                      }.issubset(scene_hole_bridge_names),
+                      f"{scene_hole_bridge_contracts['passed']}/14 exact lesson/profile/frozen-meta/DOM bridge checks")
                 breadboard_profile = page.evaluate("""async () => {
                     const module = await import('./src/breadboard-topology.js');
                     const generic = module.createBreadboardTopology();
@@ -5112,6 +5210,302 @@ def main() -> None:
                           and inspect_page.locator("#progressText").inner_text()==initial_inspect_progress)
                 finally:
                     inspect_context.close()
+
+                # Post-57d8b90: canonical A1..J63 breadboard-hole study is a
+                # separate opted-in 3D visual interaction. The actual
+                # circuit-router graph, Sketch and lesson mastery cannot be
+                # changed by selecting a hole; only the explicit native
+                # \"Gán lỗ\" action writes an authored in-session placement.
+                bb_scene_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    bb_scene_page=bb_scene_context.new_page()
+                    capture_console(bb_scene_page)
+                    bb_scene_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(bb_scene_page)
+                    bb_scene_page.locator('.lesson-link[data-lesson="2"]').click()
+                    bb_scene_page.locator("#infoTabPractice").click()
+                    bb_initial_progress=bb_scene_page.locator("#progressText").inner_text()
+                    bb_canvas=bb_scene_page.locator("#sceneMount canvas")
+                    bb_toggle=bb_scene_page.locator("#bb3dHolePickToggle")
+                    check("post-57d8b90-breadboard-scene-picker-requires-explicit-3d-edit",
+                          bb_toggle.is_disabled()
+                          and bb_toggle.get_attribute("aria-pressed")=="false"
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#labEditToggle").click()
+                    bb_toggle_box=bb_toggle.bounding_box()
+                    check("post-57d8b90-breadboard-scene-picker-has-native-44px-opt-in",
+                          not bb_toggle.is_disabled()
+                          and bb_toggle_box is not None
+                          and bb_toggle_box["width"]>=44
+                          and bb_toggle_box["height"]>=44
+                          and bb_toggle.get_attribute("aria-pressed")=="false")
+                    bb_scene_page.locator("#bbTerminal").select_option("D13")
+                    bb_toggle.focus()
+                    bb_toggle.press("Enter")
+                    check("post-57d8b90-opted-in-threejs-630-canonical-hole-visuals",
+                          bb_toggle.get_attribute("aria-pressed")=="true"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-study-mode")=="conceptual-strip-study"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-count")=="630"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-physical-verified")=="false"
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator('#bbHoleGrid [data-bb-grid-hole="B1"]').focus()
+                    bb_scene_page.locator('#bbHoleGrid [data-bb-grid-hole="B1"]').press("Enter")
+                    check("post-57d8b90-native-hole-keyboard-inspection-syncs-3d-no-placement",
+                          bb_canvas.get_attribute("data-lab-breadboard-hole-selected")=="B1"
+                          and bb_scene_page.locator("#bbPlaceHole").input_value()=="B1"
+                          and bb_scene_page.locator(
+                              '#bbHoleGrid [data-bb-grid-hole="B1"]').get_attribute(
+                                  "aria-pressed")=="true"
+                          and bb_scene_page.locator(
+                              "#bbPlacedList [data-bb-placement-empty]").count()==1
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#bbGridNext").click()
+                    bb_scene_page.locator('#bbHoleGrid [data-bb-grid-hole="E12"]').click()
+                    check("post-57d8b90-canonical-page-hole-visual-projection",
+                          bb_canvas.get_attribute("data-lab-breadboard-hole-selected")=="E12"
+                          and bb_scene_page.locator("#bbPlaceHole").input_value()=="E12"
+                          and bb_scene_page.locator("#bbHoleGrid").get_attribute(
+                              "data-page")=="2"
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+
+                    bb_scene_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    bb_scene_page.wait_for_timeout(60)
+                    candidate_holes=["F32","G32","D32","C32","E28","B28","H30"]
+                    bb_hole_pixels=lab_scene_breadboard_hole_points(
+                        bb_scene_page,2,candidate_holes)
+                    actual_hole_pixel=None
+                    for pixel in bb_hole_pixels:
+                        if not pixel["visible"] or not pixel["uncovered"]:
+                            continue
+                        bb_scene_page.mouse.click(pixel["x"],pixel["y"])
+                        if (bb_canvas.get_attribute("data-lab-breadboard-hole-selected")
+                                ==pixel["id"]):
+                            actual_hole_pixel=pixel
+                            break
+                    check("post-57d8b90-real-pointer-picks-exact-canonical-breadboard-hole",
+                          actual_hole_pixel is not None,
+                          json.dumps({"candidates":bb_hole_pixels,
+                                      "selected":bb_canvas.get_attribute(
+                                          "data-lab-breadboard-hole-selected"),
+                                      "chosen":actual_hole_pixel},ensure_ascii=False))
+                    selected_3d_hole=actual_hole_pixel["id"]
+                    selected_3d_column=int(selected_3d_hole[1:])
+                    check("post-57d8b90-3d-pointer-selection-syncs-native-grid-and-keeps-router-empty",
+                          bb_scene_page.locator("#bbPlaceHole").input_value()==selected_3d_hole
+                          and bb_scene_page.locator("#bbHoleGrid").get_attribute(
+                              "data-page")==str((selected_3d_column-1)//8+1)
+                          and bb_scene_page.locator(
+                              f'#bbHoleGrid [data-bb-grid-hole="{selected_3d_hole}"]'
+                          ).get_attribute("aria-pressed")=="true"
+                          and bb_scene_page.locator(
+                              "#bbGridStatus").get_attribute(
+                                  "data-result")=="scene-selected"
+                          and bb_scene_page.locator(
+                              "#bbPlacedList [data-bb-placement-empty]").count()==1
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+                    assert bb_scene_page.locator("#bbTerminal").input_value()=="D13"
+                    bb_scene_page.locator("#bbAssignHole").click()
+                    check("post-57d8b90-explicit-assign-writes-study-placement-not-learner-wire",
+                          bb_scene_page.locator(
+                              '#bbPlacedList [data-bb-placement-item="D13"]').count()==1
+                          and selected_3d_hole in bb_scene_page.locator(
+                              '#bbPlacedList [data-bb-placement-item="D13"]').inner_text()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+                    # Native assignment scrolls to the study panel. Bring the
+                    # actual canvas back into view before TOUCH input and
+                    # recompute screen projection (never reuse stale pixels).
+                    bb_scene_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    bb_scene_page.wait_for_timeout(60)
+                    bb_touch_pixels=lab_scene_breadboard_hole_points(
+                        bb_scene_page,2,candidate_holes)
+                    bb_touch_pixel=next((
+                        point for point in bb_touch_pixels
+                        if point["id"]!=selected_3d_hole and
+                           point["visible"] and point["uncovered"]
+                    ),None)
+                    if bb_touch_pixel is not None:
+                        bb_scene_page.touchscreen.tap(
+                            bb_touch_pixel["x"],bb_touch_pixel["y"])
+                    check("post-57d8b90-real-touch-tap-selects-hole-without-reassigning",
+                          bb_touch_pixel is not None
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-selected")==bb_touch_pixel["id"]
+                          and bb_scene_page.locator(
+                              "#bbPlaceHole").input_value()==bb_touch_pixel["id"]
+                          and selected_3d_hole in bb_scene_page.locator(
+                              '#bbPlacedList [data-bb-placement-item="D13"]').inner_text()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_selected_before_drag=bb_canvas.get_attribute(
+                        "data-lab-breadboard-hole-selected")
+                    bb_scene_page.mouse.move(bb_touch_pixel["x"],bb_touch_pixel["y"])
+                    bb_scene_page.mouse.down()
+                    bb_scene_page.mouse.move(
+                        bb_touch_pixel["x"]+65,bb_touch_pixel["y"]+35,steps=5)
+                    bb_scene_page.mouse.up()
+                    check("post-57d8b90-drag-does-not-misinterpret-hole-as-connection",
+                          bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-selected")==bb_selected_before_drag
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+
+                    bb_scene_page.locator("#bb3dHolePickToggle").click()
+                    check("post-57d8b90-hole-pick-exit-restores-normal-3d-edit-mode",
+                          bb_toggle.get_attribute("aria-pressed")=="false"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-study-mode")=="none"
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#labComponent").select_option("breadboard")
+                    baseline_x=bb_scene_page.locator("#labPositionX").input_value()
+                    history_undo=bb_scene_page.locator(
+                        "#labEditor [data-lab-layout-undo]")
+                    history_redo=bb_scene_page.locator(
+                        "#labEditor [data-lab-layout-redo]")
+                    undo_box=history_undo.bounding_box()
+                    redo_box=history_redo.bounding_box()
+                    check("post-57d8b90-conceptual-layout-history-native-buttons-44px",
+                          baseline_x=="-1"
+                          and history_undo.is_disabled()
+                          and history_redo.is_disabled()
+                          and undo_box is not None and redo_box is not None
+                          and min(undo_box["width"],undo_box["height"],
+                                  redo_box["width"],redo_box["height"])>=44)
+                    bb_scene_page.locator("#labPositionX").fill("0")
+                    bb_scene_page.locator("#labPlace").click()
+                    check("post-57d8b90-layout-placement-enables-separate-history",
+                          bb_scene_page.locator("#labPositionX").input_value()=="0"
+                          and not history_undo.is_disabled()
+                          and history_redo.is_disabled()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#labRotateRight").click()
+                    history_undo.focus()
+                    history_undo.press("Enter")
+                    check("post-57d8b90-layout-undo-rotation-preserves-position-and-router",
+                          bb_scene_page.locator("#labPositionX").input_value()=="0"
+                          and not history_undo.is_disabled()
+                          and not history_redo.is_disabled()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    history_undo.click()
+                    check("post-57d8b90-layout-undo-position-restores-canonical-prior-state",
+                          bb_scene_page.locator("#labPositionX").input_value()==baseline_x
+                          and history_undo.is_disabled()
+                          and not history_redo.is_disabled()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#stageTabWiring").click()
+                    bb_scene_page.locator("#stageTab3d").click()
+                    history_redo.click()
+                    check("post-57d8b90-layout-redo-survives-stage-change-without-learner-wires",
+                          bb_scene_page.locator("#labPositionX").input_value()=="0"
+                          and not history_undo.is_disabled()
+                          and not history_redo.is_disabled()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#labPositionX").fill("0.5")
+                    bb_scene_page.locator("#labPlace").click()
+                    check("post-57d8b90-divergent-layout-edit-clears-redo-only",
+                          bb_scene_page.locator("#labPositionX").input_value()=="0.5"
+                          and history_redo.is_disabled()
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+                    bb_scene_page.set_viewport_size({"width":375,"height":812})
+                    mobile_bb_button=bb_toggle.bounding_box()
+                    mobile_history_button=history_undo.bounding_box()
+                    check("post-57d8b90-breadboard-scene-and-layout-375px-a11y-no-overflow",
+                          mobile_bb_button is not None and mobile_history_button is not None
+                          and mobile_bb_button["width"]>=44
+                          and mobile_bb_button["height"]>=44
+                          and mobile_history_button["width"]>=44
+                          and mobile_history_button["height"]>=44
+                          and bb_scene_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    bb_scene_page.set_viewport_size({"width":1280,"height":820})
+                    bb_scene_page.locator("#bbProfile").select_option("busboard-bb830-rev7")
+                    check("post-57d8b90-profile-switch-revokes-old-scene-hole-projection",
+                          bb_toggle.get_attribute("aria-pressed")=="false"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-study-mode")=="none"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-selected")==""
+                          and bb_scene_page.locator(
+                              "#bbPlacedList [data-bb-placement-empty]").count()==1
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0")
+                    bb_scene_page.locator("#bb3dHolePickToggle").click()
+                    bb_scene_page.locator('#bbHoleGrid [data-bb-grid-hole="A1"]').click()
+                    # Real native invalid numeric input triggers the controller's
+                    # rollback path. It must restore the active opt-in visual
+                    # hole study without falsely accepting a layout mutation.
+                    bb_prior_position=bb_scene_page.locator("#labPositionX").input_value()
+                    bb_scene_page.locator("#labPositionX").fill("999")
+                    bb_scene_page.locator("#labPlace").click()
+                    rejected_layout=bb_scene_page.evaluate("""()=>{
+                        const status=document.getElementById('labStatus');
+                        return {kind:status.dataset.kind,text:status.textContent||''};
+                    }""")
+                    bb_scene_page.locator("#labPositionX").fill(bb_prior_position)
+                    check("post-57d8b90-rejected-layout-rollback-reconciles-opted-in-hole-overlay",
+                          rejected_layout["kind"]=="error"
+                          and "tọa độ" in rejected_layout["text"].lower()
+                          and bb_toggle.get_attribute("aria-pressed")=="true"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-study-mode")=="conceptual-strip-study"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-count")=="630"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-selected")=="A1"
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+                    bb_context_loss=bb_scene_page.evaluate("""async()=>{
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw Error('WEBGL_lose_context unavailable for 3D hole study');
+                        const wait=name=>new Promise((resolve,reject)=>{
+                            const timeout=setTimeout(()=>reject(Error('Timeout '+name)),10000);
+                            canvas.addEventListener(name,event=>{
+                                clearTimeout(timeout);resolve(event);
+                            },{once:true});
+                        });
+                        const before={mode:canvas.dataset.labBreadboardHoleStudyMode,
+                            selected:canvas.dataset.labBreadboardHoleSelected};
+                        const lost=wait('webglcontextlost');
+                        ext.loseContext();
+                        const event=await lost;
+                        const during={mode:canvas.dataset.labBreadboardHoleStudyMode,
+                            selected:canvas.dataset.labBreadboardHoleSelected,
+                            pressed:document.querySelector('#bb3dHolePickToggle')?.getAttribute('aria-pressed')};
+                        await new Promise(resolve=>setTimeout(resolve,0));
+                        const restored=wait('webglcontextrestored');
+                        ext.restoreContext();await restored;
+                        return {before,during,after:{
+                            mode:canvas.dataset.labBreadboardHoleStudyMode,
+                            selected:canvas.dataset.labBreadboardHoleSelected,
+                            pressed:document.querySelector('#bb3dHolePickToggle')?.getAttribute('aria-pressed')},
+                            defaultPrevented:event.defaultPrevented};
+                    }""")
+                    check("post-57d8b90-real-webgl-loss-clears-opted-in-hole-mode-no-replay",
+                          bb_context_loss["before"]["mode"]=="conceptual-strip-study"
+                          and bb_context_loss["before"]["selected"]=="A1"
+                          and bb_context_loss["defaultPrevented"]
+                          and bb_context_loss["during"]=={
+                              "mode":"none","selected":"","pressed":"false"}
+                          and bb_context_loss["after"]=={
+                              "mode":"none","selected":"","pressed":"false"}
+                          and bb_canvas.get_attribute("data-lab-wire-count")=="0",
+                          json.dumps(bb_context_loss,ensure_ascii=False))
+                    bb_scene_page.locator('.lesson-link[data-lesson="1"]').click()
+                    check("post-57d8b90-lesson1-never-enables-external-breadboard-scene-picker",
+                          bb_toggle.is_disabled()
+                          and bb_toggle.get_attribute("aria-pressed")=="false"
+                          and bb_canvas.get_attribute(
+                              "data-lab-breadboard-hole-study-mode")=="none"
+                          and bb_scene_page.locator("#progressText").inner_text()==bb_initial_progress)
+                finally:
+                    bb_scene_context.close()
 
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"

@@ -30,6 +30,9 @@ const PROFILES = Object.freeze([
 ]);
 const SVG_NS = "http://www.w3.org/2000/svg";
 const HOLE_COLUMNS = Object.freeze(["A","B","C","D","E","F","G","H","I","J"]);
+const SCENE_HOLE_META_SOURCE="pointer";
+const SCENE_HOLE_META_FIELDS=Object.freeze(["source","physicalVerified"]);
+const TERMINAL_STRIP_HOLE=/^[A-J](?:[1-9]|[1-5][0-9]|6[0-3])$/;
 const svgElement = (doc,name,attrs={}) => {
   const element=doc.createElementNS(SVG_NS,name);
   for(const [key,value] of Object.entries(attrs))element.setAttribute(key,String(value));
@@ -39,12 +42,16 @@ const svgElement = (doc,name,attrs={}) => {
 export function mountBreadboardStudy({
   getLayout = () => null,
   getLessonTerminals = () => ({ lessonId: 1, terminals: [] }),
+  getSceneEditActive = () => false,
+  onHoleSelectionChange = () => undefined,
   doc = document,
 } = {}) {
   if (typeof getLayout !== "function") throw new TypeError("getLayout phải là function.");
   if (typeof getLessonTerminals !== "function") {
     throw new TypeError("getLessonTerminals phải là function.");
   }
+  if(typeof getSceneEditActive!=="function")throw new TypeError("getSceneEditActive phải là function.");
+  if(typeof onHoleSelectionChange!=="function")throw new TypeError("onHoleSelectionChange phải là function.");
   if(!doc || typeof doc.getElementById!=="function" ||
       typeof doc.createElement!=="function" || typeof doc.createElementNS!=="function"){
     throw new TypeError("Breadboard study cần document DOM hợp lệ.");
@@ -102,6 +109,7 @@ export function mountBreadboardStudy({
   let holePickerInitialized=false;
   let renderedGridButtons=[];
   let contactInspection=null;
+  let holeSelection=null;
 
   const announce = (message,kind) => {
     result.textContent = message;
@@ -115,6 +123,45 @@ export function mountBreadboardStudy({
     if(!hasHolePicker)return;
     gridStatus.textContent=message;
     gridStatus.dataset.result=kind;
+  };
+  const notifyHoleSelection=selection=>{
+    try{onHoleSelectionChange(selection);}catch{/* Observer cannot gain placement authority. */}
+  };
+  const clearHoleSelection=({notify=true}={})=>{
+    if(holeSelection===null)return false;
+    holeSelection=null;
+    if(hasHolePicker){
+      delete gridStatus.dataset.selectionSource;
+      delete gridStatus.dataset.selectionKind;
+      delete gridStatus.dataset.selectionLabel;
+    }
+    if(notify)notifyHoleSelection(null);
+    return true;
+  };
+  const freezeSelectionProjection=(selection,origin,lessonId)=>Object.freeze({
+    origin,
+    lessonId,
+    profileId:selection.profileId,
+    holeId:selection.holeId,
+    page:Number.isInteger(selection.page)?selection.page:null,
+    row:typeof selection.row==="string"?selection.row:null,
+    column:Number.isInteger(selection.column)?selection.column:null,
+    railId:typeof selection.railId==="string"?selection.railId:null,
+    index:Number.isInteger(selection.index)?selection.index:null,
+    nodeId:typeof selection.nodeId==="string"?selection.nodeId:null,
+    selectionKind:selection.selectionKind,
+    claims:Object.freeze({
+      inputValueOnly:selection.claims?.inputValueOnly===true,
+      placementCreated:false,
+      circuitRouterMutated:false,
+      physicalContactSimulated:false,
+    }),
+  });
+  const recordHoleSelection=(selection,origin)=>{
+    const state=placementSession.snapshot();
+    holeSelection=freezeSelectionProjection(selection,origin,state.lessonId);
+    notifyHoleSelection(holeSelection);
+    return holeSelection;
   };
   const clearRenderedGridButtons=()=>{
     for(const entry of renderedGridButtons){
@@ -251,7 +298,7 @@ export function mountBreadboardStudy({
     );
     holePickerInitialized=true;
   };
-  const selectHoleInput=(selection,label)=>{
+  const selectHoleInput=(selection,label,origin="native-grid")=>{
     placeHole.value=selection.holeId;
     placeHole.setAttribute("aria-invalid","false");
     updateGridButtonSelection();
@@ -263,6 +310,8 @@ export function mountBreadboardStudy({
     gridStatus.dataset.result="selected";
     gridStatus.dataset.selectionKind=selection.selectionKind;
     gridStatus.dataset.selectionLabel=label;
+    gridStatus.dataset.selectionSource=origin;
+    recordHoleSelection(selection,origin);
     return selection;
   };
   const renderRailPicker=(state,{reset=false}={})=>{
@@ -361,7 +410,7 @@ export function mountBreadboardStudy({
             const selection=pickBreadboardGridHole({
               profileId:profile.value,page:holeGridPage,holeId:hole.id,
             });
-            selectHoleInput(selection,"Lỗ strip");
+            selectHoleInput(selection,"Lỗ strip","native-grid");
           }catch(error){
             failClosedHolePicker(error);
           }
@@ -543,6 +592,7 @@ export function mountBreadboardStudy({
     removeHole.disabled=!enabled;
   };
   const failClosedAuthoredContext = error => {
+    clearHoleSelection();
     placementSession.sync({
       lessonId:1,
       terminals:[],
@@ -575,6 +625,7 @@ export function mountBreadboardStudy({
         profileId:profile.value,
       });
       const state=syncResult.state;
+      if(syncResult.reset)clearHoleSelection();
       renderTerminalOptions(state);
       if(syncResult.reset){
         terminalSelect.value=state.terminals[0]?.id??"";
@@ -814,7 +865,7 @@ export function mountBreadboardStudy({
       });
       gridRailHole.value=String(selection.index);
       gridRailHole.setAttribute("aria-invalid","false");
-      return selectHoleInput(selection,"Lỗ rail BB830");
+      return selectHoleInput(selection,"Lỗ rail BB830","native-rail");
     }catch(error){
       gridRailHole.setAttribute("aria-invalid","true");
       announceGrid("Không thể chọn rail: "+(error?.message||"Rail hoặc chỉ số không hợp lệ"),"error");
@@ -880,6 +931,7 @@ export function mountBreadboardStudy({
     if(hasHolePicker)gridRailHole.setAttribute("aria-invalid","false");
   };
   const onPlaceInput=()=>{
+    clearHoleSelection();
     updateGridButtonSelection();
     if(contactInspection){
       clearContactInspection();
@@ -893,6 +945,7 @@ export function mountBreadboardStudy({
     if(contactInspection)renderContactInspection();
   };
   const onTerminal=()=>{
+    clearHoleSelection();
     const mapped=placementSession.snapshot().terminalToHole[terminalSelect.value];
     placeHole.value=mapped??"";
     placeHole.setAttribute("aria-invalid","false");
@@ -909,6 +962,122 @@ export function mountBreadboardStudy({
   const updateStudy=()=>{
     syncAuthoredContext({announceReset:true});
     refreshMappingBoundary();
+  };
+
+  const rejectScenePick=reason=>Object.freeze({accepted:false,reason:String(reason),selection:null});
+  const readFrozenSceneMeta=meta=>{
+    if(!meta || typeof meta!=="object" || Array.isArray(meta) || !Object.isFrozen(meta) ||
+        Object.getPrototypeOf(meta)!==Object.prototype){
+      throw new TypeError("Scene hole meta phải là frozen plain object.");
+    }
+    const keys=Reflect.ownKeys(meta);
+    if(keys.length!==SCENE_HOLE_META_FIELDS.length ||
+        keys.some(key=>typeof key!=="string" || !SCENE_HOLE_META_FIELDS.includes(key))){
+      throw new TypeError("Scene hole meta có field/symbol không được hỗ trợ.");
+    }
+    const values=Object.create(null);
+    for(const key of SCENE_HOLE_META_FIELDS){
+      const descriptor=Object.getOwnPropertyDescriptor(meta,key);
+      if(!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set){
+        throw new TypeError("Scene hole meta phải dùng own data fields.");
+      }
+      values[key]=descriptor.value;
+    }
+    if(values.source!==SCENE_HOLE_META_SOURCE || values.physicalVerified!==false){
+      throw new RangeError("Scene hole meta không khớp pointer/read-only contract.");
+    }
+    return values;
+  };
+  const readCurrentLessonForScene=()=>{
+    const context=getLessonTerminals();
+    if(!context || typeof context!=="object" || Array.isArray(context) ||
+        Object.getPrototypeOf(context)!==Object.prototype){
+      throw new TypeError("getLessonTerminals không trả current lesson context hợp lệ.");
+    }
+    const lessonDescriptor=Object.getOwnPropertyDescriptor(context,"lessonId");
+    const terminalsDescriptor=Object.getOwnPropertyDescriptor(context,"terminals");
+    if(!lessonDescriptor || !("value" in lessonDescriptor) || lessonDescriptor.get || lessonDescriptor.set ||
+        !terminalsDescriptor || !("value" in terminalsDescriptor) || terminalsDescriptor.get || terminalsDescriptor.set ||
+        !Number.isInteger(lessonDescriptor.value) || !Array.isArray(terminalsDescriptor.value) ||
+        Object.getPrototypeOf(terminalsDescriptor.value)!==Array.prototype){
+      throw new TypeError("Current lesson context phải có own data lessonId/terminals.");
+    }
+    const terminals=[];
+    for(let index=0;index<terminalsDescriptor.value.length;index+=1){
+      const element=Object.getOwnPropertyDescriptor(terminalsDescriptor.value,String(index));
+      if(!element || !("value" in element) || element.get || element.set ||
+          !element.value || typeof element.value!=="object" || Array.isArray(element.value) ||
+          Object.getPrototypeOf(element.value)!==Object.prototype){
+        throw new TypeError("Current lesson terminal phải là own plain data record.");
+      }
+      const id=Object.getOwnPropertyDescriptor(element.value,"id");
+      const component=Object.getOwnPropertyDescriptor(element.value,"component");
+      if(!id || !("value" in id) || id.get || id.set || typeof id.value!=="string" || !id.value ||
+          !component || !("value" in component) || component.get || component.set ||
+          typeof component.value!=="string" || !component.value){
+        throw new TypeError("Current lesson terminal thiếu own data id/component.");
+      }
+      terminals.push({id:id.value,component:component.value});
+    }
+    return {lessonId:lessonDescriptor.value,terminals};
+  };
+  const pickHoleFromScene=(holeId,frozenMeta,expectedLessonId,expectedProfileId)=>{
+    if(disposed)return rejectScenePick("disposed");
+    try{
+      if(typeof holeId!=="string" || !TERMINAL_STRIP_HOLE.test(holeId)){
+        throw new RangeError("Scene pick chỉ nhận exact terminal-strip hole A1..J63.");
+      }
+      if(!Number.isInteger(expectedLessonId) || expectedLessonId<1 || expectedLessonId>16){
+        throw new RangeError("expectedLessonId scene pick phải nằm trong 1..16.");
+      }
+      if(typeof expectedProfileId!=="string" || !PROFILES.includes(expectedProfileId)){
+        throw new RangeError("expectedProfileId scene pick không hợp lệ.");
+      }
+      readFrozenSceneMeta(frozenMeta);
+      if(!hasHolePicker)throw new RangeError("Breadboard hole picker không được mount.");
+      const current=readCurrentLessonForScene();
+      const state=placementSession.snapshot();
+      if(current.lessonId!==expectedLessonId || state.lessonId!==expectedLessonId){
+        throw new RangeError("Scene pick stale: lesson hiện tại không khớp expectedLessonId.");
+      }
+      if(!state.enabled || !state.terminals.length || current.terminals.length!==state.terminals.length){
+        throw new RangeError("Scene pick bị khóa vì lesson không có canonical breadboard terminal context.");
+      }
+      const currentSignature=current.terminals.map(terminal=>[terminal?.id,terminal?.component]);
+      const stateSignature=state.terminals.map(terminal=>[terminal.id,terminal.component]);
+      if(JSON.stringify(currentSignature)!==JSON.stringify(stateSignature)){
+        throw new RangeError("Scene pick stale: canonical terminal context đã thay đổi.");
+      }
+      if(profile.value!==expectedProfileId || state.profileId!==expectedProfileId){
+        throw new RangeError("Scene pick stale: profile hiện tại không khớp expectedProfileId.");
+      }
+      if(getSceneEditActive()!==true){
+        throw new RangeError("Scene pick chỉ khả dụng khi stage 3D edit đang bật.");
+      }
+      const column=Number(/^([A-J])(\d+)$/.exec(holeId)[2]);
+      let model=createBreadboardHoleGridPage({profileId:expectedProfileId,page:1});
+      for(let page=1;page<=model.pageCount;page+=1){
+        const candidate=createBreadboardHoleGridPage({profileId:expectedProfileId,page});
+        if(column>=candidate.columnStart && column<=candidate.columnEnd){
+          model=candidate;
+          break;
+        }
+      }
+      if(column<model.columnStart || column>model.columnEnd){
+        throw new RangeError("Không xác định được trang chứa scene hole.");
+      }
+      const selection=pickBreadboardGridHole({profileId:expectedProfileId,page:model.page,holeId});
+      holeGridPage=model.page;
+      renderHoleGrid(state);
+      selectHoleInput(selection,"Lỗ strip từ 3D","scene");
+      announceGrid(
+        `Đã chọn ${selection.holeId} từ 3D và chuyển picker tới cột ${selection.column}. Đây chỉ là lựa chọn input read-only; chưa tạo placement, dây hay cạnh graph. Dùng nút Gán lỗ riêng để ghi placement.`,
+        "scene-selected",
+      );
+      return Object.freeze({accepted:true,reason:"selected-input-only",selection:holeSelection});
+    }catch(error){
+      return rejectScenePick(error?.message||"scene-pick-rejected");
+    }
   };
   compare.addEventListener("click",onCompare);
   profile.addEventListener("change",onProfile);
@@ -935,12 +1104,15 @@ export function mountBreadboardStudy({
     update:updateStudy,
     compare:compareHoles,
     snapshot:()=>comparison,
+    pickHoleFromScene,
+    getHoleSelection:()=>holeSelection,
     getAuthoredPlacement:()=>placementSession.getPlacement(),
     getAuthoredGroups:()=>placementSession.getAuthoredGroups(),
     getContactInspection:()=>contactInspection,
     dispose(){
       if(disposed)return;
       disposed=true;
+      clearHoleSelection({notify:false});
       compare.removeEventListener("click",onCompare);
       profile.removeEventListener("change",onProfile);
       from.removeEventListener("keydown",onHoleKeydown);

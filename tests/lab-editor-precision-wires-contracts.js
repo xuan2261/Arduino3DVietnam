@@ -156,6 +156,11 @@ class FakeNode {
 
   click() { return this.dispatch("click"); }
   change() { return this.dispatch("change"); }
+  pressEnter() {
+    if (this.disabled || this.tagName !== "BUTTON") return false;
+    this.dispatch("keydown", { key: "Enter" });
+    return this.click();
+  }
   focus() { this.ownerDocument.activeElement = this; }
 }
 
@@ -284,12 +289,14 @@ function makeScene() {
   };
 }
 
-function withFixture({ circuits = new Map(), onWireInspection = null } = {}, run) {
+function withFixture({ circuits = new Map(), onWireInspection = null, onSceneReconciled = null } = {}, run) {
   const nativeBrowserDom = isNativeBrowserDocument(globalThis.document);
   const previousDocument = nativeBrowserDom ? null : globalThis.document;
   const dom = makeDom(nativeBrowserDom ? globalThis.document : new FakeDocument());
   const scene = makeScene();
   const changes = [];
+  const layoutChanges = [];
+  const reconciliations = [];
   if (!nativeBrowserDom) globalThis.document = dom.document;
   let ui = null;
   try {
@@ -299,10 +306,15 @@ function withFixture({ circuits = new Map(), onWireInspection = null } = {}, run
         circuits.set(lessonId, circuit);
         changes.push({ lessonId, circuit, analysis });
       },
+      onLayoutChange: (layout, lessonId) => layoutChanges.push({ layout, lessonId }),
       onWireInspection,
+      onSceneReconciled: (layout, meta, reconciledLessonId) => {
+        reconciliations.push({ layout, meta, lessonId: reconciledLessonId });
+        onSceneReconciled?.(layout, meta, reconciledLessonId);
+      },
     });
     ui.setScene(scene);
-    return run({ ...dom, scene, changes, circuits, ui });
+    return run({ ...dom, scene, changes, layoutChanges, reconciliations, circuits, ui });
   } finally {
     ui?.dispose();
     dom.cleanup();
@@ -342,8 +354,19 @@ export function runLabEditorPrecisionWiresContracts() {
       const rows = [...list.querySelectorAll("[data-lab-wire-row]")];
       const removeButtons = [...list.querySelectorAll("[data-lab-remove-wire-id]")];
       const inspectButtons = [...list.querySelectorAll("[data-lab-inspect-wire-id]")];
+      const undoLayout = panel.querySelector("[data-lab-layout-undo]");
+      const redoLayout = panel.querySelector("[data-lab-layout-redo]");
       assert(rows.length === 2 && removeButtons.length === 2 && inspectButtons.length === 2,
         "one native inspect/remove action pair per canonical learner wire");
+      assert(undoLayout?.tagName === "BUTTON" && redoLayout?.tagName === "BUTTON" &&
+        undoLayout.type === "button" && redoLayout.type === "button",
+      "layout history actions are native buttons");
+      assert(undoLayout.style.minHeight === "44px" && undoLayout.style.minWidth === "44px" &&
+        redoLayout.style.minHeight === "44px" && redoLayout.style.minWidth === "44px",
+      "layout history actions enforce >=44px target hooks");
+      assert(undoLayout.disabled && redoLayout.disabled &&
+        undoLayout.getAttribute("aria-disabled") === "true" && redoLayout.getAttribute("aria-disabled") === "true",
+      "empty layout history exposes truthful disabled and aria-disabled state");
       assert(rows.every(row => row.tagName === "LI") &&
         list.querySelector("[data-lab-precision-wire-rows]")?.tagName === "UL",
       "precision wire inventory uses native ul/li list semantics");
@@ -368,7 +391,7 @@ export function runLabEditorPrecisionWiresContracts() {
       }
       if (nativeBrowserDom) {
         const Button = document.defaultView?.HTMLButtonElement;
-        const actionButtons = [...inspectButtons, ...removeButtons];
+        const actionButtons = [...inspectButtons, ...removeButtons, undoLayout, redoLayout];
         assert(Button && actionButtons.every(button => button instanceof Button),
           "browser direct path renders actual native HTMLButtonElement inspect/remove controls");
         assert(actionButtons.every(button => {
@@ -798,6 +821,285 @@ export function runLabEditorPrecisionWiresContracts() {
       assert(callbacks.onTerminalSelect("R1:A") === true && changes.length === 1 &&
         circuitsFrom(changes).wires[0].from === "D13" && circuitsFrom(changes).wires[0].to === "R1:A",
       "second distinct tap still commits via existing router path");
+    });
+
+    const learnerCircuit = connectCircuit(createCircuit(2), "D13", "R1:A");
+    const layoutCircuits = new Map([[2, learnerCircuit], [3, createCircuit(3)]]);
+    withFixture({ circuits: layoutCircuits }, ({ ui, scene, changes, layoutChanges, reconciliations, panel, document }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      const initial = ui.snapshot();
+      const initialLayout = initial.layout;
+      const movable = initialLayout.components.find(item => !item.fixed && item.id !== "breadboard") ||
+        initialLayout.components.find(item => !item.fixed);
+      assert(movable, "layout history fixture has a movable conceptual component");
+      ui.selectComponent(movable.id);
+      assert(ui.snapshot().selectedId === movable.id, "layout history fixture selects movable component");
+
+      assert(scene.labEdit.onTerminalSelect("D13") === true && ui.snapshot().firstTerminal === "D13",
+        "layout mutation fixture arms pending terminal before placement change");
+      let moved = false;
+      for (const dx of [1.5, -1.5, 3, -3]) {
+        if (scene.labEdit.onMoveComponent(movable.id, movable.x + dx, movable.z, {})) {
+          moved = true;
+          break;
+        }
+      }
+      assert(moved, "accepted conceptual move creates a layout transition");
+      const afterMove = ui.snapshot();
+      const movedComponent = afterMove.layout.components.find(item => item.id === movable.id);
+      assert(afterMove.layout !== initialLayout && afterMove.canUndoLayout === true &&
+        afterMove.canRedoLayout === false && afterMove.layoutUndoDepth === 1 && afterMove.layoutRedoDepth === 0,
+      "accepted move exposes one bounded undo transition");
+      assert(afterMove.selectedId === movable.id && afterMove.firstTerminal === null && scene.pending === null,
+        "accepted layout move preserves selected component and clears pending terminal intent");
+      assert(layoutChanges.length === 1 && layoutChanges[0].layout === afterMove.layout &&
+        layoutChanges[0].lessonId === 2 && reconciliations.length === 0 &&
+        changes.length === 0 && layoutCircuits.get(2) === learnerCircuit,
+      "layout move notifies onLayoutChange only and leaves learner graph/history input untouched");
+
+      const depthBeforeNoop = afterMove.layoutUndoDepth;
+      const layoutChangesBeforeNoop = layoutChanges.length;
+      assert(scene.labEdit.onMoveComponent(movable.id, movedComponent.x, movedComponent.z, {}) === false,
+        "exact no-op move is rejected");
+      assert(scene.labEdit.onMoveComponent(movable.id, Number.NaN, movedComponent.z, {}) === false,
+        "invalid non-finite move is rejected");
+      assert(scene.labEdit.onMoveComponent(movable.id, 0, 0, {
+        kind: "rotate", deltaQuarterTurns: 0,
+      }) === false, "zero-turn rotation is rejected as a no-op history transition");
+      assert(scene.labEdit.onMoveComponent(movable.id, 0, 0, {
+        kind: "rotate", deltaQuarterTurns: 0.5,
+      }) === false, "invalid fractional rotation is rejected without history transition");
+      const afterRejectedMoves = ui.snapshot();
+      assert(afterRejectedMoves.layoutUndoDepth === depthBeforeNoop &&
+        layoutChanges.length === layoutChangesBeforeNoop && changes.length === 0,
+      "no-op/invalid moves create no history or graph side effects");
+
+      const undoButton = panel.querySelector("[data-lab-layout-undo]");
+      const redoButton = panel.querySelector("[data-lab-layout-redo]");
+      assert(!undoButton.disabled && redoButton.disabled &&
+        undoButton.getAttribute("aria-disabled") === "false" && redoButton.getAttribute("aria-disabled") === "true",
+      "layout history native controls mirror move history availability");
+      undoButton.focus({ preventScroll: true });
+      undoButton.click();
+      const afterUndo = ui.snapshot();
+      assert(document.activeElement === undoButton && afterUndo.layout === initialLayout &&
+        afterUndo.selectedId === movable.id && afterUndo.canUndoLayout === false && afterUndo.canRedoLayout === true,
+      "native undo restores exact immutable layout/selection and retains keyboard focus");
+      assert(layoutChanges.length === layoutChangesBeforeNoop + 1 && changes.length === 0 &&
+        layoutCircuits.get(2) === learnerCircuit,
+      "undo notifies layout observers without learner graph/history write");
+
+      redoButton.focus({ preventScroll: true });
+      redoButton.click();
+      const afterRedo = ui.snapshot();
+      assert(document.activeElement === redoButton && afterRedo.layout === afterMove.layout &&
+        afterRedo.selectedId === movable.id && afterRedo.canUndoLayout === true && afterRedo.canRedoLayout === false,
+      "native redo restores exact accepted layout and selected component");
+
+      assert(scene.labEdit.onTerminalSelect("D13") === true && ui.snapshot().firstTerminal === "D13",
+        "pending terminal can be armed before undo restore");
+      assert(ui.undoLayout() === true && ui.snapshot().firstTerminal === null && scene.pending === null,
+        "programmatic undo clears pending terminal intent when layout changes");
+      assert(ui.snapshot().canRedoLayout === true, "undo exposes redo before divergent edit");
+      assert(scene.labEdit.onMoveComponent(movable.id, movable.x, movable.z, {
+        kind: "rotate", deltaQuarterTurns: 1,
+      }) === true,
+      "accepted rotate creates divergent layout transition after undo");
+      const divergent = ui.snapshot();
+      assert(divergent.canRedoLayout === false && divergent.layoutRedoDepth === 0 &&
+        divergent.canUndoLayout === true && ui.redoLayout() === false,
+      "divergent accepted edit clears redo branch");
+
+      ui.setStage("wiring");
+      const offStage = ui.snapshot();
+      assert(offStage.canUndoLayout === true && ui.undoLayout() === false,
+        "stage switch preserves layout history but blocks undo outside 3D");
+      ui.setStage("3d");
+      assert(ui.snapshot().canUndoLayout === true,
+        "returning to 3D preserves conceptual layout history");
+      ui.closeEditor();
+      assert(ui.snapshot().canUndoLayout === true && ui.undoLayout() === false &&
+        undoButton.disabled && undoButton.getAttribute("aria-disabled") === "true",
+      "editing off preserves history but disables native/programmatic undo");
+      ui.openEditor();
+      assert(ui.snapshot().canUndoLayout === true && !undoButton.disabled,
+        "reopening editor re-enables preserved layout undo history");
+
+      const replacementScene = makeScene();
+      ui.setScene(replacementScene);
+      assert(ui.snapshot().canUndoLayout === true,
+        "scene replacement preserves history with existing conceptual layout semantics");
+      ui.setLesson(3);
+      const newLesson = ui.snapshot();
+      assert(newLesson.canUndoLayout === false && newLesson.canRedoLayout === false &&
+        newLesson.layoutUndoDepth === 0 && newLesson.layoutRedoDepth === 0,
+      "lesson context switch resets conceptual layout history");
+    });
+
+    const rollbackCircuit = connectCircuit(createCircuit(2), "D13", "R1:A");
+    const rollbackCircuits = new Map([[2, rollbackCircuit]]);
+    let rollbackScene = null;
+    let observerSawRestoredScene = false;
+    withFixture({
+      circuits: rollbackCircuits,
+      onSceneReconciled: (layout, meta, reconciledLessonId) => {
+        observerSawRestoredScene = rollbackScene?.layout === layout &&
+          meta.reason === "layout-rollback" && meta.operation === "move" &&
+          meta.componentId === "breadboard" && meta.physicalVerified === false &&
+          reconciledLessonId === 2;
+      },
+    }, ({ ui, scene, changes, layoutChanges, reconciliations, document, message }) => {
+      rollbackScene = scene;
+      ui.setLesson(2);
+      ui.openEditor();
+      ui.selectComponent("breadboard");
+      const before = ui.snapshot();
+      const beforeLayoutCalls = scene.layoutCalls;
+      const posX = document.getElementById("labPositionX");
+      const posZ = document.getElementById("labPositionZ");
+      const place = document.getElementById("labPlace");
+      assert(posX.max === "10" && posX.min === "-10" && posZ.value === "0",
+        "rollback fixture uses the rendered native conceptual coordinate bounds");
+      posX.value = "999";
+      posZ.value = "0";
+      place.click();
+      const after = ui.snapshot();
+      assert(reconciliations.length === 1 && observerSawRestoredScene === true &&
+        scene.layoutCalls === beforeLayoutCalls + 1 && scene.layout === before.layout,
+      "invalid native Place restores scene first, then emits exactly one rollback observer");
+      const rollback = reconciliations[0];
+      assert(rollback.layout === before.layout && rollback.lessonId === 2 && Object.isFrozen(rollback.meta) &&
+        Reflect.ownKeys(rollback.meta).length === 4 && rollback.meta.reason === "layout-rollback" &&
+        rollback.meta.operation === "move" && rollback.meta.componentId === "breadboard" &&
+        rollback.meta.physicalVerified === false,
+      "rollback observer receives exact frozen non-authoritative reconciliation metadata");
+      assert(layoutChanges.length === 0 && changes.length === 0 && rollbackCircuits.get(2) === rollbackCircuit &&
+        after.layout === before.layout && after.layoutUndoDepth === before.layoutUndoDepth &&
+        after.layoutRedoDepth === before.layoutRedoDepth,
+      "rejected Place creates no accepted layout history, learner graph, or learner-history mutation");
+      assert(message.dataset.kind === "error" &&
+        /Không thể đặt linh kiện/.test(message.textContent) && /ngoài giới hạn bố trí/.test(message.textContent),
+      "source move error feedback remains visible after scene reconciliation");
+    });
+
+    const primeSequenceCircuit = connectCircuit(createCircuit(2), "D13", "R1:A");
+    const primeSequenceCircuits = new Map([[2, primeSequenceCircuit]]);
+    withFixture({ circuits: primeSequenceCircuits }, ({
+      ui, scene, changes, layoutChanges, panel, document, nativeBrowserDom,
+    }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      ui.selectComponent("breadboard");
+      const undoButton = panel.querySelector("[data-lab-layout-undo]");
+      const redoButton = panel.querySelector("[data-lab-layout-redo]");
+      const activateNativeHistoryButton = button => {
+        const beforeLayoutChanges = layoutChanges.length;
+        button.focus({ preventScroll: true });
+        if (!nativeBrowserDom) {
+          assert((button.listeners.get("keydown") ?? []).length === 0,
+            "layout history button has no custom keydown handler; native Enter semantics own activation");
+          button.pressEnter();
+        } else {
+          // HTMLElement.click() intentionally returns undefined in browsers.
+          // Prove activation by the observable layout restore + retained focus,
+          // not by a fake-DOM-only click return value.
+          button.click();
+        }
+        return layoutChanges.length === beforeLayoutChanges + 1 && document.activeElement === button;
+      };
+
+      const initial = ui.snapshot();
+      const initialBreadboard = initial.layout.components.find(item => item.id === "breadboard");
+      assert(initialBreadboard.x === -1 && initialBreadboard.z === 0 && initialBreadboard.quarterTurns === 0,
+        "prime sequence starts from canonical breadboard -1/0/0° layout");
+      assert(scene.labEdit.onMoveComponent("breadboard", 0, 0, {}) === true,
+        "prime sequence accepts breadboard move x -1 -> 0");
+      const afterMove = ui.snapshot();
+      const movedBreadboard = afterMove.layout.components.find(item => item.id === "breadboard");
+      assert(movedBreadboard.x === 0 && movedBreadboard.z === 0 && movedBreadboard.quarterTurns === 0 &&
+        afterMove.layoutUndoDepth === 1 && afterMove.layoutRedoDepth === 0,
+      "prime sequence move creates first conceptual layout transition");
+
+      assert(scene.labEdit.onMoveComponent("breadboard", 0, 0, {
+        kind: "rotate", deltaQuarterTurns: 1,
+      }) === true, "prime sequence accepts breadboard rotate +90°");
+      const afterRotate = ui.snapshot();
+      const rotatedBreadboard = afterRotate.layout.components.find(item => item.id === "breadboard");
+      assert(rotatedBreadboard.x === 0 && rotatedBreadboard.z === 0 && rotatedBreadboard.quarterTurns === 1 &&
+        afterRotate.layoutUndoDepth === 2 && afterRotate.layoutRedoDepth === 0,
+      "prime sequence rotate creates second conceptual layout transition");
+
+      assert(activateNativeHistoryButton(undoButton) === true,
+        "prime sequence first native undo activates from keyboard/click path");
+      const afterUndoOne = ui.snapshot();
+      const breadboardUndoOne = afterUndoOne.layout.components.find(item => item.id === "breadboard");
+      assert(breadboardUndoOne.x === 0 && breadboardUndoOne.quarterTurns === 0 &&
+        afterUndoOne.layoutUndoDepth === 1 && afterUndoOne.layoutRedoDepth === 1 &&
+        document.activeElement === undoButton,
+      "first undo restores moved/unrotated breadboard and retains native-control focus");
+
+      assert(activateNativeHistoryButton(undoButton) === true,
+        "prime sequence second native undo activates");
+      const afterUndoTwo = ui.snapshot();
+      const breadboardUndoTwo = afterUndoTwo.layout.components.find(item => item.id === "breadboard");
+      assert(breadboardUndoTwo.x === -1 && breadboardUndoTwo.quarterTurns === 0 &&
+        afterUndoTwo.layoutUndoDepth === 0 && afterUndoTwo.layoutRedoDepth === 2,
+      "second undo restores exact initial breadboard layout");
+
+      ui.setStage("wiring");
+      assert(undoButton.disabled && redoButton.disabled &&
+        undoButton.getAttribute("aria-disabled") === "true" && redoButton.getAttribute("aria-disabled") === "true",
+      "stage switch preserves history but disables native layout history controls");
+      ui.setStage("3d");
+      assert(undoButton.disabled && !redoButton.disabled && redoButton.getAttribute("aria-disabled") === "false",
+        "return to 3D restores truthful native redo availability");
+      assert(activateNativeHistoryButton(redoButton) === true,
+        "prime sequence performs one redo after stage switch");
+      const afterRedo = ui.snapshot();
+      const breadboardRedo = afterRedo.layout.components.find(item => item.id === "breadboard");
+      assert(breadboardRedo.x === 0 && breadboardRedo.quarterTurns === 0 &&
+        afterRedo.layoutUndoDepth === 1 && afterRedo.layoutRedoDepth === 1 &&
+        document.activeElement === redoButton,
+      "redo after stage switch restores first accepted move and retains focus");
+
+      assert(scene.labEdit.onMoveComponent("breadboard", 0.5, 0, {}) === true,
+        "prime sequence accepts divergent breadboard move x 0 -> 0.5");
+      const afterDivergence = ui.snapshot();
+      const divergentBreadboard = afterDivergence.layout.components.find(item => item.id === "breadboard");
+      assert(divergentBreadboard.x === 0.5 && divergentBreadboard.quarterTurns === 0 &&
+        afterDivergence.canRedoLayout === false && afterDivergence.layoutRedoDepth === 0 && redoButton.disabled &&
+        redoButton.getAttribute("aria-disabled") === "true",
+      "divergent move clears redo branch and native redo availability");
+      assert(changes.length === 0 && primeSequenceCircuits.get(2) === primeSequenceCircuit &&
+        layoutChanges.length === 6,
+      "prime E2E layout sequence emits only six layout changes and zero learner graph/history writes");
+    });
+
+    const boundedCircuits = new Map([[2, learnerCircuit]]);
+    withFixture({ circuits: boundedCircuits }, ({ ui, scene, changes, layoutChanges }) => {
+      ui.setLesson(2);
+      ui.openEditor();
+      const movable = ui.snapshot().layout.components.find(item => !item.fixed && item.id !== "breadboard") ||
+        ui.snapshot().layout.components.find(item => !item.fixed);
+      ui.selectComponent(movable.id);
+      for (let index = 0; index < 35; index += 1) {
+        assert(scene.labEdit.onMoveComponent(movable.id, 0, 0, {
+          kind: "rotate", deltaQuarterTurns: 1,
+        }) === true, "bounded history accepts rotate transition " + index);
+      }
+      const bounded = ui.snapshot();
+      assert(bounded.layoutUndoDepth === 32 && bounded.canUndoLayout === true &&
+        bounded.layoutRedoDepth === 0 && changes.length === 0 && boundedCircuits.get(2) === learnerCircuit,
+      "layout history retains at most 32 accepted transitions without learner graph writes");
+      let undoCount = 0;
+      while (ui.undoLayout()) undoCount += 1;
+      const exhausted = ui.snapshot();
+      assert(undoCount === 32 && exhausted.layoutUndoDepth === 0 && exhausted.layoutRedoDepth === 32 &&
+        ui.undoLayout() === false && layoutChanges.length === 35 + 32,
+      "bounded history exposes exactly 32 undo restores then fails closed");
+      assert(exhausted.selectedId === movable.id,
+        "selected component remains stable through bounded undo restoration");
     });
   });
 
