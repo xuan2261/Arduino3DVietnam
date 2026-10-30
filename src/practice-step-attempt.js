@@ -26,6 +26,7 @@ const VERSION = 1;
 const MAX_RECORDS = 64;
 const SESSION_BRAND = new WeakSet();
 const TOKEN_BRAND = new WeakSet();
+const ATTEMPT_SNAPSHOT_BRAND = new WeakSet();
 const EVENT_TYPES = Object.freeze([...PRACTICE_OBSERVATION_EVENT_TYPES]);
 const EVENT_TYPE_SET = new Set(EVENT_TYPES);
 const EMPTY_OBSERVATION_JOURNAL = createPracticeObservationJournal();
@@ -476,7 +477,7 @@ export function inspectPracticeStepAttempt(session, input) {
   const context = checkpointContext(lesson, stepIndex);
   const active = session.active;
   if (!active) {
-    return deepFreeze({
+    return brandPracticeStepAttemptSnapshot({
       sessionId: session.sessionId,
       state: "idle",
       lessonId: context.lessonId,
@@ -503,7 +504,7 @@ export function inspectPracticeStepAttempt(session, input) {
   requireCurrentContext(active, lesson, stepIndex);
   const observedEventTypes = uniqueInOrder(active.records.map(record => record.eventType));
   const observed = new Set(observedEventTypes);
-  return deepFreeze({
+  return brandPracticeStepAttemptSnapshot({
     sessionId: session.sessionId,
     state: active.review ? "checked" : "active",
     lessonId: active.lessonId,
@@ -526,4 +527,18 @@ export function inspectPracticeStepAttempt(session, input) {
     canCancel: true,
     claims: claims(),
   });
+}
+
+function brandPracticeStepAttemptSnapshot(value){
+  const snapshot=deepFreeze(value);
+  ATTEMPT_SNAPSHOT_BRAND.add(snapshot);
+  return snapshot;
+}
+
+export function requirePracticeStepAttemptSnapshot(snapshot){
+  if(!snapshot||typeof snapshot!=="object"||
+     !Object.isFrozen(snapshot)||!ATTEMPT_SNAPSHOT_BRAND.has(snapshot)){
+    throw new TypeError("Step attempt snapshot không có module/session provenance hợp lệ.");
+  }
+  return snapshot;
 }

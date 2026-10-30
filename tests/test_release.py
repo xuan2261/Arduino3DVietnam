@@ -965,8 +965,8 @@ class ReleaseContractTests(unittest.TestCase):
             "docs/THREE_D_COMMITTED_WIRE_REPAIR.md",
         ]
         self.assertEqual(build_site.POST_85FF_PRACTICE_REPAIR_FILES, expected_suffix)
-        self.assertEqual(build_site.FILES[-len(expected_suffix):], expected_suffix)
-        self.assertEqual(len(build_site.FILES), 136 + len(expected_suffix))
+        self.assertEqual(build_site.FILES[136:143], expected_suffix)
+        self.assertEqual(len(build_site.FILES[:143]), 143)
         self.assertEqual(len(set(build_site.FILES)), len(build_site.FILES))
         for path in expected_suffix:
             source = build_site._release_source(path)
@@ -991,6 +991,40 @@ class ReleaseContractTests(unittest.TestCase):
             build_site._service_worker_assets(worker),
             ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
             "Offline precache must match the actual published source allowlist in order",
+        )
+
+    def test_post_f714_guided_task_and_3d_button_assets_are_exact_and_offline(self):
+        expected = [
+            "src/practice-guided-task.js",
+            "src/practice-guided-task-ui.js",
+            "styles/practice-guided-task.css",
+            "docs/PRACTICE_GUIDED_TASK_WORKSPACE.md",
+            "docs/THREE_D_LESSON_BUTTON_ACTUATION.md",
+        ]
+        self.assertEqual(build_site.POST_F714_GUIDED_ACTUATION_FILES, expected)
+        self.assertEqual(build_site.FILES[143:], expected)
+        self.assertEqual(len(build_site.FILES), 148)
+        self.assertEqual(len(set(build_site.FILES)), 148)
+        for path in expected:
+            source = build_site._release_source(path)
+            self.assertTrue(source.is_file(), path)
+            self.assertFalse(source.is_symlink(), path)
+            self.assertGreater(source.stat().st_size, 100, path)
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "src/app.js").read_text(encoding="utf-8")
+        scene = (ROOT / "src/scene3d.js").read_text(encoding="utf-8")
+        self.assertIn('href="styles/practice-guided-task.css"', html)
+        self.assertIn('from "./practice-guided-task.js"', app)
+        self.assertIn('from "./practice-guided-task-ui.js"', app)
+        self.assertIn("setLessonButtonActuation", scene)
+        self.assertIn("syncSceneLessonButtonActuation", app)
+        self.assertIn("setButtonPress(pressed)", app)
+        for file in ("src/practice-guided-task.js", "src/practice-guided-task-ui.js"):
+            self.assertNotIn("localStorage", (ROOT / file).read_text(encoding="utf-8"))
+        self.assertNotIn("innerHTML", (ROOT / "src/practice-guided-task-ui.js").read_text(encoding="utf-8"))
+        self.assertEqual(
+            build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
         )
 
 

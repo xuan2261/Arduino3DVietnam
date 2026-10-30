@@ -140,6 +140,13 @@ POST_85FF_PRACTICE_REPAIR_FILES = [
     "docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md",
     "docs/THREE_D_COMMITTED_WIRE_REPAIR.md",
 ]
+POST_F714_GUIDED_ACTUATION_FILES = [
+    "src/practice-guided-task.js",
+    "src/practice-guided-task-ui.js",
+    "styles/practice-guided-task.css",
+    "docs/PRACTICE_GUIDED_TASK_WORKSPACE.md",
+    "docs/THREE_D_LESSON_BUTTON_ACTUATION.md",
+]
 FILES = [
     "index.html",
     "site.webmanifest",
@@ -198,6 +205,7 @@ FILES = [
     *POST_V16_STUDY_EXTENSION_FILES,
     *POST_V16_RICH_INTERACTION_FILES,
     *POST_85FF_PRACTICE_REPAIR_FILES,
+    *POST_F714_GUIDED_ACTUATION_FILES,
 ]
 
 _SW_ASSETS_RE = re.compile(r"const ASSETS = \[(.*?)\];", re.DOTALL)

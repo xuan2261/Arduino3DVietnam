@@ -1,0 +1,49 @@
+.practice-guided-task {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.85rem;
+  margin: 0.8rem 0;
+  border: 1px solid #9bbeb4;
+  border-radius: 0.75rem;
+  background: #f2faf6;
+  color: #1e3f37;
+  overflow-wrap: anywhere;
+}
+.practice-guided-task h5,
+.practice-guided-task p { margin: 0; }
+.practice-guided-task-heading { font-size: 1rem; font-weight: 750; }
+.practice-guided-task-source { font-weight: 600; }
+.practice-guided-task-guidance,
+.practice-guided-task-status { line-height: 1.45; }
+.practice-guided-task-self-review { color: #6b3b15; font-weight: 600; }
+.practice-guided-task-action {
+  display: block;
+  min-height: 44px;
+  min-width: 44px;
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #165f4b;
+  border-radius: 0.55rem;
+  background: #145a47;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.practice-guided-task-action:hover:not(:disabled) { background: #104333; }
+.practice-guided-task-action:focus-visible {
+  outline: 3px solid #aa621e;
+  outline-offset: 3px;
+}
+.practice-guided-task-action:disabled { opacity: 0.65; cursor: not-allowed; }
+.practice-guided-task-boundary { font-size: 0.85rem; line-height: 1.4; }
+@media (max-width: 580px) {
+  .practice-guided-task { padding: 0.75rem; gap: 0.6rem; }
+  .practice-guided-task-action { padding: 0.75rem; }
+}

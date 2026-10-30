@@ -18,6 +18,10 @@ const MAX_WIRES = 64;
 const MAX_ISSUES = 32;
 const MAX_PATHS = 32;
 const MAX_STEPS = 16;
+// Only output from the canonical inspectPracticeEvidence() pipeline may be
+// composed into cross-module guided plans. A merely frozen imitation must
+// never be accepted as circuit-router-derived topology evidence.
+const EVIDENCE_SNAPSHOT_BRAND = new WeakSet();
 const INPUT_KEYS = new Set([
   "lesson",
   "stepIndex",
@@ -272,7 +276,17 @@ function claims(scope, checkpoint, signalOnly = false) {
 }
 
 function result(value) {
-  return deepFreeze(value);
+  const snapshot=deepFreeze(value);
+  EVIDENCE_SNAPSHOT_BRAND.add(snapshot);
+  return snapshot;
+}
+
+export function requirePracticeEvidenceSnapshot(snapshot){
+  if(!snapshot||typeof snapshot!=="object"||
+     !Object.isFrozen(snapshot)||!EVIDENCE_SNAPSHOT_BRAND.has(snapshot)){
+    throw new TypeError("Practice evidence snapshot không có provenance canonical hợp lệ.");
+  }
+  return snapshot;
 }
 
 function manualEvidence(lesson, stepIndex, checkpoint, wireGuidance, signalOnly = false) {

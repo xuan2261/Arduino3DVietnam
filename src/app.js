@@ -38,6 +38,8 @@ import {
   retryPracticeStepAttempt,cancelPracticeStepAttempt,inspectPracticeStepAttempt,
 } from "./practice-step-attempt.js";
 import { renderPracticeStepAttempt } from "./practice-step-attempt-ui.js";
+import { buildPracticeGuidedTaskPlan } from "./practice-guided-task.js";
+import { renderPracticeGuidedTask } from "./practice-guided-task-ui.js";
 
 const $ = id => document.getElementById(id);
 const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -67,6 +69,10 @@ const state = {
   authoredGuide: null,
   // Only the exact currently owned learner edge may be inspected across views.
   selectedCommittedWire: null,
+  // A 3D button cap is another opt-in input surface for the EXISTING lesson
+  // simulation button. It never owns an electrical edge or completion credit.
+  sceneButtonActuation: null,
+  sceneButtonPressActive: false,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -237,6 +243,96 @@ function currentPracticeStepAttempt(){
     lesson:currentLesson(),stepIndex:state.learningSteps.get(state.lessonId)??0,
   });
 }
+function currentGuidedTaskPlan(lesson=currentLesson(),stepIndex=state.learningSteps.get(state.lessonId)??0){
+  const external=supportedWiringLessons().includes(lesson.id);
+  const circuit=external?learnerCircuit(lesson.id):null;
+  const analysis=external?analyzeCircuit(lesson.id,circuit):null;
+  const evidence=inspectPracticeEvidence({
+    lesson,stepIndex,circuit,referenceCircuit:external?createSampleCircuit(lesson.id):null,
+    analysis,hasLearnerDraft:state.circuitModels.has(lesson.id),
+  });
+  return buildPracticeGuidedTaskPlan({
+    lesson,stepIndex,attemptSnapshot:currentPracticeStepAttempt(),evidence,
+  });
+}
+function refreshPracticeGuidedTaskUi(){
+  const old=$("learningCoach")?.querySelector("[data-practice-guided-task]");
+  if(!old||state.infoTab!=="practice")return false;
+  try{
+    const plan=currentGuidedTaskPlan();
+    old.replaceWith(renderPracticeGuidedTask(document,plan,{onAction:handlePracticeGuidedTaskAction}));
+    return true;
+  }catch{return false;}
+}
+function handlePracticeGuidedTaskAction(request){
+  // Every CTA is a navigation/focus or explicitly opted-in session Start.
+  // Re-evaluate the same exact authored step and latest attempt/evidence at
+  // click time; do not trust a stale DOM card after a graph or lesson change.
+  if(!request||typeof request!=="object"||Array.isArray(request)||
+     Object.getPrototypeOf(request)!==Object.prototype||!Object.isFrozen(request)||
+     Reflect.ownKeys(request).length!==4||state.infoTab!=="practice")return false;
+  const ownData=key=>{
+    const descriptor=Object.getOwnPropertyDescriptor(request,key);
+    return descriptor&&"value" in descriptor?descriptor.value:undefined;
+  };
+  const lessonId=ownData("lessonId"),stepIndex=ownData("stepIndex");
+  const checkpointId=ownData("checkpointId"),actionId=ownData("actionId");
+  if(typeof actionId!=="string"||lessonId!==state.lessonId||
+     stepIndex!==(state.learningSteps.get(lessonId)??0)||
+     typeof checkpointId!=="string")return false;
+  let current;
+  try{current=currentGuidedTaskPlan();}catch{return false;}
+  if(current.lessonId!==lessonId||current.stepIndex!==stepIndex||
+     current.checkpointId!==checkpointId||current.action?.id!==actionId)return false;
+  const focus=node=>{
+    if(!node||node.disabled||node.hidden||node.closest("[hidden]"))return false;
+    node.focus({preventScroll:true});
+    return document.activeElement===node;
+  };
+  switch(actionId){
+    case "start": {
+      const context=Object.freeze({lessonId,stepIndex,checkpointId});
+      return practiceAttemptCallbacks().onStart(context)===true;
+    }
+    case "view-3d":
+    case "view-wiring":{
+      state.stageTab=actionId==="view-3d"?"3d":"wiring";
+      renderStage();
+      recordPracticeAction(actionId);
+      focus($(state.stageTab==="3d"?"stageTab3d":"stageTabWiring"));
+      return true;
+    }
+    case "view-pinout":
+      state.infoTab="pinout";
+      renderInfo();
+      recordPracticeAction("view-pinout");
+      return focus($("infoTabPinout"));
+    case "focus-control":
+      return focus($("experimentControls")?.querySelector(
+        'input:not(:disabled),select:not(:disabled),button:not(:disabled)'));
+    case "focus-run":
+      return focus($("runButton"));
+    case "focus-sketch":
+      return focus($("codeEditor")?.getClientRects().length?$("codeEditor"):$("editCode"));
+    case "focus-repair":
+      return focus($("learningCoach")?.querySelector(
+        '[data-practice-start-repair-missing-pair], [data-practice-start-review-extra-pair], [data-practice-missing-pair-preview-2d]')
+      )||focus($("labConnect"))||focus($("stageTabWiring"));
+    case "focus-check":
+      return focus($("learningCoach")?.querySelector("[data-attempt-check]"));
+    case "focus-retry":
+      return focus($("learningCoach")?.querySelector("[data-attempt-retry]"));
+    case "self-review":
+      return focus($("learningCoach")?.querySelector(
+        '[data-attempt-check]:not(:disabled),[data-attempt-start]:not(:disabled),[data-attempt-retry]:not(:disabled)'));
+    case "focus-next":
+      // Category-complete means only that one or more in-app event TYPES
+      // occurred, not that all actions in the authored sentence were done.
+      // The user must independently activate Next after self-review.
+      return focus($("coachNext"));
+    default:return false;
+  }
+}
 function refreshPracticeStepAttemptUi(focusAttr=null){
   const old=$("infoContent")?.querySelector("[data-practice-step-attempt]");
   if(!old||state.infoTab!=="practice")return false;
@@ -244,6 +340,7 @@ function refreshPracticeStepAttemptUi(focusAttr=null){
     document,currentPracticeStepAttempt(),practiceAttemptCallbacks()
   );
   old.replaceWith(next);
+  refreshPracticeGuidedTaskUi();
   if(focusAttr){
     const button=next.querySelector("["+focusAttr+"]");
     if(button&&!button.disabled)button.focus({preventScroll:true});
@@ -764,11 +861,19 @@ function validatedMissingAuthoredPair(pair, lessonId, stepIndex){
   return Object.freeze([pair[0],pair[1]]);
 }
 
+function closeReadOnlyGuideMode(){
+  state.labEditorUI?.setReadOnlyGuideMode?.(false);
+  // Read-only guide mode mounts a conceptual Lab layout and hides the legacy
+  // button cap; its scene teardown resets the transient actuation mode. Once
+  // the module becomes visible again, re-arm only an exact current 3D lesson
+  // button (3/16), not the guide or any old pointer/graph state.
+  syncSceneLessonButtonActuation();
+}
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
   state.authoredGuide=null;
   state.scene?.setAuthoredPairGuide?.(null);
-  state.labEditorUI?.setReadOnlyGuideMode?.(false);
+  closeReadOnlyGuideMode();
   refreshSceneInspectionNote();
   return true;
 }
@@ -806,12 +911,12 @@ function previewAuthoredMissingPairIn3D(pair, lessonId, stepIndex){
   try{
     result=state.scene.setAuthoredPairGuide(Object.freeze({from:verified[0],to:verified[1]}));
   }catch{
-    state.labEditorUI.setReadOnlyGuideMode(false);
+    closeReadOnlyGuideMode();
     return false;
   }
   if(result?.active!==true || result?.mode!=="view-only" ||
      result?.electricalAuthority!==false || result?.physicalVerified!==false){
-    state.labEditorUI.setReadOnlyGuideMode(false);
+    closeReadOnlyGuideMode();
     return false;
   }
   state.authoredGuide=Object.freeze({lessonId,stepIndex,pair:verified});
@@ -1290,6 +1395,17 @@ function renderInfo() {
         analysis,
         hasLearnerDraft,
       });
+      if(state.practiceStepAttempts.active&&
+          (state.practiceStepAttempts.active.lessonId!==lesson.id||
+           state.practiceStepAttempts.active.stepIndex!==current)){
+        cancelActivePracticeStepAttempt();
+      }
+      const guidedPlan=buildPracticeGuidedTaskPlan({
+        lesson,stepIndex:current,attemptSnapshot:currentPracticeStepAttempt(),evidence,
+      });
+      wrapper.append(renderPracticeGuidedTask(document,guidedPlan,{
+        onAction:handlePracticeGuidedTaskAction,
+      }));
       wrapper.append(renderPracticeEvidence(document,evidence,{
         onOpenWiring(){
           if(lesson.id!==state.lessonId || !supportedWiringLessons().includes(lesson.id))return;
@@ -1350,11 +1466,6 @@ function renderInfo() {
       // A new, explicitly started TRY→CHECK attempt is independent of the
       // historical lesson-level observation panel. It attributes only host
       // events occurring within this exact step after Start, never mastery.
-      if(state.practiceStepAttempts.active &&
-          (state.practiceStepAttempts.active.lessonId!==lesson.id||
-            state.practiceStepAttempts.active.stepIndex!==current)){
-        cancelActivePracticeStepAttempt();
-      }
       wrapper.append(renderPracticeStepAttempt(
         document,currentPracticeStepAttempt(),practiceAttemptCallbacks()
       ));
@@ -1484,6 +1595,7 @@ function renderStage() {
   refresh3DWiring();
   refreshLabExplorer();
   syncSceneBreadboardHoleStudy();
+  syncSceneLessonButtonActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1521,7 +1633,9 @@ function renderControls(){
     }
   }
   $("experimentTitle").textContent=lesson.id===1?"Đèn L trên bo":lesson.controls.some(x=>x.type==="button")?"Tương tác trực tiếp":lesson.id===9?"Chọn nốt để thử":"Điều chỉnh thông số";
-  $("experimentHint").textContent=lesson.id===3||lesson.id===16?"Nhấn và giữ nút; nếu dùng bàn phím, giữ phím Space.":"Thay đổi tham số trước hoặc trong khi mô phỏng.";
+  $("experimentHint").textContent=lesson.id===3||lesson.id===16
+    ?"Nhấn và giữ nút ngay trên mô hình 3D hoặc nút điều khiển HTML; nếu dùng bàn phím ở nút HTML, giữ phím Space. Đây chỉ là đầu vào mô phỏng."
+    :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
   const escaped=safe(code);
@@ -1710,13 +1824,16 @@ function startPause(){
   }
 }
 function resetSimulation() {
+  revokeSceneLessonButtonActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
+  syncSceneLessonButtonActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
+  revokeSceneLessonButtonActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -1771,6 +1888,65 @@ function setButtonPress(pressed){
   button?.setAttribute("aria-pressed",String(pressed));
   const snap=updateSnapshot(true);
   if(state.running)log(snap.serial);
+}
+// A 3D push-cap may only request the existing lesson-JS 'pressed' input. The
+// scene never writes state.controls; the HTML button remains the keyboard and
+// no-WebGL equivalent. Retire old callbacks before lesson/stage/edit changes.
+function revokeSceneLessonButtonActuation(){
+  const binding=state.sceneButtonActuation;
+  try{state.scene?.setLessonButtonActuation?.({enabled:false});}catch{}
+  if(binding)binding.active=false;
+  state.sceneButtonActuation=null;
+  const wasPressed=state.sceneButtonPressActive;
+  state.sceneButtonPressActive=false;
+  if(wasPressed)setButtonPress(false);
+}
+function syncSceneLessonButtonActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonButtonActuation)return;
+  const supported=(state.lessonId===3||state.lessonId===16)&&
+    currentLesson().controls.some(config=>config.type==="button"&&config.key==="pressed");
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonButtonActuation();
+    return;
+  }
+  let binding=state.sceneButtonActuation;
+  if(!binding||!binding.active||binding.lessonId!==state.lessonId){
+    const lessonId=state.lessonId;
+    binding={active:true,lessonId,onPressChange:null};
+    binding.onPressChange=(pressed,meta)=>{
+      if(!binding.active||binding!==state.sceneButtonActuation||
+         lessonId!==state.lessonId||typeof pressed!=="boolean"||
+         !meta||!Object.isFrozen(meta)||Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==4)return false;
+      const fields=["lessonId","source","pointerType","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const d=Object.getOwnPropertyDescriptor(meta,field);
+        if(!d||!("value" in d))return false;
+        values[field]=d.value;
+      }
+      if(values.lessonId!==lessonId||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         values.physicalVerified!==false)return false;
+      if(pressed&&(state.stageTab!=="3d"||state.labEditorUI?.isEditingIn3D?.()))return false;
+      // Ignore unrelated scene releases so an HTML-only press is unaffected.
+      if(!pressed&&!state.sceneButtonPressActive)return true;
+      state.sceneButtonPressActive=pressed;
+      setButtonPress(pressed);
+      return true;
+    };
+    state.sceneButtonActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonButtonActuation({
+      enabled:true,lessonId:binding.lessonId,onPressChange:binding.onPressChange,
+    });
+    if(receipt?.active!==true||receipt?.physicalVerified!==false){
+      revokeSceneLessonButtonActuation();
+    }
+  }catch{revokeSceneLessonButtonActuation();}
 }
 function playNote(hz){
   if(!state.running||!hz)return;
@@ -2097,7 +2273,16 @@ function wireEvents(){
   $("closeHelp").addEventListener("click",()=>help.close());
   $("helpGotIt").addEventListener("click",()=>help.close());
   window.addEventListener("keydown",event=>{if(event.key==="Escape"&&$("sidebar").classList.contains("is-open"))closeSidebar();});
-  document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.running)startPause();});
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden){
+      revokeSceneLessonButtonActuation();
+      if(state.running)startPause();
+    }else syncSceneLessonButtonActuation();
+  });
+  // The browser may omit a pointercancel when the window loses focus. Fail
+  // closed on a held simulated pushbutton rather than leaving D2 HIGH.
+  window.addEventListener("blur",()=>revokeSceneLessonButtonActuation());
+  window.addEventListener("focus",()=>syncSceneLessonButtonActuation());
   window.addEventListener("beforeunload",()=>{
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
@@ -2126,6 +2311,7 @@ async function init(){
       refreshLabExplorer();
       refreshLearnerHistoryControls();
       syncSceneBreadboardHoleStudy();
+      syncSceneLessonButtonActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -2254,7 +2440,26 @@ async function init(){
       clearCommittedWireInspection();
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
       syncSceneBreadboardHoleStudy();
+      revokeSceneLessonButtonActuation();
     }
+  },true);
+  $("sceneMount").addEventListener("webglcontextrestored",event=>{
+    if(event.target?.tagName!=="CANVAS")return;
+    const canvas=event.target;
+    const scene=state.scene;
+    const lessonId=state.lessonId;
+    // A *real* WebGLContextEvent can checkpoint microtasks between the host's
+    // capture listener and the canvas target listener. A queueMicrotask here
+    // may run while scene.contextLost is still true, silently leaving the
+    // button inactive after a legitimate GPU restore. The next animation
+    // frame runs after the canvas has completed its own restore handler.
+    // Do not replay any held pointer, wiring intent or physical claim.
+    requestAnimationFrame(()=>{
+      if(state.scene!==scene||state.lessonId!==lessonId||
+         $("sceneMount")?.querySelector("canvas")!==canvas||
+         canvas.dataset.sceneContext!=="ready")return;
+      syncSceneLessonButtonActuation();
+    });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
   try{
@@ -2265,6 +2470,7 @@ async function init(){
     refresh3DWiring();
     refreshLabExplorer();
     syncSceneBreadboardHoleStudy();
+    syncSceneLessonButtonActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

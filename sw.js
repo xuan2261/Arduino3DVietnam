@@ -93,7 +93,12 @@ const ASSETS = [
   "./docs/PRACTICE_STEP_ATTEMPTS.md",
   "./docs/PRACTICE_REPAIR_ACTIONS.md",
   "./docs/PRACTICE_REPAIR_EDITOR_HANDOFF.md",
-  "./docs/THREE_D_COMMITTED_WIRE_REPAIR.md"
+  "./docs/THREE_D_COMMITTED_WIRE_REPAIR.md",
+  "./src/practice-guided-task.js",
+  "./src/practice-guided-task-ui.js",
+  "./styles/practice-guided-task.css",
+  "./docs/PRACTICE_GUIDED_TASK_WORKSPACE.md",
+  "./docs/THREE_D_LESSON_BUTTON_ACTUATION.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

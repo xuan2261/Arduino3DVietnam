@@ -216,6 +216,55 @@ def main() -> None:
             {"lessonId": lesson_id, "componentId": component_id, "terminalId": terminal_id},
         )
 
+    def legacy_scene_button_pixel(page, lesson_id: int):
+        """Independently project the visible lesson-JS button cap, not a fake DOM click.
+
+        The actual production Three.js raycast and canonical host button path
+        remain the authority for whether the real mouse/touch gesture works.
+        These coordinates are conceptual scene geometry, never mm/CAD.
+        """
+        if lesson_id not in (3, 16):
+            raise ValueError("3D press control belongs only to lessons 3/16")
+        # A prior HTML-keyboard action can legitimately scroll the document
+        # down to the control panel, leaving the still-active 3D canvas above
+        # the viewport. A real learner must scroll back to the 3D part before
+        # pressing it. Scroll BEFORE projecting screen coordinates, rather
+        # than sending a synthetic mouse click to a negative/offscreen Y.
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async lessonId => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('3D button canvas missing');
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.48,phi=.94;
+            const fitted=Math.max(16.7,18.5/(2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+                radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            // Legacy module root world position (5.15,.55,.10); cap centers
+            // are lesson03 (.0,.57,.0), lesson16 (-.85,.65,.25).
+            // The app's initial lesson-JS snapshot places both released cap
+            // centers at local y=.57, module root y=.55. Picking the actual
+            // mesh center is more deterministic than a point above its top.
+            const point=lessonId===3
+              ?new T.Vector3(5.15,1.12,.10)
+              :new T.Vector3(4.30,1.12,.35);
+            const screen=point.project(camera);
+            const x=rect.left+(screen.x+1)*rect.width/2;
+            const y=rect.top+(1-screen.y)*rect.height/2;
+            return Object.freeze({
+                x,y,
+                inViewport:screen.z>=-1&&screen.z<=1,
+                insideCanvas:Math.abs(screen.x)<1&&Math.abs(screen.y)<1,
+                onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+                canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""", lesson_id)
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -465,7 +514,15 @@ def main() -> None:
             # through the explicit E2E assertions, not each successful GET.
             pass
 
-    server = http.server.ThreadingHTTPServer(
+    class LocalE2EServer(http.server.ThreadingHTTPServer):
+        # ThreadingHTTPServer inherits TCPServer's backlog of FIVE. Chromium's
+        # initial parallel ES-module requests can exceed that queue under
+        # Windows/runner contention and return ERR_CONNECTION_REFUSED for an
+        # existing file. Keep the real localhost server and fatal 404/console
+        # assertions; only allow bounded pending simultaneous TCP accepts.
+        request_queue_size = 128
+
+    server = LocalE2EServer(
         ("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(ROOT))
     )
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -711,7 +768,17 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 318
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 359
+                      and "lesson-button-source-lesson3-and-16-own-exact-tagged-button-caps" in
+                          scene_lifecycle_names
+                      and "lesson3-button-mouse-pointerdown-emits-exact-true-meta" in
+                          scene_lifecycle_names
+                      and "lesson-button-touch-pointercancel-emits-true-false-exactly-once" in
+                          scene_lifecycle_names
+                      and "lesson-button-pen-lostcapture-emits-true-false-exactly-once" in
+                          scene_lifecycle_names
+                      and "lesson-button-context-loss-releases-false-once-and-disables" in
+                          scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-ghost-is-explicitly-visual-only-and-nonauthoritative" in
@@ -1370,6 +1437,14 @@ def main() -> None:
                           "native-ui-active-callbacks-pass-exact-token-without-mutating-model",
                       }.issubset(attempt_contract_names),
                       f"{step_attempt_contracts['passed']}/15 step-scoped exact-history/DOM checks")
+                guided_contracts=run_page_contract(
+                    page,"./tests/practice-guided-task-contracts.js",
+                    "runPracticeGuidedTaskContracts")
+                check("post-f714-guided-task-48-checkpoint-model-native-dom-contracts",
+                      guided_contracts["passed"]==guided_contracts["total"]
+                      and guided_contracts.get("failed",0)==0
+                      and guided_contracts["total"]>=12,
+                      f"{guided_contracts['passed']}/{guided_contracts['total']} guided task contracts")
                 sketch_contracts = run_page_contract(
                     page, "./tests/sketch-review-contracts.js",
                     "runSketchReviewContracts")
@@ -6108,6 +6183,289 @@ def main() -> None:
                 finally:
                     repair_context.close()
 
+                # Post-f71413e learner-control UX: real rendered push-cap
+                # pointer press/release drives ONLY the existing HTML lesson
+                # control simulation (lesson03/16). The scene does not create
+                # graph edges, bypass input provenance or require WebGL-only
+                # keyboard access; exact hit points are independently projected.
+                button_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    button_page=button_context.new_page()
+                    capture_console(button_page)
+                    button_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(button_page)
+                    button_canvas=button_page.locator("#sceneMount canvas")
+                    button_progress=button_page.locator("#progressText").inner_text()
+                    for button_lesson in (3,16):
+                        button_page.locator(
+                            f'.lesson-link[data-lesson="{button_lesson}"]').click()
+                        button_page.locator(
+                            '#cameraToolbar [data-camera="reset"]').click()
+                        control=button_page.locator(
+                            '#experimentControls [data-press="pressed"]')
+                        pixel=legacy_scene_button_pixel(button_page,button_lesson)
+                        check(f"post-f714-3d-button-{button_lesson}-has-active-explicit-cap-and-html-equivalent",
+                              pixel["inViewport"] and pixel["insideCanvas"]
+                              and pixel["onScreen"] and pixel["canvasUncovered"]
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-actuation")=="enabled"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-actuation-lesson")==str(button_lesson)
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="false"
+                              and control.count()==1
+                              and control.get_attribute("aria-pressed")=="false",
+                              json.dumps(pixel,ensure_ascii=False))
+                        button_page.mouse.move(pixel["x"],pixel["y"])
+                        button_page.mouse.down()
+                        check(f"post-f714-3d-button-{button_lesson}-real-mouse-press-routes-through-lesson-control",
+                              control.get_attribute("aria-pressed")=="true"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="true"
+                              and abs(float(button_canvas.get_attribute(
+                                  "data-lesson-button-cap-y"))-0.46)<.001
+                              and button_page.locator("#progressText").inner_text()==button_progress)
+                        button_page.mouse.move(pixel["x"]+9,pixel["y"]+12,steps=4)
+                        check(f"post-f714-3d-button-{button_lesson}-hold-does-not-orbit-or-auto-complete",
+                              control.get_attribute("aria-pressed")=="true"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="true"
+                              and button_page.locator("#progressText").inner_text()==button_progress)
+                        button_page.mouse.up()
+                        check(f"post-f714-3d-button-{button_lesson}-pointerup-releases-canonical-and-visible-cap",
+                              control.get_attribute("aria-pressed")=="false"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="false"
+                              and abs(float(button_canvas.get_attribute(
+                                  "data-lesson-button-cap-y"))-0.57)<.001)
+                    # HTML native button is still a complete keyboard input
+                    # surface without an accidental canvas-only requirement.
+                    control=button_page.locator(
+                        '#experimentControls [data-press="pressed"]')
+                    control.focus()
+                    button_page.keyboard.down("Space")
+                    check("post-f714-3d-button-html-keyboard-press-equivalent",
+                          control.get_attribute("aria-pressed")=="true"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-cap-y")=="0.46")
+                    button_page.keyboard.up("Space")
+                    check("post-f714-3d-button-html-keyboard-release-equivalent",
+                          control.get_attribute("aria-pressed")=="false"
+                          and abs(float(button_canvas.get_attribute(
+                              "data-lesson-button-cap-y"))-0.57)<.001)
+                    # Use the real WebGL_lose_context extension rather than
+                    # dispatching fake DOM events. Synthetic "restored" without
+                    # restoring the GPU led Three.js to issue INVALID_OPERATION
+                    # texture warnings, which the strict final console gate
+                    # correctly rejected. Real GPU loss/restoration is the
+                    # meaningful integration contract.
+                    button_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EGL=gl;
+                        window.__arduinoE2ELoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    button_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost';
+                    }""",timeout=10000)
+                    check("post-f714-3d-button-context-loss-fails-closed",
+                          button_canvas.get_attribute("data-scene-context")=="lost"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-actuation")=="off"
+                          and control.get_attribute("aria-pressed")=="false")
+                    # The context-loss event has fired; allow the GPU to finish
+                    # its lost-context frame before requesting the real restore.
+                    button_page.wait_for_timeout(500)
+                    button_page.evaluate("window.__arduinoE2ELoseExtension.restoreContext()")
+                    button_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonButtonActuation==='enabled';
+                    }""",timeout=10000)
+                    check("post-f714-3d-button-restored-scene-rearms-current-lesson-only",
+                          button_page.evaluate("window.__arduinoE2EGL?.isContextLost()") is False
+                          and button_canvas.get_attribute("data-scene-context")=="ready"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-actuation-lesson")=="16"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-pressed")=="false")
+                    button_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    after_restore=legacy_scene_button_pixel(button_page,16)
+                    check("post-f714-3d-button-pointer-target-visible-after-html-focus-scroll",
+                          after_restore["inViewport"] and after_restore["insideCanvas"]
+                          and after_restore["onScreen"] and after_restore["canvasUncovered"],
+                          json.dumps(after_restore,ensure_ascii=False))
+                    button_page.mouse.move(after_restore["x"],after_restore["y"])
+                    button_page.mouse.down()
+                    check("post-f714-3d-button-real-press-after-webgl-restore",
+                          control.get_attribute("aria-pressed")=="true"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-pressed")=="true"
+                          and button_page.locator("#progressText").inner_text()==button_progress)
+                    button_page.mouse.up()
+                    check("post-f714-3d-button-release-after-restore-no-stuck-state",
+                          control.get_attribute("aria-pressed")=="false"
+                          and button_canvas.get_attribute(
+                              "data-lesson-button-pressed")=="false")
+                    for guide_lesson in (3,16):
+                        button_page.locator(
+                            f'.lesson-link[data-lesson="{guide_lesson}"]').click()
+                        button_page.locator("#infoTabPractice").click()
+                        previews=button_page.locator(
+                            '#learningCoach [data-practice-preview-pair-3d]')
+                        check(f"post-f714-button-{guide_lesson}-has-authored-guide-preview",
+                              previews.count()>=1
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-actuation")=="enabled")
+                        previews.first.click()
+                        check(f"post-f714-button-{guide_lesson}-guide-mount-revokes-cap-actuation",
+                              button_canvas.get_attribute(
+                                  "data-lesson-button-actuation")=="off"
+                              and button_page.locator(
+                                  '#sceneInspectionStatus [data-authored-guide-dismiss]').is_visible())
+                        button_page.locator(
+                            '#sceneInspectionStatus [data-authored-guide-dismiss]').click()
+                        check(f"post-f714-button-{guide_lesson}-guide-dismiss-rearms-current-cap",
+                              button_canvas.get_attribute(
+                                  "data-lesson-button-actuation")=="enabled"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="false")
+                        button_page.locator(
+                            '#cameraToolbar [data-camera="reset"]').click()
+                        post_guide=legacy_scene_button_pixel(button_page,guide_lesson)
+                        check(f"post-f714-button-{guide_lesson}-3d-target-visible-after-guide-dismiss",
+                              post_guide["inViewport"] and post_guide["insideCanvas"]
+                              and post_guide["onScreen"] and post_guide["canvasUncovered"],
+                              json.dumps(post_guide,ensure_ascii=False))
+                        button_page.mouse.move(post_guide["x"],post_guide["y"])
+                        button_page.mouse.down()
+                        check(f"post-f714-button-{guide_lesson}-real-cap-press-after-guide-dismiss",
+                              button_page.locator(
+                                  '#experimentControls [data-press="pressed"]').get_attribute(
+                                      "aria-pressed")=="true"
+                              and button_canvas.get_attribute(
+                                  "data-lesson-button-pressed")=="true"
+                              and button_page.locator("#progressText").inner_text()==button_progress)
+                        button_page.mouse.up()
+                        check(f"post-f714-button-{guide_lesson}-release-after-guide-dismiss",
+                              button_canvas.get_attribute("data-lesson-button-pressed")=="false")
+                    button_page.locator('.lesson-link[data-lesson="2"]').click()
+                    check("post-f714-3d-button-not-enabled-in-unrelated-lesson",
+                          button_canvas.get_attribute(
+                              "data-lesson-button-actuation")=="off"
+                          and button_page.locator(
+                              '#experimentControls [data-press]').count()==0)
+                finally:
+                    button_context.close()
+
+                # Post-f714 guided ACTION -> DO -> CHECK: one current authored
+                # checkpoint CTA composes the already-owned attempt/evidence
+                # modules. Focus intents must not synthesize activity or credit;
+                # only the learner's subsequent native action is recorded.
+                guided_context=browser.new_context(
+                    viewport={"width":1280,"height":820},service_workers="allow")
+                try:
+                    guided_page=guided_context.new_page()
+                    capture_console(guided_page)
+                    guided_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(guided_page)
+                    guided_page.locator('.lesson-link[data-lesson="2"]').click()
+                    guided_page.locator("#infoTabPractice").click()
+                    guided_progress=guided_page.locator("#progressText").inner_text()
+                    guided_card=guided_page.locator(
+                        "#learningCoach [data-practice-guided-task]")
+                    guided_cta=guided_card.locator("[data-guided-task-action]")
+                    guided_attempt=guided_page.locator(
+                        "#learningCoach [data-practice-step-attempt]")
+                    check("post-f714-guided-lesson2-first-checkpoint-has-explicit-start-action",
+                          guided_card.count()==1 and guided_cta.count()==1
+                          and guided_cta.get_attribute("data-guided-task-action")=="start"
+                          and guided_attempt.get_attribute("data-attempt-state")=="idle")
+                    guided_cta.focus()
+                    guided_cta.press("Enter")
+                    check("post-f714-guided-start-opt-in-only-does-not-claim-step-evidence",
+                          guided_attempt.get_attribute("data-attempt-state")=="active"
+                          and guided_cta.get_attribute("data-guided-task-action")=="view-wiring"
+                          and guided_attempt.locator(
+                              "[data-attempt-observed-events] li").count()==0
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_cta.click()
+                    check("post-f714-guided-real-view-wiring-captures-current-step-only",
+                          guided_page.locator("#stageTabWiring").get_attribute("aria-selected")=="true"
+                          and guided_cta.get_attribute("data-guided-task-action")=="focus-check"
+                          and guided_attempt.locator(
+                              "[data-attempt-observed-events] li").count()==1
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_cta.click()
+                    check("post-f714-guided-focus-check-does-not-check-implicitly",
+                          guided_attempt.get_attribute("data-attempt-state")=="active"
+                          and guided_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-attempt-check')") is True)
+                    guided_attempt.locator("[data-attempt-check]").press("Enter")
+                    check("post-f714-guided-explicit-check-is-informational-and-next-is-not-mastered",
+                          guided_attempt.get_attribute("data-attempt-state")=="checked"
+                          and guided_cta.get_attribute("data-guided-task-action")=="focus-next"
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_cta.click()
+                    check("post-f714-guided-category-complete-only-focuses-next-without-advancing",
+                          guided_attempt.get_attribute("data-attempt-step")=="0"
+                          and guided_page.evaluate("document.activeElement?.id")=="coachNext"
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_page.locator("#coachNext").press("Enter")
+                    check("post-f714-guided-next-revokes-prior-step-attempt-context",
+                          guided_attempt.get_attribute("data-attempt-step")=="1"
+                          and guided_attempt.get_attribute("data-attempt-state")=="idle"
+                          and guided_cta.get_attribute("data-guided-task-action")=="start")
+                    guided_cta.click()
+                    check("post-f714-guided-control-step-requests-focus-not-control-change",
+                          guided_cta.get_attribute("data-guided-task-action")=="focus-control"
+                          and guided_attempt.locator(
+                              "[data-attempt-observed-events] li").count()==0)
+                    guided_cta.click()
+                    check("post-f714-guided-focus-control-is-actual-native-slider-no-synthetic-event",
+                          guided_page.evaluate(
+                              "document.activeElement?.dataset.control")=="interval"
+                          and guided_attempt.locator(
+                              "[data-attempt-observed-events] li").count()==0)
+                    guided_page.locator('#experimentControls [data-control="interval"]').press("ArrowRight")
+                    check("post-f714-guided-actual-slider-input-updates-step-action",
+                          guided_cta.get_attribute("data-guided-task-action")=="focus-check"
+                          and guided_attempt.locator(
+                              "[data-attempt-observed-events] li").count()==1
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_page.set_viewport_size({"width":375,"height":812})
+                    guided_rect=guided_cta.bounding_box()
+                    check("post-f714-guided-mobile-375px-native-cta-44px-no-overflow",
+                          guided_rect is not None and guided_rect["width"]>=44
+                          and guided_rect["height"]>=44
+                          and guided_page.evaluate(
+                              "document.documentElement.scrollWidth<=innerWidth"))
+                    guided_page.set_viewport_size({"width":1280,"height":820})
+                    guided_page.locator('.lesson-link[data-lesson="4"]').click()
+                    guided_page.locator("#infoTabPractice").click()
+                    guided_page.locator("#coachNext").click()
+                    guided_page.locator("#coachNext").click()
+                    guided_cta.click()
+                    check("post-f714-guided-no-expectation-step-remains-explicit-self-review",
+                          guided_attempt.get_attribute("data-attempt-step")=="2"
+                          and guided_cta.get_attribute("data-guided-task-action")=="self-review"
+                          and guided_page.locator("#progressText").inner_text()==guided_progress)
+                    guided_cta.click()
+                    check("post-f714-guided-self-review-only-focuses-check-without-auto-grading",
+                          guided_attempt.get_attribute("data-attempt-state")=="active"
+                          and guided_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-attempt-check')") is True)
+                finally:
+                    guided_context.close()
+
                 # Published dist: offline after service worker installation.
                 dist = ROOT / "dist"
                 if not (dist / ".arduino-3d-viet-generated").is_file():
@@ -6583,6 +6941,35 @@ def main() -> None:
                       and all(row["ok"] and row["size"]>150
                               for row in attempt_repair_offline["docs"]),
                       json.dumps(attempt_repair_offline,ensure_ascii=False))
+                guided_button_offline=app.evaluate("""async()=>{
+                    const baseUrl=document.baseURI;
+                    const [model,ui,css,docs]=await Promise.all([
+                        import(new URL('./src/practice-guided-task.js',baseUrl).href),
+                        import(new URL('./src/practice-guided-task-ui.js',baseUrl).href),
+                        fetch(new URL('./styles/practice-guided-task.css',baseUrl)),
+                        Promise.all([
+                          './docs/PRACTICE_GUIDED_TASK_WORKSPACE.md',
+                          './docs/THREE_D_LESSON_BUTTON_ACTUATION.md',
+                        ].map(async path=>{
+                            const response=await fetch(new URL(path,baseUrl));
+                            return {path,ok:response.ok,size:response.ok?
+                              (await response.text()).length:0};
+                        })),
+                    ]);
+                    return {
+                        model:typeof model.buildPracticeGuidedTaskPlan==='function',
+                        ui:typeof ui.renderPracticeGuidedTask==='function',
+                        css:css.ok&&(await css.text()).includes('.practice-guided-task'),
+                        docs,
+                    };
+                }""")
+                check("post-f714-guided-task-and-3d-button-resources-cached-offline",
+                      guided_button_offline["model"] and guided_button_offline["ui"]
+                      and guided_button_offline["css"]
+                      and len(guided_button_offline["docs"])==2
+                      and all(row["ok"] and row["size"]>150
+                              for row in guided_button_offline["docs"]),
+                      json.dumps(guided_button_offline,ensure_ascii=False))
                 # Requiring the peripheral adapter to load while the browser
                 # is actually offline guards its lazy ES-module imports and
                 # SHA-verified firmware fetches, not just cached file names.

@@ -9,6 +9,181 @@ const waitEvent = (target, type, timeoutMs = 1200) => new Promise((resolve, reje
   }, { once: true });
 });
 
+export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
+  if (typeof sceneSource !== "string" || !sceneSource) {
+    throw new TypeError("scene3d source text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson-button actuation source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function lessonButtonActuatorIdForLesson");
+  const apiEnd = sceneSource.indexOf("function setLabEdit", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=");
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+
+  check("lesson3-and-16-own-exact-tagged-button-caps",
+    /lessonButtonActuatorId="lesson-3-button"/.test(moduleSource) &&
+    /case "project"[\s\S]*state\.pointer=cylinder\([\s\S]*lessonButtonActuatorId="lesson-16-button"/.test(moduleSource));
+  check("public-api-has-validated-opt-in-and-safe-off",
+    /function setLessonButtonActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonButtonActuation\(true\)/.test(apiSource) &&
+    /requiredKeys=\["enabled","lessonId","onPressChange"\]/.test(apiSource));
+  check("enabled-api-is-exactly-lessons-3-or-16-and-callback-only",
+    /lessonId!==3&&lessonId!==16/.test(apiSource) &&
+    /typeof options\.onPressChange!=="function"/.test(apiSource) &&
+    /currentLessonId!==lessonId/.test(apiSource));
+  check("enabled-api-fails-closed-in-lab-edit-context-loss-or-wrong-cap",
+    /if\(contextLost\)throw/.test(apiSource) &&
+    /if\(labEdit\.enabled\)throw/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /pointer\.userData\?\.kind!=="button-cap"/.test(apiSource) &&
+    /pointer\.userData\.lessonButtonActuatorId!==expectedSourceId/.test(apiSource));
+  check("same-lesson-resync-does-not-release-or-swap-callback-mid-hold",
+    /const sameSemantic=lessonButtonActuation\.enabled&&lessonButtonActuation\.lessonId===lessonId/.test(apiSource) &&
+    /if\(!sameSemantic\)[\s\S]*else if\(!lessonButtonActuationPressed\)/.test(apiSource));
+  check("callback-meta-is-frozen-pointer-only-and-errors-contained",
+    /callback\(Boolean\(pressed\),Object\.freeze\(\{[\s\S]*lessonId,[\s\S]*source:"pointer",[\s\S]*pointerType,[\s\S]*physicalVerified:false/.test(apiSource) &&
+    /catch\{[\s\S]*return false/.test(apiSource));
+  check("scene-api-never-mutates-controls-or-electrical-graph",
+    !/controls\s*\[|connectCircuit\(|disconnectCircuit\(|setWiring\(|lastWiringModel\s*=/.test(apiSource));
+  check("hit-raycasts-only-current-exact-cap-nonrecursive",
+    /function lessonButtonActuationHit\(event\)/.test(apiSource) &&
+    /currentLessonButtonActuator\(\)/.test(apiSource) &&
+    /raycaster\.intersectObject\(current\.pointer,false\)/.test(apiSource) &&
+    /hit\?\.object===current\.pointer/.test(apiSource));
+  check("pointerdown-actuator-precedes-lab-and-camera-paths",
+    downSource.indexOf("const actuatorHit=lessonButtonActuationHit") >= 0 &&
+    downSource.indexOf("const actuatorHit=lessonButtonActuationHit") < downSource.indexOf("if(labEdit.enabled&&activeLabLayout)") &&
+    downSource.indexOf('kind:"lesson-button-actuator"') < downSource.indexOf('kind:"camera"'));
+  check("pointerdown-emits-true-and-conservatively-captures-one-pointer",
+    /lessonButtonActuationPressed=true/.test(downSource) &&
+    /lessonButtonActuationPointerId=event\.pointerId/.test(downSource) &&
+    /setPointerCapture\?\.\(event\.pointerId\)/.test(downSource) &&
+    /emitLessonButtonPressChange\(true,actuatorHit\.pointerType\)/.test(downSource));
+  check("actuator-move-owns-gesture-without-camera-or-layout-mutation",
+    /drag\.kind==="lesson-button-actuator"/.test(moveSource) &&
+    /event\.preventDefault\(\)/.test(moveSource) &&
+    !/lesson-button-actuator[^\n]*(?:theta|phi|setLabVisualTransform|emitLabMove)/.test(moveSource));
+  check("finish-validates-stored-source-and-releases-only",
+    /finished\.kind==="lesson-button-actuator"/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.pointer===finished\.sourceObject/.test(finishSource) &&
+    /lessonButtonActuationPointerId===finished\.pointerId/.test(finishSource) &&
+    /releaseLessonButtonPress\(sourceStillCurrent\)/.test(finishSource));
+  check("cancel-and-lostcapture-use-shared-false-release-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("lab-edit-context-lesson-and-dispose-reset-actuator",
+    /if\(nextEditEnabled\)resetLessonButtonActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonButtonActuation\(false\)/.test(setLabLayoutSource) &&
+    /resetLessonButtonActuation\(false\)/.test(contextLostSource) &&
+    /resetLessonButtonActuation\(false\)/.test(setLessonSource) &&
+    /disposed=true;[\s\S]*resetLessonButtonActuation\(false\)/.test(publicSource));
+  check("release-is-idempotent-and-clears-held-state-before-false-callback",
+    /const wasPressed=lessonButtonActuationPressed/.test(apiSource) &&
+    /lessonButtonActuationPressed=false/.test(apiSource) &&
+    /const capturedPointerId=drag\.pointerId;\s*drag=null;\s*moved=false;\s*try\{canvas\.releasePointerCapture\?\.\(capturedPointerId\)/.test(apiSource) &&
+    /if\(wasPressed&&lessonButtonPointerType\(pointerType\)\)/.test(apiSource) &&
+    /emitLessonButtonPressChange\(false,pointerType\)/.test(apiSource));
+  check("snapshot-animation-drives-both-tagged-button-caps",
+    /activeModule\?\.pointer\?\.userData\.kind==="button-cap"/.test(updateSource) &&
+    /activeModule\.pointer\.position\.y=snapshot\.button\?\.46:\.57/.test(updateSource));
+  check("browser-diagnostics-expose-nonauthoritative-mode-press-and-cap-y",
+    /dataset\.lessonButtonActuation=lessonButtonActuation\.enabled\?"enabled":"off"/.test(apiSource) &&
+    /dataset\.lessonButtonPressed=lessonButtonActuationPressed\?"true":"false"/.test(apiSource) &&
+    /dataset\.lessonButtonPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonButtonElectricalAuthority="false"/.test(apiSource) &&
+    /syncLessonButtonCapVisualDataset\(\)/.test(updateSource));
+  check("canvas-keyboard-path-remains-unclaimed-by-actuator",
+    !/lessonButtonActuation|lesson-button-actuator/.test(
+      sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
+    ));
+  check("public-controller-exports-actuation-api",
+    /setLabEdit,setLessonButtonActuation,focusLabComponent/.test(publicSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonButtonActuationRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson-button actuation raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const hitCount = (mesh, worldPoint) => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObject(mesh, false).length;
+  };
+  const makeCap = (capRadius, capHeight, worldPosition) => {
+    const geometry = new T.CylinderGeometry(capRadius, capRadius, capHeight, 24);
+    const material = new T.MeshBasicMaterial();
+    const mesh = new T.Mesh(geometry, material);
+    mesh.position.copy(worldPosition);
+    mesh.updateMatrixWorld(true);
+    return { mesh, geometry, material };
+  };
+  const lesson3 = makeCap(.48, .30, new T.Vector3(5.15, 1.12, .10));
+  const lesson16 = makeCap(.34, .28, new T.Vector3(4.30, 1.20, .35));
+  check("lesson3-default-view-ray-hits-exact-cap-center",
+    hitCount(lesson3.mesh, new T.Vector3(5.15, 1.12, .10)) > 0);
+  check("lesson16-default-view-ray-hits-exact-project-cap-center",
+    hitCount(lesson16.mesh, new T.Vector3(4.30, 1.20, .35)) > 0);
+  check("nearby-button-body-points-do-not-hit-cap-only-raycast",
+    hitCount(lesson3.mesh, new T.Vector3(5.80, .83, .50)) === 0 &&
+    hitCount(lesson16.mesh, new T.Vector3(4.65, .95, .25)) === 0);
+  for (const item of [lesson3, lesson16]) {
+    item.geometry.dispose();
+    item.material.dispose();
+  }
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
 export function runScene3DCommittedWireRepairSourceContracts(sceneSource) {
   if (typeof sceneSource !== "string" || !sceneSource) {
     throw new TypeError("scene3d source text is required");
@@ -392,6 +567,10 @@ export async function runScene3DContracts() {
   };
 
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
+  const lessonButtonSourceContracts = runScene3DLessonButtonActuationSourceContracts(sceneSource);
+  for (const name of lessonButtonSourceContracts.checks) check("lesson-button-source-"+name,true);
+  const lessonButtonRaycastContracts = await runScene3DLessonButtonActuationRaycastContracts();
+  for (const name of lessonButtonRaycastContracts.checks) check("lesson-button-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);
@@ -963,6 +1142,28 @@ export async function runScene3DContracts() {
       sceneCanvas.dispatchEvent(event);
       return event;
     };
+    const projectedLegacyModulePoint = (sceneCanvas, worldPoint) => {
+      const rect = sceneCanvas.getBoundingClientRect();
+      const aspect = rect.width / rect.height;
+      const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+      const theta = .48, phi = .94;
+      const fitted = Math.max(16.7, 18.5 /
+        (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+      const radius = Math.min(48, Math.max(8, fitted));
+      camera.position.set(
+        radius * Math.sin(phi) * Math.sin(theta),
+        radius * Math.cos(phi) + 5,
+        radius * Math.sin(phi) * Math.cos(theta),
+      );
+      camera.lookAt(new T.Vector3(1.15, .35, 0));
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+      const projected = worldPoint.clone().project(camera);
+      return {
+        clientX: rect.left + (projected.x + 1) * rect.width / 2,
+        clientY: rect.top + (1 - projected.y) * rect.height / 2,
+      };
+    };
     const findTerminalPoint = (sceneCanvas, labLayout, terminalId, pointerId = 800) => {
       const projected = projectedTerminalPoint(sceneCanvas, labLayout, terminalId);
       const offsets = [0, -3, 3, -6, 6, -10, 10];
@@ -975,6 +1176,167 @@ export async function runScene3DContracts() {
       }
       throw new Error("Could not hit projected terminal " + terminalId);
     };
+
+    check("public-lesson-button-actuation-api-starts-off",
+      typeof mounted.setLessonButtonActuation === "function" &&
+      canvas.dataset.lessonButtonActuation === "off" &&
+      canvas.dataset.lessonButtonPressed === "false" &&
+      canvas.dataset.lessonButtonPhysicalVerified === "false" &&
+      canvas.dataset.lessonButtonElectricalAuthority === "false");
+    mounted.setLesson({ id: 3 });
+    mounted.control("reset");
+    flushFrames();
+    let invalidButtonLessonRejected = false;
+    try {
+      mounted.setLessonButtonActuation({ enabled: true, lessonId: 4, onPressChange: () => {} });
+    } catch (error) { invalidButtonLessonRejected = error instanceof RangeError; }
+    check("lesson-button-enabled-api-rejects-non-3-16-lesson", invalidButtonLessonRejected);
+    let extraButtonFieldRejected = false;
+    try {
+      mounted.setLessonButtonActuation({
+        enabled: true, lessonId: 3, onPressChange: () => {}, extra: true,
+      });
+    } catch (error) { extraButtonFieldRejected = error instanceof RangeError; }
+    check("lesson-button-enabled-api-rejects-extra-field", extraButtonFieldRejected);
+    const buttonEvents = [];
+    const onButtonPressChange = (pressed, meta) => buttonEvents.push({ pressed, meta });
+    const buttonReceipt = mounted.setLessonButtonActuation({
+      enabled: true, lessonId: 3, onPressChange: onButtonPressChange,
+    });
+    check("lesson3-button-actuation-enables-exact-current-cap",
+      Object.isFrozen(buttonReceipt) && buttonReceipt.ok === true &&
+      buttonReceipt.enabled === true && buttonReceipt.active === true &&
+      buttonReceipt.lessonId === 3 && buttonReceipt.pressed === false &&
+      buttonReceipt.physicalVerified === false && buttonReceipt.electricalAuthority === false &&
+      canvas.dataset.lessonButtonActuation === "enabled" &&
+      canvas.dataset.lessonButtonActuationLesson === "3");
+    const lesson3CapPoint = projectedLegacyModulePoint(
+      canvas, new T.Vector3(5.15, 1.12, .10),
+    );
+    const buttonCameraBefore = mounted.getLabViewState().camera;
+    const mouseButtonDown = dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1101, "mouse");
+    check("lesson3-button-mouse-pointerdown-emits-exact-true-meta",
+      mouseButtonDown.defaultPrevented === true &&
+      buttonEvents.length === 1 && buttonEvents[0].pressed === true &&
+      Object.isFrozen(buttonEvents[0].meta) &&
+      Object.getPrototypeOf(buttonEvents[0].meta) === Object.prototype &&
+      Reflect.ownKeys(buttonEvents[0].meta).sort().join(",") ===
+        "lessonId,physicalVerified,pointerType,source" &&
+      buttonEvents[0].meta.lessonId === 3 && buttonEvents[0].meta.source === "pointer" &&
+      buttonEvents[0].meta.pointerType === "mouse" &&
+      buttonEvents[0].meta.physicalVerified === false &&
+      canvas.dataset.lessonButtonPressed === "true");
+    mounted.update({ button: true });
+    check("lesson3-button-snapshot-visually-depresses-tagged-cap",
+      Number(canvas.dataset.lessonButtonCapY) === .46);
+    const buttonDragMove = dispatchScenePointer(canvas, "pointermove", {
+      clientX: lesson3CapPoint.clientX + 48,
+      clientY: lesson3CapPoint.clientY + 24,
+    }, 1101, "mouse");
+    const buttonCameraDuring = mounted.getLabViewState().camera;
+    check("lesson-button-hold-owns-drag-without-camera-or-layout-motion",
+      buttonDragMove.defaultPrevented === true &&
+      JSON.stringify(buttonCameraDuring) === JSON.stringify(buttonCameraBefore));
+    dispatchScenePointer(canvas, "pointerup", lesson3CapPoint, 1101, "mouse");
+    mounted.update({ button: false });
+    check("lesson3-button-pointerup-emits-false-once-and-releases-visual",
+      buttonEvents.length === 2 && buttonEvents[1].pressed === false &&
+      buttonEvents[1].meta.pointerType === "mouse" &&
+      canvas.dataset.lessonButtonPressed === "false" &&
+      Number(canvas.dataset.lessonButtonCapY) === .57);
+
+    const countBeforeCancel = buttonEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1102, "touch");
+    dispatchScenePointer(canvas, "pointercancel", lesson3CapPoint, 1102, "touch");
+    check("lesson-button-touch-pointercancel-emits-true-false-exactly-once",
+      buttonEvents.length === countBeforeCancel + 2 &&
+      buttonEvents.at(-2).pressed === true && buttonEvents.at(-2).meta.pointerType === "touch" &&
+      buttonEvents.at(-1).pressed === false && buttonEvents.at(-1).meta.pointerType === "touch" &&
+      canvas.dataset.lessonButtonPressed === "false");
+    const countBeforeLostCapture = buttonEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1103, "pen");
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      button: 0, pointerId: 1103, pointerType: "pen",
+      clientX: lesson3CapPoint.clientX, clientY: lesson3CapPoint.clientY,
+      bubbles: true, cancelable: true,
+    }));
+    check("lesson-button-pen-lostcapture-emits-true-false-exactly-once",
+      buttonEvents.length === countBeforeLostCapture + 2 &&
+      buttonEvents.at(-2).pressed === true && buttonEvents.at(-2).meta.pointerType === "pen" &&
+      buttonEvents.at(-1).pressed === false && buttonEvents.at(-1).meta.pointerType === "pen" &&
+      canvas.dataset.lessonButtonPressed === "false");
+
+    const countBeforeDisable = buttonEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1104, "mouse");
+    const disabledButtonReceipt = mounted.setLessonButtonActuation({ enabled: false });
+    dispatchScenePointer(canvas, "pointerup", lesson3CapPoint, 1104, "mouse");
+    check("lesson-button-disable-mid-press-releases-once-and-stays-off",
+      buttonEvents.length === countBeforeDisable + 2 &&
+      buttonEvents.at(-2).pressed === true && buttonEvents.at(-1).pressed === false &&
+      disabledButtonReceipt.enabled === false && disabledButtonReceipt.active === false &&
+      canvas.dataset.lessonButtonActuation === "off" && canvas.dataset.lessonButtonPressed === "false");
+
+    mounted.setLessonButtonActuation({ enabled: true, lessonId: 3, onPressChange: onButtonPressChange });
+    const countBeforeLabEdit = buttonEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1105, "touch");
+    mounted.setLabEdit({ enabled: true });
+    check("lesson-button-lab-edit-transition-releases-and-disables",
+      buttonEvents.length === countBeforeLabEdit + 2 && buttonEvents.at(-1).pressed === false &&
+      canvas.dataset.lessonButtonActuation === "off" && canvas.dataset.lessonButtonPressed === "false");
+    let labEditActuationRejected = false;
+    try {
+      mounted.setLessonButtonActuation({ enabled: true, lessonId: 3, onPressChange: onButtonPressChange });
+    } catch (error) { labEditActuationRejected = error instanceof RangeError; }
+    check("lesson-button-cannot-enable-during-lab-edit", labEditActuationRejected);
+    mounted.setLabEdit({ enabled: false });
+
+    mounted.setLessonButtonActuation({ enabled: true, lessonId: 3, onPressChange: onButtonPressChange });
+    const countBeforeLessonSwitch = buttonEvents.length;
+    dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1106, "mouse");
+    mounted.setLesson({ id: 16 });
+    check("lesson-switch-releases-held-button-and-clears-old-intent",
+      buttonEvents.length === countBeforeLessonSwitch + 2 && buttonEvents.at(-1).pressed === false &&
+      canvas.dataset.lessonButtonActuation === "off" && canvas.dataset.lessonButtonPressed === "false" &&
+      Number(canvas.dataset.lessonButtonCapY) === .65);
+    mounted.control("reset");
+    flushFrames();
+    const projectButtonEvents = [];
+    const projectReceipt = mounted.setLessonButtonActuation({
+      enabled: true, lessonId: 16,
+      onPressChange: (pressed, meta) => projectButtonEvents.push({ pressed, meta }),
+    });
+    const lesson16CapPoint = projectedLegacyModulePoint(
+      canvas, new T.Vector3(4.30, 1.20, .35),
+    );
+    dispatchScenePointer(canvas, "pointerdown", lesson16CapPoint, 1107, "touch");
+    mounted.update({ button: true });
+    dispatchScenePointer(canvas, "pointerup", lesson16CapPoint, 1107, "touch");
+    mounted.update({ button: false });
+    check("lesson16-project-cap-supports-same-press-release-contract",
+      projectReceipt.active === true && projectButtonEvents.length === 2 &&
+      projectButtonEvents[0].pressed === true && projectButtonEvents[0].meta.lessonId === 16 &&
+      projectButtonEvents[0].meta.pointerType === "touch" &&
+      projectButtonEvents[1].pressed === false &&
+      canvas.dataset.lessonButtonPressed === "false" &&
+      Number(canvas.dataset.lessonButtonCapY) === .57);
+    mounted.setLessonButtonActuation({ enabled: false });
+
+    mounted.setLesson({ id: 3 });
+    mounted.control("reset");
+    flushFrames();
+    mounted.setLessonButtonActuation({
+      enabled: true, lessonId: 3,
+      onPressChange: () => { throw new Error("intentional button callback failure"); },
+    });
+    let callbackFailureEscaped = false;
+    try {
+      dispatchScenePointer(canvas, "pointerdown", lesson3CapPoint, 1108, "mouse");
+      dispatchScenePointer(canvas, "pointerup", lesson3CapPoint, 1108, "mouse");
+    } catch { callbackFailureEscaped = true; }
+    check("lesson-button-callback-errors-are-contained-without-stuck-press",
+      callbackFailureEscaped === false && canvas.dataset.lessonButtonPressed === "false");
+    mounted.setLessonButtonActuation({ enabled: false });
+
     mounted.setLesson({ id: 2 });
     const terminals = listTerminals(2);
     const layout = createLabLayout(2, terminals);
@@ -3048,6 +3410,69 @@ export async function runScene3DContracts() {
       remountCanvas.dataset.labTerminalDragSource === "" &&
       remountCanvas.dataset.labTerminalDragTarget === "" &&
       remountCanvas.dataset.labTerminalDragPreview === "none");
+
+    host.remove();
+    host = makeHost();
+    const buttonLoss = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const buttonLossCanvas = host.querySelector("canvas");
+    buttonLossCanvas.setPointerCapture = () => {};
+    buttonLossCanvas.releasePointerCapture = () => {};
+    buttonLoss.setLesson({ id: 3 });
+    buttonLoss.control("reset");
+    flushFrames();
+    const buttonLossEvents = [];
+    buttonLoss.setLessonButtonActuation({
+      enabled: true, lessonId: 3,
+      onPressChange: (pressed, meta) => buttonLossEvents.push({ pressed, meta }),
+    });
+    const buttonLossPoint = projectedLegacyModulePoint(
+      buttonLossCanvas, new T.Vector3(5.15, 1.12, .10),
+    );
+    dispatchScenePointer(buttonLossCanvas, "pointerdown", buttonLossPoint, 1110, "touch");
+    check("lesson-button-context-loss-fixture-is-held",
+      buttonLossEvents.length === 1 && buttonLossEvents[0].pressed === true &&
+      buttonLossCanvas.dataset.lessonButtonPressed === "true");
+    const buttonLossEvent = new Event("webglcontextlost", { cancelable: true });
+    buttonLossCanvas.dispatchEvent(buttonLossEvent);
+    dispatchScenePointer(buttonLossCanvas, "pointerup", buttonLossPoint, 1110, "touch");
+    check("lesson-button-context-loss-releases-false-once-and-disables",
+      buttonLossEvent.defaultPrevented === true &&
+      buttonLossEvents.length === 2 && buttonLossEvents[1].pressed === false &&
+      buttonLossEvents[1].meta.pointerType === "touch" &&
+      buttonLossCanvas.dataset.lessonButtonActuation === "off" &&
+      buttonLossCanvas.dataset.lessonButtonPressed === "false");
+    buttonLoss.dispose();
+
+    host.remove();
+    host = makeHost();
+    const buttonDispose = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const buttonDisposeCanvas = host.querySelector("canvas");
+    buttonDisposeCanvas.setPointerCapture = () => {};
+    buttonDisposeCanvas.releasePointerCapture = () => {};
+    buttonDispose.setLesson({ id: 16 });
+    buttonDispose.control("reset");
+    flushFrames();
+    const buttonDisposeEvents = [];
+    buttonDispose.setLessonButtonActuation({
+      enabled: true, lessonId: 16,
+      onPressChange: (pressed, meta) => buttonDisposeEvents.push({ pressed, meta }),
+    });
+    const buttonDisposePoint = projectedLegacyModulePoint(
+      buttonDisposeCanvas, new T.Vector3(4.30, 1.20, .35),
+    );
+    dispatchScenePointer(buttonDisposeCanvas, "pointerdown", buttonDisposePoint, 1111, "pen");
+    buttonDispose.dispose();
+    check("lesson-button-dispose-releases-false-once-without-dangling-state",
+      buttonDisposeEvents.length === 2 &&
+      buttonDisposeEvents[0].pressed === true && buttonDisposeEvents[0].meta.pointerType === "pen" &&
+      buttonDisposeEvents[1].pressed === false && buttonDisposeEvents[1].meta.pointerType === "pen" &&
+      buttonDisposeCanvas.dataset.lessonButtonActuation === "off" &&
+      buttonDisposeCanvas.dataset.lessonButtonPressed === "false" &&
+      !buttonDisposeCanvas.isConnected);
 
     host.remove();
     host = makeHost();

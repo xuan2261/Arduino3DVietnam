@@ -1021,7 +1021,9 @@ function createModule(scene, kind, shared) {
     case "button": {
       box(module,[1.65,.26,1.4],0x262d32,[0,.28,0]);
       const cap=cylinder(module,.48,.48,.3,0xe56b5b,[0,.57,0],24);
-      cap.userData.kind="button-cap";state.pointer=cap;
+      cap.userData.kind="button-cap";
+      cap.userData.lessonButtonActuatorId="lesson-3-button";
+      state.pointer=cap;
       led(.24); state.led.position.set(1.3,.52,-.35);resistor();
       break;
     }
@@ -1088,7 +1090,9 @@ function createModule(scene, kind, shared) {
     case "project":
       led(.34);state.led.position.set(.9,.65,.1);
       cylinder(module,.51,.51,.13,0x89ad8c,[-.85,.4,.25]);
-      cylinder(module,.34,.34,.28,0xd0dcdb,[-.85,.65,.25]);
+      state.pointer=cylinder(module,.34,.34,.28,0xd0dcdb,[-.85,.65,.25]);
+      state.pointer.userData.kind="button-cap";
+      state.pointer.userData.lessonButtonActuatorId="lesson-16-button";
       break;
     default: led();resistor();
   }
@@ -1122,6 +1126,9 @@ export function mountScene(host, onSelect = () => {}) {
   };
   let committedWireRepairLine=null,committedWireRepairTargetId=null,committedWireRepairPreview="none";
   let committedWireRepairLayoutRef=null,committedWireRepairLessonId=null;
+  let lessonButtonActuation={enabled:false,lessonId:null,onPressChange:null};
+  let lessonButtonActuationPressed=false,lessonButtonActuationPointerId=null;
+  let lessonButtonActuationPointerType=null,lessonButtonActuationSourceId=null;
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1315,6 +1322,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(canvas.dataset.wiringMode && canvas.dataset.wiringMode!=="none")parts.push(CONCEPTUAL_WIRING_ARIA);
     if(activeLabLayout)parts.push("Bố trí component và terminal dùng tọa độ khái niệm, không phải vị trí lỗ breadboard được xác minh.");
     if(labEdit.enabled)parts.push(LAB_EDIT_ARIA);
+    if(lessonButtonActuation.enabled){
+      parts.push(`Nút nhấn 3D của bài ${lessonButtonActuation.lessonId} gửi input mô phỏng khi giữ pointer; điều khiển HTML vẫn là lựa chọn bàn phím tương đương và đây không phải xác nhận nút vật lý.`);
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1426,6 +1436,13 @@ export function mountScene(host, onSelect = () => {}) {
   }
   resetLabMetadata();
   resetWiringMetadata();
+  canvas.dataset.lessonButtonActuationMode="off";
+  canvas.dataset.lessonButtonActuation="off";
+  canvas.dataset.lessonButtonActuationLesson="";
+  canvas.dataset.lessonButtonPressed="false";
+  canvas.dataset.lessonButtonCapY="";
+  canvas.dataset.lessonButtonPhysicalVerified="false";
+  canvas.dataset.lessonButtonElectricalAuthority="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2672,6 +2689,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(currentLessonId!==null&&Number.isFinite(currentLessonId)&&layout.lessonId!==currentLessonId){
       throw new RangeError("Lab layout 3D không thuộc bài học đang hiển thị");
     }
+    resetLessonButtonActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -2904,6 +2922,151 @@ export function mountScene(host, onSelect = () => {}) {
       throw new TypeError(label+" phải là function hoặc null");
     }
   }
+  function lessonButtonActuatorIdForLesson(lessonId){
+    if(lessonId===3)return "lesson-3-button";
+    if(lessonId===16)return "lesson-16-button";
+    return null;
+  }
+  function lessonButtonPointerType(value){
+    return value==="mouse"||value==="touch"||value==="pen"?value:null;
+  }
+  function syncLessonButtonActuationDatasets(){
+    canvas.dataset.lessonButtonActuation=lessonButtonActuation.enabled?"enabled":"off";
+    canvas.dataset.lessonButtonActuationMode=lessonButtonActuation.enabled?"pointer-hold":"off";
+    canvas.dataset.lessonButtonActuationLesson=lessonButtonActuation.enabled
+      ? String(lessonButtonActuation.lessonId) : "";
+    canvas.dataset.lessonButtonPressed=lessonButtonActuationPressed?"true":"false";
+    canvas.dataset.lessonButtonPhysicalVerified="false";
+    canvas.dataset.lessonButtonElectricalAuthority="false";
+  }
+  function syncLessonButtonCapVisualDataset(){
+    canvas.dataset.lessonButtonCapY=activeModule?.pointer?.userData?.kind==="button-cap"
+      ? String(activeModule.pointer.position.y) : "";
+  }
+  function lessonButtonActuationStatus(ok=true){
+    return Object.freeze({
+      ok,
+      enabled:lessonButtonActuation.enabled,
+      active:lessonButtonActuation.enabled&&currentLessonButtonActuator()!==null,
+      lessonId:lessonButtonActuation.lessonId,
+      pressed:lessonButtonActuationPressed,
+      mode:lessonButtonActuation.enabled?"pointer-hold":"off",
+      physicalVerified:false,
+      electricalAuthority:false,
+    });
+  }
+  function emitLessonButtonPressChange(pressed,pointerType){
+    const callback=lessonButtonActuation.onPressChange;
+    const lessonId=lessonButtonActuation.lessonId;
+    if(typeof callback!=="function"||!lessonButtonPointerType(pointerType)||
+      (lessonId!==3&&lessonId!==16))return false;
+    try{
+      callback(Boolean(pressed),Object.freeze({
+        lessonId,
+        source:"pointer",
+        pointerType,
+        physicalVerified:false,
+      }));
+      return true;
+    }catch{
+      return false;
+    }
+  }
+  function releaseLessonButtonPress(redraw=false){
+    const wasPressed=lessonButtonActuationPressed;
+    const pointerType=lessonButtonActuationPointerType;
+    const pointerId=lessonButtonActuationPointerId;
+    lessonButtonActuationPressed=false;
+    lessonButtonActuationPointerId=null;
+    lessonButtonActuationPointerType=null;
+    lessonButtonActuationSourceId=null;
+    if(drag?.kind==="lesson-button-actuator"){
+      if(pointerId===null||drag.pointerId===pointerId){
+        const capturedPointerId=drag.pointerId;
+        drag=null;
+        moved=false;
+        try{canvas.releasePointerCapture?.(capturedPointerId);}catch{}
+      }
+    }
+    syncLessonButtonActuationDatasets();
+    if(wasPressed&&lessonButtonPointerType(pointerType)){
+      emitLessonButtonPressChange(false,pointerType);
+    }
+    if(redraw)invalidate();
+    return wasPressed;
+  }
+  function resetLessonButtonActuation(redraw=false){
+    releaseLessonButtonPress(false);
+    lessonButtonActuation={enabled:false,lessonId:null,onPressChange:null};
+    syncLessonButtonActuationDatasets();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonButtonActuationStatus(true);
+  }
+  function currentLessonButtonActuator(){
+    if(!lessonButtonActuation.enabled||disposed||contextLost||labEdit.enabled||
+      lessonButtonActuation.lessonId!==currentLessonId||
+      typeof lessonButtonActuation.onPressChange!=="function")return null;
+    const sourceId=lessonButtonActuatorIdForLesson(currentLessonId);
+    const pointer=activeModule?.pointer;
+    if(!sourceId||activeModule?.module?.visible===false||pointer?.isMesh!==true||pointer.userData?.kind!=="button-cap"||
+      pointer.userData.lessonButtonActuatorId!==sourceId)return null;
+    return {lessonId:currentLessonId,sourceId,pointer};
+  }
+  function setLessonButtonActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({
+      ok:false,enabled:false,active:false,lessonId:null,pressed:false,mode:"off",
+      physicalVerified:false,electricalAuthority:false,
+    });
+    if(!options||typeof options!=="object"||Array.isArray(options)){
+      throw new TypeError("Lesson button actuation options phải là object");
+    }
+    if(options.enabled!==true)return resetLessonButtonActuation(true);
+    const requiredKeys=["enabled","lessonId","onPressChange"];
+    const ownKeys=Reflect.ownKeys(options);
+    if(ownKeys.length!==requiredKeys.length||
+      requiredKeys.some(key=>!Object.prototype.hasOwnProperty.call(options,key))||
+      ownKeys.some(key=>typeof key!=="string"||!requiredKeys.includes(key))){
+      throw new RangeError("Lesson button actuation enabled phải có đúng enabled/lessonId/onPressChange");
+    }
+    const lessonId=options.lessonId;
+    if(lessonId!==3&&lessonId!==16){
+      throw new RangeError("Lesson button actuation chỉ hỗ trợ chính xác bài 3 hoặc 16");
+    }
+    if(typeof options.onPressChange!=="function"){
+      throw new TypeError("onPressChange phải là function");
+    }
+    if(contextLost)throw new RangeError("Lesson button actuation không khả dụng khi WebGL context bị mất");
+    if(labEdit.enabled)throw new RangeError("Lesson button actuation bị tắt khi Lab Edit đang bật");
+    if(currentLessonId!==lessonId){
+      throw new RangeError("Lesson button actuation không thuộc bài học hiện tại");
+    }
+    const expectedSourceId=lessonButtonActuatorIdForLesson(lessonId);
+    const pointer=activeModule?.pointer;
+    if(activeModule?.module?.visible===false||pointer?.isMesh!==true||pointer.userData?.kind!=="button-cap"||
+      pointer.userData.lessonButtonActuatorId!==expectedSourceId){
+      throw new RangeError("Không có button cap actuator đúng bài hiện tại");
+    }
+    const sameSemantic=lessonButtonActuation.enabled&&lessonButtonActuation.lessonId===lessonId;
+    if(!sameSemantic){
+      resetLessonButtonActuation(false);
+      lessonButtonActuation={enabled:true,lessonId,onPressChange:options.onPressChange};
+    }else if(!lessonButtonActuationPressed){
+      lessonButtonActuation={...lessonButtonActuation,onPressChange:options.onPressChange};
+    }
+    syncLessonButtonActuationDatasets();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonButtonActuationStatus(true);
+  }
+  function lessonButtonActuationHit(event){
+    const current=currentLessonButtonActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.pointer,false)[0]||null;
+    return hit?.object===current.pointer?{...current,pointerType,hit}:null;
+  }
   function setLabEdit(options={}){
     if(disposed)return Object.freeze({enabled:false,selectedComponentId:null});
     if(!options||typeof options!=="object"||Array.isArray(options)){
@@ -2939,6 +3102,7 @@ export function mountScene(host, onSelect = () => {}) {
       onCommittedWireInspect:options.onCommittedWireInspect===undefined
         ? labEdit.onCommittedWireInspect : options.onCommittedWireInspect,
     };
+    if(nextEditEnabled)resetLessonButtonActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -3489,6 +3653,25 @@ export function mountScene(host, onSelect = () => {}) {
     clearTerminalLinkDragState(false);
     clearBreadboardHoleLinkHover(false);
     moved=false;
+    const actuatorHit=lessonButtonActuationHit(event);
+    if(actuatorHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-button-actuator",
+        lessonId:actuatorHit.lessonId,
+        sourceId:actuatorHit.sourceId,
+        sourceObject:actuatorHit.pointer,
+      });
+      lessonButtonActuationPressed=true;
+      lessonButtonActuationPointerId=event.pointerId;
+      lessonButtonActuationPointerType=actuatorHit.pointerType;
+      lessonButtonActuationSourceId=actuatorHit.sourceId;
+      syncLessonButtonActuationDatasets();
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      emitLessonButtonPressChange(true,actuatorHit.pointerType);
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -3619,7 +3802,9 @@ export function mountScene(host, onSelect = () => {}) {
     const totalDy=event.clientY-drag.startClientY;
     const crossedTapThreshold=!moved&&Math.hypot(totalDx,totalDy)>drag.tapThreshold;
     if(crossedTapThreshold)moved=true;
-    if(drag.kind==="lab-component"){
+    if(drag.kind==="lesson-button-actuator"){
+      event.preventDefault();
+    }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
         const entry=labComponents.get(drag.componentId),point=labGroundPoint(event);
@@ -3703,6 +3888,21 @@ export function mountScene(host, onSelect = () => {}) {
     clearTerminalLinkDragState(false);
     clearBreadboardHoleLinkHover(false);
     clearCommittedWireRepairTransient(false);
+    if(finished.kind==="lesson-button-actuator"){
+      const current=currentLessonButtonActuator();
+      const sourceStillCurrent=Boolean(
+        current&&current.lessonId===finished.lessonId&&
+        current.sourceId===finished.sourceId&&
+        current.pointer===finished.sourceObject&&
+        lessonButtonActuationSourceId===finished.sourceId&&
+        lessonButtonActuationPointerId===finished.pointerId
+      );
+      // Release is mandatory even when the source became stale after pointerdown;
+      // sourceStillCurrent deliberately prevents that stale gesture from gaining
+      // any new authority while the false transition only clears the held input.
+      releaseLessonButtonPress(sourceStillCurrent);
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -3878,6 +4078,7 @@ export function mountScene(host, onSelect = () => {}) {
     contextLost=true;
     canvas.dataset.sceneContext="lost";
     canvas.setAttribute("aria-busy","true");
+    resetLessonButtonActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -3932,12 +4133,14 @@ export function mountScene(host, onSelect = () => {}) {
 
   function setLesson(lesson) {
     if(disposed)return;
+    resetLessonButtonActuation(false);
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
     clearWiringLayer(false);
     if(activeModule){scene.remove(activeModule.module);disposeTree(activeModule.module,sharedMaterialSet);}
     activeModule=createModule(scene, lesson.id===1?"board":
       ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
+    syncLessonButtonCapVisualDataset();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -4010,6 +4213,7 @@ export function mountScene(host, onSelect = () => {}) {
       if(snapshot.kind==="motor")activeModule.rotor.rotation.x= snapshot.motorDirection * snapshot.motorSpeed * 3;
       if(snapshot.kind==="stepper")activeModule.rotor.rotation.x=snapshot.angle*Math.PI/180;
     }
+    syncLessonButtonCapVisualDataset();
     invalidate();
   }
   function control(action){
@@ -4027,11 +4231,12 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
     if(raf){cancelAnimationFrame(raf);raf=0;}
+    resetLessonButtonActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

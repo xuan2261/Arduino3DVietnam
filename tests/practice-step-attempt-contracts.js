@@ -167,10 +167,13 @@ export function runPracticeStepAttemptContracts() {
       "checkPracticeStepAttempt",
       "createPracticeStepAttemptSession",
       "inspectPracticeStepAttempt",
+      "requirePracticeStepAttemptSnapshot",
       "recordPracticeStepAttemptEvent",
       "retryPracticeStepAttempt",
       "startPracticeStepAttempt",
     ].sort().join(","), "model export surface");
+    assert(typeof attemptModel.requirePracticeStepAttemptSnapshot === "function",
+      "new snapshot provenance verifier remains a documented, fail-closed export");
     assert(Object.keys(attemptUi).join(",") === "renderPracticeStepAttempt", "UI export surface");
     assert(Object.isFrozen(PRACTICE_STEP_ATTEMPT_LIMITS) &&
       PRACTICE_STEP_ATTEMPT_LIMITS.version === 1 &&
