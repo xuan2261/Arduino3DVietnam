@@ -16,7 +16,7 @@ import sys
 import threading
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 SCREENSHOTS = ROOT / "screenshots"
@@ -4576,10 +4576,39 @@ def main() -> None:
                           and guided.locator("#completeButton").is_hidden(),
                           json.dumps(practice_pair_data, ensure_ascii=False))
                     suggested_host.locator('[data-terminal="D13"]').click()
+                    preview_settle_error = None
+                    try:
+                        guided.wait_for_function("""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const d13=host?.querySelector('[data-terminal="D13"]');
+                            return !!host
+                              && !host.hasAttribute('data-wire-suggested-pair')
+                              && host.querySelectorAll('[data-wire-suggestion-preview]').length===0
+                              && d13?.getAttribute('aria-pressed')==='true';
+                        }""", timeout=5000)
+                    except PlaywrightTimeoutError as error:
+                        preview_settle_error = str(error)
+                    preview_settle = guided.evaluate("""() => {
+                        const host=document.querySelector('.wiring-view');
+                        const d13=host?.querySelector('[data-terminal="D13"]');
+                        return {
+                            suggestedPair:host?.getAttribute('data-wire-suggested-pair')??null,
+                            previewCount:host?.querySelectorAll('[data-wire-suggestion-preview]').length??-1,
+                            d13Pressed:d13?.getAttribute('aria-pressed')??null,
+                            wireCount:host?.querySelectorAll('.wire-connected').length??-1,
+                        };
+                    }""")
                     check("vnext-view-only-2d-preview-clears-when-learner-arms-real-terminal",
-                          suggested_host.get_attribute("data-wire-suggested-pair") is None
+                          preview_settle_error is None
+                          and suggested_host.get_attribute("data-wire-suggested-pair") is None
                           and suggested_host.locator("[data-wire-suggestion-preview]").count() == 0
-                          and suggested_host.locator(".wire-connected").count() == 0)
+                          and suggested_host.locator('[data-terminal="D13"]').get_attribute(
+                              "aria-pressed") == "true"
+                          and suggested_host.locator(".wire-connected").count() == 0,
+                          json.dumps({
+                              "settleError": preview_settle_error,
+                              **preview_settle,
+                          }, ensure_ascii=False))
                     suggested_host.locator('[data-terminal="R1:A"]').click()
                     check("vnext-only-explicit-two-terminal-clicks-create-canonical-wire",
                           suggested_host.locator(".wire-connected").count() == 1
