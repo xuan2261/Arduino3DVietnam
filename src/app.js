@@ -73,6 +73,9 @@ const state = {
   // simulation button. It never owns an electrical edge or completion credit.
   sceneButtonActuation: null,
   sceneButtonPressActive: false,
+  // A held conceptual 3D potentiometer knob only proposes the same bounded
+  // lesson-04 analog input already owned by the native range control.
+  scenePotentiometerActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -868,6 +871,7 @@ function closeReadOnlyGuideMode(){
   // the module becomes visible again, re-arm only an exact current 3D lesson
   // button (3/16), not the guide or any old pointer/graph state.
   syncSceneLessonButtonActuation();
+  syncSceneLessonPotentiometerActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1596,6 +1600,7 @@ function renderStage() {
   refreshLabExplorer();
   syncSceneBreadboardHoleStudy();
   syncSceneLessonButtonActuation();
+  syncSceneLessonPotentiometerActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1635,6 +1640,8 @@ function renderControls(){
   $("experimentTitle").textContent=lesson.id===1?"Đèn L trên bo":lesson.controls.some(x=>x.type==="button")?"Tương tác trực tiếp":lesson.id===9?"Chọn nốt để thử":"Điều chỉnh thông số";
   $("experimentHint").textContent=lesson.id===3||lesson.id===16
     ?"Nhấn và giữ nút ngay trên mô hình 3D hoặc nút điều khiển HTML; nếu dùng bàn phím ở nút HTML, giữ phím Space. Đây chỉ là đầu vào mô phỏng."
+    :lesson.id===4
+      ?"Xoay núm biến trở trên mô hình 3D hoặc dùng thanh trượt A0 (bàn phím hỗ trợ mũi tên/Home/End). Đây chỉ là giá trị đầu vào mô phỏng 0–1023, không phải phép đo điện áp vật lý."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1825,15 +1832,18 @@ function startPause(){
 }
 function resetSimulation() {
   revokeSceneLessonButtonActuation();
+  revokeSceneLessonPotentiometerActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
   syncSceneLessonButtonActuation();
+  syncSceneLessonPotentiometerActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
   revokeSceneLessonButtonActuation();
+  revokeSceneLessonPotentiometerActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -1874,6 +1884,11 @@ function onControlsInput(event){
   const snap=updateSnapshot(true);
   if(state.controls[key]!==previous)recordPracticeAction("change-control");
   if(state.running&&event.type==="change")log(snap.serial);
+  if(key==="analog"&&state.lessonId===4&&config.type==="slider"){
+    // Slider and real 3D knob share the same host-owned value, status, and
+    // current-step event recording path. Scene receives only a new view intent.
+    syncSceneLessonPotentiometerActuation();
+  }
 }
 function setButtonPress(pressed){
   if(state.lessonId!==3&&state.lessonId!==16)return;
@@ -1947,6 +1962,71 @@ function syncSceneLessonButtonActuation(){
       revokeSceneLessonButtonActuation();
     }
   }catch{revokeSceneLessonButtonActuation();}
+}
+function revokeSceneLessonPotentiometerActuation(){
+  const binding=state.scenePotentiometerActuation;
+  if(binding)binding.active=false;
+  state.scenePotentiometerActuation=null;
+  // Revoke a transient pointer grab, not the last learner-accepted analog
+  // value. Scene is not the authoritative lesson-JS input controller.
+  try{state.scene?.setLessonPotentiometerActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonPotentiometerActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonPotentiometerActuation)return;
+  const config=currentLesson()?.controls?.find(item=>item.key==="analog");
+  const value=state.controls.analog;
+  const input=$("control-analog");
+  const supported=state.lessonId===4&&config?.type==="slider"&&
+    config.min===0&&config.max===1023&&config.step===1&&
+    Number.isInteger(value)&&value>=0&&value<=1023&&
+    input?.type==="range"&&input.dataset.control==="analog";
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonPotentiometerActuation();
+    return;
+  }
+  let binding=state.scenePotentiometerActuation;
+  if(!binding||!binding.active||binding.lessonId!==4){
+    binding={active:true,lessonId:4,onValueChange:null};
+    binding.onValueChange=(proposed,meta)=>{
+      if(binding!==state.scenePotentiometerActuation||!binding.active||
+         state.lessonId!==4||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<0||proposed>1023||
+         !meta||!Object.isFrozen(meta)||Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        values[field]=descriptor.value;
+      }
+      if(values.lessonId!==4||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         !["input","change"].includes(values.phase)||
+         values.physicalVerified!==false)return false;
+      const slider=$("control-analog");
+      if(slider?.type!=="range"||slider.dataset.control!=="analog"||
+         slider.disabled||!slider.isConnected)return false;
+      // Same exact path as a real HTML input/change; do not synthesize a DOM
+      // event, skip lesson guard, bypass the native output, or self-grade.
+      slider.value=String(proposed);
+      onControlsInput({target:slider,type:values.phase});
+      return true;
+    };
+    state.scenePotentiometerActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value,onValueChange:binding.onValueChange,
+    });
+    if(receipt?.active!==true||receipt?.physicalVerified!==false||
+       receipt?.electricalAuthority!==false){
+      revokeSceneLessonPotentiometerActuation();
+    }
+  }catch{revokeSceneLessonPotentiometerActuation();}
 }
 function playNote(hz){
   if(!state.running||!hz)return;
@@ -2276,13 +2356,23 @@ function wireEvents(){
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden){
       revokeSceneLessonButtonActuation();
+      revokeSceneLessonPotentiometerActuation();
       if(state.running)startPause();
-    }else syncSceneLessonButtonActuation();
+    }else{
+      syncSceneLessonButtonActuation();
+      syncSceneLessonPotentiometerActuation();
+    }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
   // closed on a held simulated pushbutton rather than leaving D2 HIGH.
-  window.addEventListener("blur",()=>revokeSceneLessonButtonActuation());
-  window.addEventListener("focus",()=>syncSceneLessonButtonActuation());
+  window.addEventListener("blur",()=>{
+    revokeSceneLessonButtonActuation();
+    revokeSceneLessonPotentiometerActuation();
+  });
+  window.addEventListener("focus",()=>{
+    syncSceneLessonButtonActuation();
+    syncSceneLessonPotentiometerActuation();
+  });
   window.addEventListener("beforeunload",()=>{
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
@@ -2312,12 +2402,16 @@ async function init(){
       refreshLearnerHistoryControls();
       syncSceneBreadboardHoleStudy();
       syncSceneLessonButtonActuation();
+      syncSceneLessonPotentiometerActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
       cancelCommittedWireRepair();
       refreshLabExplorer();
       syncSceneBreadboardHoleStudy();
+      // A changed Lab layout can invalidate the lesson-04 knob target even
+      // while remaining on the 3D stage. Re-check its host binding now.
+      syncSceneLessonPotentiometerActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -2441,6 +2535,7 @@ async function init(){
       if(state.labEditorUI?.clearTerminalSelection?.())refreshLabExplorer();
       syncSceneBreadboardHoleStudy();
       revokeSceneLessonButtonActuation();
+      revokeSceneLessonPotentiometerActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -2459,6 +2554,7 @@ async function init(){
          $("sceneMount")?.querySelector("canvas")!==canvas||
          canvas.dataset.sceneContext!=="ready")return;
       syncSceneLessonButtonActuation();
+      syncSceneLessonPotentiometerActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -2471,6 +2567,7 @@ async function init(){
     refreshLabExplorer();
     syncSceneBreadboardHoleStudy();
     syncSceneLessonButtonActuation();
+    syncSceneLessonPotentiometerActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

@@ -98,7 +98,8 @@ const ASSETS = [
   "./src/practice-guided-task-ui.js",
   "./styles/practice-guided-task.css",
   "./docs/PRACTICE_GUIDED_TASK_WORKSPACE.md",
-  "./docs/THREE_D_LESSON_BUTTON_ACTUATION.md"
+  "./docs/THREE_D_LESSON_BUTTON_ACTUATION.md",
+  "./docs/THREE_D_LESSON04_POTENTIOMETER.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

@@ -23,6 +23,9 @@ const LAB_TOUCH_TAP_THRESHOLD = 12;
 const LAB_COMMITTED_WIRE_ROUTE_POINTS = 8;
 const LAB_COMMITTED_WIRE_PICK_THRESHOLD = Math.min(.20,Math.max(.08,.16));
 const LAB_COMMITTED_WIRE_REPAIR_POINTS = 4;
+const LESSON_POT_GESTURE_SWEEP = Math.PI * 1.7;
+const LESSON_POT_FALLBACK_RANGE_PX = 180;
+const LESSON_POT_ANGLE_MIN_RADIUS_PX = 10;
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1029,7 +1032,10 @@ function createModule(scene, kind, shared) {
     }
     case "potentiometer": {
       cylinder(module,.75,.75,.26,0x32444b,[0,.32,0]);
-      const knob=cylinder(module,.51,.51,.38,0xe3e7e1,[0,.65,0]); state.rotor=knob;
+      const knob=cylinder(module,.51,.51,.38,0xe3e7e1,[0,.65,0]);
+      knob.userData.kind="potentiometer-knob";
+      knob.userData.lessonPotentiometerActuatorId="lesson-4-potentiometer";
+      state.rotor=knob;
       box(knob,[.08,.015,.4],0x157d74,[0,.197,-.22]);
       led(.26); state.led.position.set(1.4,.46,0);
       break;
@@ -1129,6 +1135,7 @@ export function mountScene(host, onSelect = () => {}) {
   let lessonButtonActuation={enabled:false,lessonId:null,onPressChange:null};
   let lessonButtonActuationPressed=false,lessonButtonActuationPointerId=null;
   let lessonButtonActuationPointerType=null,lessonButtonActuationSourceId=null;
+  let lessonPotentiometerActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1325,6 +1332,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonButtonActuation.enabled){
       parts.push(`Nút nhấn 3D của bài ${lessonButtonActuation.lessonId} gửi input mô phỏng khi giữ pointer; điều khiển HTML vẫn là lựa chọn bàn phím tương đương và đây không phải xác nhận nút vật lý.`);
     }
+    if(lessonPotentiometerActuation.enabled){
+      parts.push("Núm biến trở 3D của bài 4 gửi giá trị mô phỏng khái niệm khi kéo pointer; thanh trượt HTML vẫn là điều khiển bàn phím tương đương và không biểu diễn góc quay hay điện áp vật lý được xác minh.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1443,6 +1453,12 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonButtonCapY="";
   canvas.dataset.lessonButtonPhysicalVerified="false";
   canvas.dataset.lessonButtonElectricalAuthority="false";
+  canvas.dataset.lessonPotMode="off";
+  canvas.dataset.lessonPotValue="";
+  canvas.dataset.lessonPotGesture="none";
+  canvas.dataset.lessonPotPhysicalVerified="false";
+  canvas.dataset.lessonPotElectricalAuthority="false";
+  canvas.dataset.lessonPotVisualRotationY="";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2690,6 +2706,7 @@ export function mountScene(host, onSelect = () => {}) {
       throw new RangeError("Lab layout 3D không thuộc bài học đang hiển thị");
     }
     resetLessonButtonActuation(false);
+    resetLessonPotentiometerActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3067,6 +3084,204 @@ export function mountScene(host, onSelect = () => {}) {
     const hit=raycaster.intersectObject(current.pointer,false)[0]||null;
     return hit?.object===current.pointer?{...current,pointerType,hit}:null;
   }
+  function syncLessonPotentiometerDatasets(){
+    canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
+    canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
+      ? String(lessonPotentiometerActuation.value) : "";
+    canvas.dataset.lessonPotGesture=drag?.kind==="lesson-potentiometer-actuator"
+      ? (moved?"dragging":"grabbed") : "none";
+    canvas.dataset.lessonPotPhysicalVerified="false";
+    canvas.dataset.lessonPotElectricalAuthority="false";
+  }
+  function syncLessonPotentiometerVisualDataset(){
+    canvas.dataset.lessonPotVisualRotationY=
+      activeModule?.rotor?.userData?.kind==="potentiometer-knob"
+        ? String(activeModule.rotor.rotation.y) : "";
+  }
+  function syncSceneOwnedTouchAction(){
+    canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled)?"none":"";
+  }
+  function lessonPotentiometerActuationStatus(ok=true){
+    return Object.freeze({
+      ok,
+      enabled:lessonPotentiometerActuation.enabled,
+      active:lessonPotentiometerActuation.enabled&&currentLessonPotentiometerActuator()!==null,
+      lessonId:lessonPotentiometerActuation.lessonId,
+      value:lessonPotentiometerActuation.value,
+      mode:lessonPotentiometerActuation.enabled?"pointer-drag":"off",
+      physicalVerified:false,
+      electricalAuthority:false,
+    });
+  }
+  function emitLessonPotentiometerValue(value,phase,pointerType,callback){
+    if(!Number.isInteger(value)||value<0||value>1023||
+      (phase!=="input"&&phase!=="change")||
+      !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      callback(value,Object.freeze({
+        lessonId:4,
+        source:"pointer",
+        pointerType,
+        phase,
+        physicalVerified:false,
+      }));
+      return true;
+    }catch{
+      return false;
+    }
+  }
+  function cancelLessonPotentiometerGesture(redraw=false){
+    if(drag?.kind!=="lesson-potentiometer-actuator"){
+      syncLessonPotentiometerDatasets();
+      return false;
+    }
+    const pointerId=drag.pointerId;
+    drag=null;
+    moved=false;
+    syncLessonPotentiometerDatasets();
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonPotentiometerActuation(redraw=false){
+    cancelLessonPotentiometerGesture(false);
+    lessonPotentiometerActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
+    syncSceneOwnedTouchAction();
+    syncLessonPotentiometerDatasets();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonPotentiometerActuationStatus(true);
+  }
+  function currentLessonPotentiometerActuator(){
+    if(!lessonPotentiometerActuation.enabled||disposed||contextLost||labEdit.enabled||activeLabLayout||
+      currentLessonId!==4||lessonPotentiometerActuation.lessonId!==4||
+      typeof lessonPotentiometerActuation.onValueChange!=="function")return null;
+    const knob=activeModule?.rotor;
+    if(activeModule?.module?.visible===false||knob?.isMesh!==true||
+      knob.userData?.kind!=="potentiometer-knob"||
+      knob.userData.lessonPotentiometerActuatorId!=="lesson-4-potentiometer")return null;
+    return {
+      lessonId:4,
+      sourceId:"lesson-4-potentiometer",
+      knob,
+      value:lessonPotentiometerActuation.value,
+      onValueChange:lessonPotentiometerActuation.onValueChange,
+    };
+  }
+  function setLessonPotentiometerActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({
+      ok:false,enabled:false,active:false,lessonId:null,value:null,mode:"off",
+      physicalVerified:false,electricalAuthority:false,
+    });
+    if(!options||typeof options!=="object"||Array.isArray(options)){
+      throw new TypeError("Lesson potentiometer actuation options phải là object");
+    }
+    if(options.enabled!==true)return resetLessonPotentiometerActuation(true);
+    const requiredKeys=["enabled","lessonId","value","onValueChange"];
+    const ownKeys=Reflect.ownKeys(options);
+    if(ownKeys.length!==requiredKeys.length||
+      requiredKeys.some(key=>!Object.prototype.hasOwnProperty.call(options,key))||
+      ownKeys.some(key=>typeof key!=="string"||!requiredKeys.includes(key))){
+      throw new RangeError("Lesson potentiometer actuation enabled phải có đúng enabled/lessonId/value/onValueChange");
+    }
+    if(options.lessonId!==4){
+      throw new RangeError("Lesson potentiometer actuation chỉ hỗ trợ chính xác bài 4");
+    }
+    if(!Number.isInteger(options.value)||options.value<0||options.value>1023){
+      throw new RangeError("Lesson potentiometer value phải là số nguyên 0..1023");
+    }
+    if(typeof options.onValueChange!=="function"){
+      throw new TypeError("onValueChange phải là function");
+    }
+    if(contextLost)throw new RangeError("Lesson potentiometer actuation không khả dụng khi WebGL context bị mất");
+    if(labEdit.enabled||activeLabLayout){
+      throw new RangeError("Lesson potentiometer actuation bị tắt khi Lab layout/edit đang bật");
+    }
+    if(currentLessonId!==4){
+      throw new RangeError("Lesson potentiometer actuation không thuộc bài học hiện tại");
+    }
+    const knob=activeModule?.rotor;
+    if(activeModule?.module?.visible===false||knob?.isMesh!==true||
+      knob.userData?.kind!=="potentiometer-knob"||
+      knob.userData.lessonPotentiometerActuatorId!=="lesson-4-potentiometer"){
+      throw new RangeError("Không có potentiometer knob actuator đúng bài hiện tại");
+    }
+    const sameSemantic=lessonPotentiometerActuation.enabled&&lessonPotentiometerActuation.lessonId===4;
+    const gestureActive=drag?.kind==="lesson-potentiometer-actuator"&&
+      drag.lessonId===4&&drag.sourceId==="lesson-4-potentiometer"&&drag.sourceObject===knob;
+    if(!sameSemantic){
+      resetLessonPotentiometerActuation(false);
+      lessonPotentiometerActuation={
+        enabled:true,lessonId:4,value:options.value,onValueChange:options.onValueChange,
+      };
+    }else if(gestureActive){
+      lessonPotentiometerActuation={...lessonPotentiometerActuation,value:options.value};
+      if(options.value!==drag.lastValue){
+        drag.valueFloat=options.value;
+        drag.lastValue=options.value;
+      }
+    }else{
+      lessonPotentiometerActuation={
+        ...lessonPotentiometerActuation,value:options.value,onValueChange:options.onValueChange,
+      };
+    }
+    syncSceneOwnedTouchAction();
+    syncLessonPotentiometerDatasets();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonPotentiometerActuationStatus(true);
+  }
+  function lessonPotentiometerKnobCenter(knob){
+    const rect=canvas.getBoundingClientRect();
+    if(rect.width<=0||rect.height<=0)return null;
+    updateCamera();
+    camera.updateMatrixWorld();
+    scene.updateMatrixWorld(true);
+    const point=knob.getWorldPosition(new T.Vector3()).project(camera);
+    return Object.freeze({
+      x:rect.left+(point.x+1)*rect.width/2,
+      y:rect.top+(1-point.y)*rect.height/2,
+    });
+  }
+  function lessonPotentiometerActuationHit(event){
+    const current=currentLessonPotentiometerActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.knob,false)[0]||null;
+    if(hit?.object!==current.knob)return null;
+    const center=lessonPotentiometerKnobCenter(current.knob);
+    return center?{...current,pointerType,hit,center}:null;
+  }
+  function updateLessonPotentiometerDrag(event){
+    if(!drag||drag.kind!=="lesson-potentiometer-actuator"||!moved)return;
+    const current=currentLessonPotentiometerActuator();
+    if(!current||current.knob!==drag.sourceObject||current.sourceId!==drag.sourceId||
+      current.lessonId!==drag.lessonId){
+      cancelLessonPotentiometerGesture(true);
+      return;
+    }
+    let deltaValue=0;
+    const radius=Math.hypot(event.clientX-drag.centerX,event.clientY-drag.centerY);
+    if(drag.angularMode&&radius>=LESSON_POT_ANGLE_MIN_RADIUS_PX){
+      const angle=Math.atan2(event.clientY-drag.centerY,event.clientX-drag.centerX);
+      const deltaAngle=Math.atan2(Math.sin(angle-drag.lastAngle),Math.cos(angle-drag.lastAngle));
+      drag.lastAngle=angle;
+      deltaValue=deltaAngle*(1023/LESSON_POT_GESTURE_SWEEP);
+    }else{
+      drag.angularMode=false;
+      deltaValue=(event.clientX-drag.x)*(1023/LESSON_POT_FALLBACK_RANGE_PX);
+    }
+    drag.valueFloat=Math.max(0,Math.min(1023,drag.valueFloat+deltaValue));
+    const candidate=Math.round(drag.valueFloat);
+    if(candidate!==drag.lastValue){
+      drag.lastValue=candidate;
+      drag.changed=true;
+      emitLessonPotentiometerValue(candidate,"input",drag.pointerType,drag.onValueChange);
+    }
+    syncLessonPotentiometerDatasets();
+    invalidate();
+  }
   function setLabEdit(options={}){
     if(disposed)return Object.freeze({enabled:false,selectedComponentId:null});
     if(!options||typeof options!=="object"||Array.isArray(options)){
@@ -3103,6 +3318,7 @@ export function mountScene(host, onSelect = () => {}) {
         ? labEdit.onCommittedWireInspect : options.onCommittedWireInspect,
     };
     if(nextEditEnabled)resetLessonButtonActuation(false);
+    if(nextEditEnabled)resetLessonPotentiometerActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -3114,7 +3330,7 @@ export function mountScene(host, onSelect = () => {}) {
       if(nextEditEnabled)clearAuthoredPairGuide(false);
     }
     canvas.dataset.labEdit=labEdit.enabled?"on":"off";
-    canvas.style.touchAction=labEdit.enabled?"none":"";
+    syncSceneOwnedTouchAction();
     canvas.style.cursor=labEdit.enabled?"grab":"";
     if(hasSelected){
       selectLabComponent(requestedSelected,"api",false);
@@ -3653,6 +3869,29 @@ export function mountScene(host, onSelect = () => {}) {
     clearTerminalLinkDragState(false);
     clearBreadboardHoleLinkHover(false);
     moved=false;
+    const potHit=lessonPotentiometerActuationHit(event);
+    if(potHit){
+      const radius=Math.hypot(event.clientX-potHit.center.x,event.clientY-potHit.center.y);
+      drag=pointerDragBase(event,{
+        kind:"lesson-potentiometer-actuator",
+        lessonId:4,
+        sourceId:potHit.sourceId,
+        sourceObject:potHit.knob,
+        onValueChange:potHit.onValueChange,
+        valueFloat:potHit.value,
+        lastValue:potHit.value,
+        changed:false,
+        centerX:potHit.center.x,
+        centerY:potHit.center.y,
+        angularMode:radius>=LESSON_POT_ANGLE_MIN_RADIUS_PX,
+        lastAngle:Math.atan2(event.clientY-potHit.center.y,event.clientX-potHit.center.x),
+      });
+      syncLessonPotentiometerDatasets();
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      invalidate();
+      return;
+    }
     const actuatorHit=lessonButtonActuationHit(event);
     if(actuatorHit){
       drag=pointerDragBase(event,{
@@ -3802,7 +4041,10 @@ export function mountScene(host, onSelect = () => {}) {
     const totalDy=event.clientY-drag.startClientY;
     const crossedTapThreshold=!moved&&Math.hypot(totalDx,totalDy)>drag.tapThreshold;
     if(crossedTapThreshold)moved=true;
-    if(drag.kind==="lesson-button-actuator"){
+    if(drag.kind==="lesson-potentiometer-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonPotentiometerDrag(event);
+    }else if(drag.kind==="lesson-button-actuator"){
       event.preventDefault();
     }else if(drag.kind==="lab-component"){
       if(moved){
@@ -3834,7 +4076,7 @@ export function mountScene(host, onSelect = () => {}) {
       phi=Math.max(.27,Math.min(1.45,phi+dy*.008));
       invalidate();
     }
-    drag.x=event.clientX;drag.y=event.clientY;invalidate();
+    if(drag){drag.x=event.clientX;drag.y=event.clientY;invalidate();}
   }
   function finishBreadboardHoleStudyTap(finished,event){
     if(!finished||finished.layoutRef!==activeLabLayout||
@@ -3872,6 +4114,19 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-potentiometer-actuator"){
+      const totalDx=event.clientX-drag.startClientX;
+      const totalDy=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(totalDx,totalDy)>drag.tapThreshold)moved=true;
+      const releasePositionChanged=event.clientX!==drag.x||event.clientY!==drag.y;
+      if(moved&&releasePositionChanged){
+        const activePotDrag=drag;
+        updateLessonPotentiometerDrag(event);
+        if(drag!==activePotDrag||event.pointerId!==drag.pointerId)return;
+        drag.x=event.clientX;
+        drag.y=event.clientY;
+      }
+    }
     const directTerminalTarget=drag.kind==="terminal"&&select&&moved
       ? terminalLinkTargetFromEvent(event,drag.terminalId,drag.layoutRef)
       : null;
@@ -3888,6 +4143,21 @@ export function mountScene(host, onSelect = () => {}) {
     clearTerminalLinkDragState(false);
     clearBreadboardHoleLinkHover(false);
     clearCommittedWireRepairTransient(false);
+    if(finished.kind==="lesson-potentiometer-actuator"){
+      const current=currentLessonPotentiometerActuator();
+      const sourceStillCurrent=Boolean(
+        current&&current.lessonId===finished.lessonId&&
+        current.sourceId===finished.sourceId&&
+        current.knob===finished.sourceObject
+      );
+      if(select&&finished.changed&&sourceStillCurrent){
+        emitLessonPotentiometerValue(
+          finished.lastValue,"change",finished.pointerType,finished.onValueChange
+        );
+      }
+      syncLessonPotentiometerDatasets();
+      return;
+    }
     if(finished.kind==="lesson-button-actuator"){
       const current=currentLessonButtonActuator();
       const sourceStillCurrent=Boolean(
@@ -4017,7 +4287,13 @@ export function mountScene(host, onSelect = () => {}) {
     zoom=Math.min(maxZoom,Math.max(minZoom,zoom+Math.sign(event.deltaY)*.10));
     invalidate();
   }
-  const onVisibility=()=>{if(!document.hidden)invalidate();};
+  const onVisibility=()=>{
+    if(document.hidden){
+      cancelLessonPotentiometerGesture(false);
+      return;
+    }
+    invalidate();
+  };
   const onKey=(event)=>{
     if(document.activeElement!==canvas)return;
     let handled=true;
@@ -4079,6 +4355,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.dataset.sceneContext="lost";
     canvas.setAttribute("aria-busy","true");
     resetLessonButtonActuation(false);
+    resetLessonPotentiometerActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -4134,6 +4411,7 @@ export function mountScene(host, onSelect = () => {}) {
   function setLesson(lesson) {
     if(disposed)return;
     resetLessonButtonActuation(false);
+    resetLessonPotentiometerActuation(false);
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
     clearWiringLayer(false);
@@ -4141,6 +4419,7 @@ export function mountScene(host, onSelect = () => {}) {
     activeModule=createModule(scene, lesson.id===1?"board":
       ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
     syncLessonButtonCapVisualDataset();
+    syncLessonPotentiometerVisualDataset();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -4214,6 +4493,7 @@ export function mountScene(host, onSelect = () => {}) {
       if(snapshot.kind==="stepper")activeModule.rotor.rotation.x=snapshot.angle*Math.PI/180;
     }
     syncLessonButtonCapVisualDataset();
+    syncLessonPotentiometerVisualDataset();
     invalidate();
   }
   function control(action){
@@ -4231,12 +4511,13 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
     if(raf){cancelAnimationFrame(raf);raf=0;}
     resetLessonButtonActuation(false);
+    resetLessonPotentiometerActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

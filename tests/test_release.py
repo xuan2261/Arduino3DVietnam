@@ -1002,9 +1002,9 @@ class ReleaseContractTests(unittest.TestCase):
             "docs/THREE_D_LESSON_BUTTON_ACTUATION.md",
         ]
         self.assertEqual(build_site.POST_F714_GUIDED_ACTUATION_FILES, expected)
-        self.assertEqual(build_site.FILES[143:], expected)
-        self.assertEqual(len(build_site.FILES), 148)
-        self.assertEqual(len(set(build_site.FILES)), 148)
+        self.assertEqual(build_site.FILES[143:148], expected)
+        self.assertEqual(len(build_site.FILES[:148]), 148)
+        self.assertEqual(len(set(build_site.FILES)), len(build_site.FILES))
         for path in expected:
             source = build_site._release_source(path)
             self.assertTrue(source.is_file(), path)
@@ -1026,6 +1026,44 @@ class ReleaseContractTests(unittest.TestCase):
             build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
             ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
         )
+
+    def test_lesson04_potentiometer_doc_release_is_exact_and_offline(self):
+        expected = ["docs/THREE_D_LESSON04_POTENTIOMETER.md"]
+        self.assertEqual(build_site.LESSON04_POTENTIOMETER_RELEASE_FILES, expected)
+        self.assertEqual(build_site.FILES[148:], expected)
+        self.assertEqual(len(build_site.FILES), 149)
+        self.assertEqual(len(set(build_site.FILES)), 149)
+
+        source = build_site._release_source(expected[0])
+        self.assertTrue(source.is_file())
+        self.assertFalse(source.is_symlink())
+        self.assertGreater(source.stat().st_size, 100)
+        self.assertEqual(
+            build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
+            "Lesson 04 potentiometer documentation must be precached in release order",
+        )
+
+        with tempfile.TemporaryDirectory(prefix="arduino3d-lesson04-pot-release-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                output = build_site.build()
+            self.assertEqual(
+                (output / expected[0]).read_bytes(),
+                (fixture_root / expected[0]).read_bytes(),
+                "Lesson 04 potentiometer documentation bytes changed during packaging",
+            )
+            output_files = {
+                path.relative_to(output).as_posix()
+                for path in output.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
 
 
 if __name__ == "__main__":

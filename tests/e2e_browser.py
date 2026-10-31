@@ -265,6 +265,111 @@ def main() -> None:
             });
         }""", lesson_id)
 
+    def lesson04_scene_knob_pixel(page):
+        """Project the actual lesson04 rotor center for REAL pointer gesture QA.
+
+        The 3D knob is an educational input surface, not a measured shaft
+        position or verified physical sweep. Source geometry: current legacy
+        module root (5.15,.55,.10), knob local center (0,.65,0). The scene's
+        own tagged-mesh raycast remains responsible for actual accepted hits.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async () => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson04 3D canvas missing');
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.48,phi=.94;
+            const fitted=Math.max(16.7,18.5/(2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+                radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const screenPoint=point=>{
+                const projected=point.project(camera);
+                const x=rect.left+(projected.x+1)*rect.width/2;
+                const y=rect.top+(1-projected.y)*rect.height/2;
+                return Object.freeze({x,y,
+                    insideFrustum:projected.z>=-1&&projected.z<=1,
+                    insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+                    onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+                    canvasUncovered:document.elementFromPoint(x,y)===canvas,
+                });
+            };
+            const knob=screenPoint(new T.Vector3(5.15,1.20,.10));
+            // Same independent non-hit fixture used by the scene raycast
+            // contract: nearby legacy potentiometer body, outside knob mesh.
+            const nonKnob=screenPoint(new T.Vector3(5.82,.87,.60));
+            // Measure the published mesh itself; this is evidence only and is
+            // never used as an enlarged hit target. Production remains the
+            // native Three.js raycast against its exact knob mesh.
+            const geometry=new T.CylinderGeometry(.51,.51,.38,20);
+            const position=geometry.getAttribute('position');
+            let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+            const worldCenter=new T.Vector3(5.15,1.20,.10);
+            const vertex=new T.Vector3();
+            for(let index=0;index<position.count;index++){
+                vertex.fromBufferAttribute(position,index).add(worldCenter).project(camera);
+                const px=rect.left+(vertex.x+1)*rect.width/2;
+                const py=rect.top+(1-vertex.y)*rect.height/2;
+                minX=Math.min(minX,px);maxX=Math.max(maxX,px);
+                minY=Math.min(minY,py);maxY=Math.max(maxY,py);
+            }
+            geometry.dispose();
+            const projectedBounds=Object.freeze({
+                left:minX,top:minY,right:maxX,bottom:maxY,
+                width:maxX-minX,height:maxY-minY,
+            });
+            return Object.freeze({...knob,nonKnob,projectedBounds});
+        }""")
+
+    def lesson04_analog_acceptance_state(page):
+        """Read host/scene/output agreement without reaching into app-private state."""
+        return page.evaluate("""async () => {
+            const input=document.querySelector('#control-analog');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+                throw new Error('Lesson04 canonical analog UI/scene missing');
+            }
+            const {simulate}=await import('./src/simulator.js');
+            const value=Number(input.value);
+            const snapshot=simulate(4,{analog:value},0,false,{});
+            const rotation=Number(canvas.dataset.lessonPotVisualRotationY);
+            return Object.freeze({
+                value,
+                hostOutput:input.closest('.control-field')?.querySelector('output')?.textContent||'',
+                simOutput:document.querySelector('#simOutput')?.textContent||'',
+                snapshotValue:snapshot.value,
+                snapshotStatus:snapshot.status,
+                sceneMode:canvas.dataset.lessonPotMode||'',
+                sceneValue:canvas.dataset.lessonPotValue||'',
+                gesture:canvas.dataset.lessonPotGesture||'',
+                physicalVerified:canvas.dataset.lessonPotPhysicalVerified||'',
+                electricalAuthority:canvas.dataset.lessonPotElectricalAuthority||'',
+                visualRotation:Number.isFinite(rotation)?rotation:null,
+                expectedRotation:value/1023*Math.PI*1.7,
+            });
+        }""")
+
+    def lesson04_analog_state_agrees(actual: dict[str, object]) -> bool:
+        value = int(actual["value"])
+        rotation = actual.get("visualRotation")
+        return (
+            0 <= value <= 1023
+            and actual.get("hostOutput") == str(value)
+            and actual.get("sceneMode") == "enabled"
+            and actual.get("sceneValue") == str(value)
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("simOutput") ==
+                f"{actual.get('snapshotValue')} · {actual.get('snapshotStatus')}"
+            and isinstance(rotation, (int, float))
+            and abs(float(rotation) - float(actual["expectedRotation"])) < 1e-8
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -768,7 +873,27 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 359
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 422
+                      and "lesson-pot-source-pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-owner" in
+                          scene_lifecycle_names
+                      and "lesson-pot-source-pointerup-folds-final-pot-delta-before-clearing-and-stops-if-callback-revokes" in
+                          scene_lifecycle_names
+                      and "lesson-pot-source-document-hidden-cancels-active-pot-gesture-without-final-replay" in
+                          scene_lifecycle_names
+                      and "lesson-pot-raycast-default-view-ray-hits-exact-lesson4-knob-center" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-immediate-host-ack-preserves-fractional-drag-accumulator" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-pointerup-folds-release-only-delta-before-change" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-mouse-drag-emits-input-to-original-callback-only" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-touch-successful-input-change-has-exact-meta" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-pen-successful-input-change-has-exact-meta" in
+                          scene_lifecycle_names
+                      and "lesson4-potentiometer-touch-cancel-keeps-last-value-without-final-change-or-stale-replay" in
+                          scene_lifecycle_names
                       and "lesson-button-source-lesson3-and-16-own-exact-tagged-button-caps" in
                           scene_lifecycle_names
                       and "lesson3-button-mouse-pointerdown-emits-exact-true-meta" in
@@ -6365,6 +6490,413 @@ def main() -> None:
                               '#experimentControls [data-press]').count()==0)
                 finally:
                     button_context.close()
+
+                # Lesson04 real 3D potentiometer acceptance. The rendered knob
+                # is a second pointer surface for the existing host-owned A0
+                # range only. Keep the browser evidence on the public DOM and
+                # scene diagnostics: pointer intent -> canonical range ->
+                # simulator output/snapshot -> scene rotor visual.
+                pot_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    pot_page=pot_context.new_page()
+                    capture_console(pot_page)
+                    pot_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(pot_page)
+                    pot_page.locator('.lesson-link[data-lesson="4"]').click()
+                    pot_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    pot_canvas=pot_page.locator("#sceneMount canvas")
+                    pot_control=pot_page.locator("#control-analog")
+                    pot_progress=pot_page.locator("#progressText").inner_text()
+                    pot_progress_storage=pot_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    pot_complete_visible=pot_page.locator("#completeButton").is_visible()
+                    pot_initial=lesson04_analog_acceptance_state(pot_page)
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    check("post-v16-lesson04-pot-target-and-canonical-html-control-ready",
+                          pot_pixel["insideFrustum"] and pot_pixel["insideCanvas"]
+                          and pot_pixel["onScreen"] and pot_pixel["canvasUncovered"]
+                          and pot_control.count()==1
+                          and pot_control.get_attribute("min")=="0"
+                          and pot_control.get_attribute("max")=="1023"
+                          and pot_control.get_attribute("step")=="1"
+                          and lesson04_analog_state_agrees(pot_initial)
+                          and pot_initial["gesture"]=="none",
+                          json.dumps({"pixel":pot_pixel,"state":pot_initial},ensure_ascii=False))
+
+                    pot_nonknob=pot_pixel["nonKnob"]
+                    pot_page.mouse.move(pot_nonknob["x"],pot_nonknob["y"])
+                    pot_page.mouse.down()
+                    pot_page.mouse.move(
+                        pot_nonknob["x"]+18,pot_nonknob["y"]+14,steps=3)
+                    pot_page.mouse.up()
+                    pot_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    pot_negative=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-mouse-nearby-body-drag-is-not-knob-input",
+                          pot_nonknob["insideFrustum"] and pot_nonknob["insideCanvas"]
+                          and pot_nonknob["onScreen"] and pot_nonknob["canvasUncovered"]
+                          and pot_negative["gesture"]=="none"
+                          and pot_negative["value"]==pot_initial["value"]
+                          and lesson04_analog_state_agrees(pot_negative),
+                          json.dumps({"pixel":pot_nonknob,"state":pot_negative},ensure_ascii=False))
+
+                    # A real center tap owns/release the knob pointer but emits
+                    # no value because the drag threshold was never crossed.
+                    pot_page.mouse.move(pot_pixel["x"],pot_pixel["y"])
+                    pot_page.mouse.down()
+                    pot_grab=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-mouse-down-grabs-without-value-change",
+                          pot_grab["gesture"]=="grabbed"
+                          and pot_grab["value"]==pot_initial["value"]
+                          and pot_grab["simOutput"]==pot_initial["simOutput"]
+                          and pot_grab["visualRotation"]==pot_initial["visualRotation"])
+                    pot_page.mouse.up()
+                    pot_tap=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-mouse-tap-is-no-change",
+                          pot_tap["gesture"]=="none"
+                          and pot_tap["value"]==pot_initial["value"]
+                          and lesson04_analog_state_agrees(pot_tap))
+
+                    # Re-grab the exact knob center. The center path deliberately
+                    # uses the bounded horizontal fallback, so choose a direction
+                    # with enough canvas room and issue only real Playwright mouse
+                    # input; no evaluate-dispatched PointerEvent is accepted here.
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    pot_box=pot_canvas.bounding_box()
+                    if pot_box is None:
+                        raise AssertionError("Lesson04 3D canvas has no browser box")
+                    pot_right=pot_box["x"]+pot_box["width"]-12
+                    pot_left=pot_box["x"]+12
+                    drag_delta=72 if pot_pixel["x"]+72<=pot_right else -72
+                    if not (pot_left<=pot_pixel["x"]+drag_delta<=pot_right):
+                        raise AssertionError("Lesson04 knob has no bounded horizontal drag room")
+                    pot_page.mouse.move(pot_pixel["x"],pot_pixel["y"])
+                    pot_page.mouse.down()
+                    pot_page.mouse.move(
+                        pot_pixel["x"]+drag_delta,pot_pixel["y"],steps=8)
+                    pot_drag=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-mouse-drag-host-scene-output-snapshot-agree",
+                          pot_drag["gesture"]=="dragging"
+                          and pot_drag["value"]!=pot_initial["value"]
+                          and lesson04_analog_state_agrees(pot_drag)
+                          and pot_page.locator("#progressText").inner_text()==pot_progress,
+                          json.dumps(pot_drag,ensure_ascii=False))
+                    pot_page.mouse.up()
+                    pot_release=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-pointerup-keeps-canonical-value-and-releases-gesture",
+                          pot_release["gesture"]=="none"
+                          and pot_release["value"]==pot_drag["value"]
+                          and lesson04_analog_state_agrees(pot_release))
+
+                    # Drive pen/touch through Chrome's input domain. These are
+                    # browser-generated PointerEvents, not DOM dispatchEvent
+                    # fixtures. Pen release deliberately has an end coordinate
+                    # with no preceding drag move, covering the final-endpoint
+                    # path separately from the zero-displacement mouse tap.
+                    pot_input=pot_context.new_cdp_session(pot_page)
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    pot_pen_before=lesson04_analog_acceptance_state(pot_page)
+                    pot_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pot_pixel["x"],"y":pot_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    pot_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pot_pixel["x"],"y":pot_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    pot_pen_grab=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-pen-down-grabs-without-value-change",
+                          pot_pen_grab["gesture"]=="grabbed"
+                          and pot_pen_grab["value"]==pot_pen_before["value"])
+                    pot_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased",
+                        "x":pot_pixel["x"]+drag_delta,"y":pot_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    pot_pen_release=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-pen-end-only-displacement-uses-release-endpoint",
+                          pot_pen_release["gesture"]=="none"
+                          and pot_pen_release["value"]!=pot_pen_before["value"]
+                          and lesson04_analog_state_agrees(pot_pen_release),
+                          json.dumps(pot_pen_release,ensure_ascii=False))
+
+                    # Touch must remain owned by the knob even with a meaningful
+                    # diagonal movement; a pan-y browser gesture would surface
+                    # here as a pointercancel/unchanged host value and fail.
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    pot_box=pot_canvas.bounding_box()
+                    if pot_box is None:
+                        raise AssertionError("Lesson04 canvas lost browser box before touch")
+                    touch_dx=-48 if pot_pen_release["value"]>512 else 48
+                    if not (pot_box["x"]+12<=pot_pixel["x"]+touch_dx<=
+                            pot_box["x"]+pot_box["width"]-12):
+                        touch_dx=-touch_dx
+                    touch_dy=52 if pot_pixel["y"]+52<=pot_box["y"]+pot_box["height"]-12 else -52
+                    touch_start={
+                        "x":pot_pixel["x"],"y":pot_pixel["y"],"id":41,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_move={**touch_start,
+                        "x":pot_pixel["x"]+touch_dx,"y":pot_pixel["y"]+touch_dy}
+                    pot_touch_before=lesson04_analog_acceptance_state(pot_page)
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    pot_touch_grab=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-touch-start-grabs-without-value-change",
+                          pot_touch_grab["gesture"]=="grabbed"
+                          and pot_touch_grab["value"]==pot_touch_before["value"])
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_move],
+                    })
+                    pot_touch_drag=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-touch-diagonal-drag-converges-on-canonical-value",
+                          pot_touch_drag["gesture"]=="dragging"
+                          and pot_touch_drag["value"]!=pot_touch_before["value"]
+                          and lesson04_analog_state_agrees(pot_touch_drag),
+                          json.dumps(pot_touch_drag,ensure_ascii=False))
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    pot_touch_end=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-touch-end-releases-with-last-canonical-value",
+                          pot_touch_end["gesture"]=="none"
+                          and pot_touch_end["value"]==pot_touch_drag["value"]
+                          and lesson04_analog_state_agrees(pot_touch_end))
+
+                    # A second real touch drag ends through Chrome touchCancel.
+                    # Last accepted host state remains; cancel cannot fabricate a
+                    # rollback or stale final change.
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    cancel_dx=-36 if pot_touch_end["value"]>512 else 36
+                    cancel_dy=44 if pot_pixel["y"]+44<=pot_box["y"]+pot_box["height"]-12 else -44
+                    cancel_start={
+                        "x":pot_pixel["x"],"y":pot_pixel["y"],"id":42,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    cancel_move={**cancel_start,
+                        "x":pot_pixel["x"]+cancel_dx,"y":pot_pixel["y"]+cancel_dy}
+                    pot_touch_cancel_before=lesson04_analog_acceptance_state(pot_page)
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[cancel_start],
+                    })
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[cancel_move],
+                    })
+                    pot_touch_cancel_drag=lesson04_analog_acceptance_state(pot_page)
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    pot_touch_cancel=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-touchcancel-clears-gesture-without-replay",
+                          pot_touch_cancel_drag["gesture"]=="dragging"
+                          and pot_touch_cancel_drag["value"]!=pot_touch_cancel_before["value"]
+                          and pot_touch_cancel["gesture"]=="none"
+                          and pot_touch_cancel["value"]==pot_touch_cancel_drag["value"]
+                          and lesson04_analog_state_agrees(pot_touch_cancel))
+
+                    # Lose the actual WebGL context while the knob owns a real
+                    # mouse pointer. Host value must survive, the gesture must be
+                    # revoked, and a real restore may re-arm only current lesson4.
+                    pot_pixel=lesson04_scene_knob_pixel(pot_page)
+                    pot_page.mouse.move(pot_pixel["x"],pot_pixel["y"])
+                    pot_page.mouse.down()
+                    pot_pre_loss=lesson04_analog_acceptance_state(pot_page)
+                    pot_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EPotGL=gl;
+                        window.__arduinoE2EPotLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    pot_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EPotGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost';
+                    }""",timeout=10000)
+                    check("post-v16-lesson04-pot-real-context-loss-revokes-active-grab-without-host-write",
+                          pot_pre_loss["gesture"]=="grabbed"
+                          and pot_canvas.get_attribute("data-lesson-pot-mode")=="off"
+                          and pot_canvas.get_attribute("data-lesson-pot-gesture")=="none"
+                          and int(pot_control.input_value())==pot_pre_loss["value"]
+                          and pot_page.locator("#progressText").inner_text()==pot_progress)
+                    pot_page.mouse.up()
+                    pot_page.wait_for_timeout(500)
+                    pot_page.evaluate("window.__arduinoE2EPotLoseExtension.restoreContext()")
+                    pot_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EPotGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonPotMode==='enabled';
+                    }""",timeout=10000)
+                    pot_after_restore=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-real-context-restore-rearms-current-value-only",
+                          pot_after_restore["value"]==pot_pre_loss["value"]
+                          and pot_after_restore["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_after_restore))
+
+                    # Keyboard remains entirely native on the HTML range. Each
+                    # key must converge through the same host/snapshot/scene path.
+                    pot_control.focus()
+                    pot_control.press("Home")
+                    pot_home=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-keyboard-home-converges-on-zero",
+                          pot_home["value"]==0
+                          and pot_home["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_home))
+                    pot_control.press("ArrowRight")
+                    pot_arrow=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-keyboard-arrowright-converges-on-one",
+                          pot_arrow["value"]==1
+                          and pot_arrow["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_arrow))
+                    pot_control.press("End")
+                    pot_end=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-keyboard-end-converges-on-1023",
+                          pot_end["value"]==1023
+                          and pot_end["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_end))
+
+                    pot_page.set_viewport_size({"width":375,"height":812})
+                    pot_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        if(!canvas||canvas.clientWidth<=0||canvas.clientHeight<=0)return false;
+                        const ratioX=canvas.width/canvas.clientWidth;
+                        const ratioY=canvas.height/canvas.clientHeight;
+                        return ratioX>=.9&&ratioX<=1.75&&Math.abs(ratioX-ratioY)<.05;
+                    }""",timeout=5000)
+                    pot_page.locator('#cameraToolbar [data-camera="reset"]').click()
+                    pot_mobile_pixel=lesson04_scene_knob_pixel(pot_page)
+                    pot_mobile_bounds=pot_mobile_pixel["projectedBounds"]
+                    pot_mobile_canvas_box=pot_canvas.bounding_box()
+                    if pot_mobile_canvas_box is None:
+                        raise AssertionError("Lesson04 mobile canvas has no browser box")
+                    mobile_touch_before=lesson04_analog_acceptance_state(pot_page)
+                    mobile_dx=-32 if mobile_touch_before["value"]>512 else 32
+                    if not (pot_mobile_canvas_box["x"]+10<=
+                            pot_mobile_pixel["x"]+mobile_dx<=
+                            pot_mobile_canvas_box["x"]+pot_mobile_canvas_box["width"]-10):
+                        mobile_dx=-mobile_dx
+                    mobile_dy=(36 if pot_mobile_pixel["y"]+36<=
+                               pot_mobile_canvas_box["y"]+pot_mobile_canvas_box["height"]-10
+                               else -36)
+                    mobile_start={
+                        "x":pot_mobile_pixel["x"],"y":pot_mobile_pixel["y"],"id":43,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    mobile_move={**mobile_start,
+                        "x":pot_mobile_pixel["x"]+mobile_dx,
+                        "y":pot_mobile_pixel["y"]+mobile_dy}
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[mobile_start],
+                    })
+                    mobile_touch_grab=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-mobile-375-real-touch-hits-actual-small-knob",
+                          pot_mobile_pixel["insideFrustum"]
+                          and pot_mobile_pixel["insideCanvas"]
+                          and pot_mobile_pixel["onScreen"]
+                          and pot_mobile_pixel["canvasUncovered"]
+                          and 0<pot_mobile_bounds["width"]<44
+                          and 0<pot_mobile_bounds["height"]<44
+                          and mobile_touch_grab["gesture"]=="grabbed"
+                          and mobile_touch_grab["value"]==mobile_touch_before["value"],
+                          json.dumps({"pixel":pot_mobile_pixel,
+                                      "projectedBounds":pot_mobile_bounds},ensure_ascii=False))
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[mobile_move],
+                    })
+                    mobile_touch_drag=lesson04_analog_acceptance_state(pot_page)
+                    pot_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    mobile_touch_end=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-mobile-375-real-touch-drag-remains-operable",
+                          mobile_touch_drag["gesture"]=="dragging"
+                          and mobile_touch_drag["value"]!=mobile_touch_before["value"]
+                          and mobile_touch_end["gesture"]=="none"
+                          and mobile_touch_end["value"]==mobile_touch_drag["value"]
+                          and lesson04_analog_state_agrees(mobile_touch_end)
+                          and pot_page.locator("#progressText").inner_text()==pot_progress,
+                          json.dumps({"drag":mobile_touch_drag,"end":mobile_touch_end},
+                                     ensure_ascii=False))
+                    pot_control.scroll_into_view_if_needed()
+                    pot_control.focus()
+                    pot_mobile_rect=pot_control.bounding_box()
+                    check("post-v16-lesson04-pot-mobile-375px-native-slider-44px-focus-no-overflow",
+                          pot_mobile_rect is not None
+                          and pot_mobile_rect["width"]>=44
+                          and pot_mobile_rect["height"]>=44
+                          and pot_page.evaluate(
+                              "document.activeElement?.id==='control-analog'") is True
+                          and pot_page.evaluate(
+                              "document.documentElement.scrollWidth<=innerWidth") is True
+                          and lesson04_analog_state_agrees(
+                              lesson04_analog_acceptance_state(pot_page)))
+
+                    # Lab Edit mounts the conceptual layout and therefore must
+                    # revoke the legacy lesson knob. Closing Edit restores the
+                    # exact host value through the normal scene binding path.
+                    pot_page.set_viewport_size({"width":1280,"height":820})
+                    pot_edit_value=int(pot_control.input_value())
+                    pot_page.locator("#labEditToggle").click()
+                    check("post-v16-lesson04-pot-lab-edit-revokes-legacy-knob-without-graph-progress",
+                          pot_page.locator("#labEditToggle").get_attribute("aria-pressed")=="true"
+                          and pot_canvas.get_attribute("data-lab-edit")=="on"
+                          and pot_canvas.get_attribute("data-lesson-pot-mode")=="off"
+                          and pot_canvas.get_attribute("data-lab-wire-count")=="0"
+                          and int(pot_control.input_value())==pot_edit_value
+                          and pot_page.locator("#progressText").inner_text()==pot_progress)
+                    pot_page.locator("#labEditToggle").click()
+                    pot_after_edit=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-lab-edit-close-rearms-same-canonical-value",
+                          pot_page.locator("#labEditToggle").get_attribute("aria-pressed")=="false"
+                          and pot_canvas.get_attribute("data-lab-edit")=="off"
+                          and pot_after_edit["value"]==pot_edit_value
+                          and lesson04_analog_state_agrees(pot_after_edit))
+
+                    # Open the canonical wiring surface only after the input
+                    # journey. A fresh isolated context must still have zero
+                    # learner edges, while both visible and persisted progress
+                    # remain exactly unchanged by pointer/keyboard interaction.
+                    pot_page.locator("#stageTabWiring").click()
+                    pot_undo=pot_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    pot_redo=pot_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson04-pot-no-electrical-graph-or-progress-write",
+                          pot_page.locator("#viewport .wiring-view.is-interactive").count()==1
+                          and pot_page.locator(".wiring-view .wire-connected").count()==0
+                          and pot_page.locator(".wire-activate").get_attribute("aria-pressed")=="false"
+                          and pot_undo.count()==1 and pot_undo.is_disabled()
+                          and pot_redo.count()==1 and pot_redo.is_disabled()
+                          and pot_canvas.get_attribute("data-lesson-pot-mode")=="off"
+                          and pot_page.locator("#progressText").inner_text()==pot_progress
+                          and pot_page.locator("#completeButton").is_visible()==pot_complete_visible
+                          and pot_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==pot_progress_storage)
+                    pot_page.locator("#stageTab3d").click()
+                    pot_after_stage=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-return-to-3d-rearms-same-host-value",
+                          pot_after_stage["value"]==pot_edit_value
+                          and pot_after_stage["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_after_stage))
+
+                    pot_page.locator('.lesson-link[data-lesson="5"]').click()
+                    check("post-v16-lesson04-pot-lesson-switch-revokes-old-knob-authority",
+                          pot_canvas.get_attribute("data-lesson-pot-mode")=="off"
+                          and pot_page.locator("#control-analog").count()==0
+                          and pot_page.locator("#progressText").inner_text()==pot_progress)
+                    pot_page.locator('.lesson-link[data-lesson="4"]').click()
+                    pot_return_lesson=lesson04_analog_acceptance_state(pot_page)
+                    check("post-v16-lesson04-pot-return-current-lesson-rearms-default-canonical-path",
+                          pot_return_lesson["gesture"]=="none"
+                          and lesson04_analog_state_agrees(pot_return_lesson)
+                          and pot_page.locator("#progressText").inner_text()==pot_progress)
+                finally:
+                    pot_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

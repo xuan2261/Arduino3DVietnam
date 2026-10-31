@@ -270,6 +270,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .control-field label { display: flex; justify-content: space-between; gap: 9px; color: #59736b; font-size: 10px; font-weight: 750; }
 .control-field output { font-variant-numeric: tabular-nums; color: var(--teal-dark); }
 .control-field input[type=range] { width: 135px; accent-color: #087f78; cursor: pointer; height: 17px; }
+/* Lesson 04's real 3D knob also has an accessible native HTML/keyboard
+   equivalent. Keep its interactive range hit surface at least 44px high. */
+.control-field input#control-analog[type=range] { min-height: 44px; height: 44px; }
 .control-field select { background: white; color: var(--ink); border: 1px solid #d4e1db; border-radius: 7px; font-size: 11px; padding: 8px; max-width: 155px; }
 .control-field select:focus-visible { outline-offset: 1px; }
 .press-control { background: #fef0e8; border: 1px solid #efcbb7; color: #9c453c; border-radius: 8px; min-height: 42px; padding: 10px 18px; font-weight: 800; font-size: 12px; user-select: none; touch-action: manipulation; }

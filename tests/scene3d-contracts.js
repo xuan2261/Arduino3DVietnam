@@ -9,6 +9,201 @@ const waitEvent = (target, type, timeoutMs = 1200) => new Promise((resolve, reje
   }, { once: true });
 });
 
+export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
+  if (typeof sceneSource !== "string" || !sceneSource) {
+    throw new TypeError("scene3d source text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson4 potentiometer source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonPotentiometerDatasets");
+  const apiEnd = sceneSource.indexOf("function setLabEdit", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=");
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+
+  check("lesson4-tags-only-distinct-legacy-rotor-knob",
+    /case "potentiometer"[\s\S]*knob\.userData\.kind="potentiometer-knob"[\s\S]*lessonPotentiometerActuatorId="lesson-4-potentiometer"[\s\S]*state\.rotor=knob/.test(moduleSource));
+  check("public-api-exact-enabled-shape-and-safe-off",
+    /function setLessonPotentiometerActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonPotentiometerActuation\(true\)/.test(apiSource) &&
+    /requiredKeys=\["enabled","lessonId","value","onValueChange"\]/.test(apiSource));
+  check("enabled-path-requires-exact-lesson4-integer-value-and-function",
+    /options\.lessonId!==4/.test(apiSource) &&
+    /!Number\.isInteger\(options\.value\)\|\|options\.value<0\|\|options\.value>1023/.test(apiSource) &&
+    /typeof options\.onValueChange!=="function"/.test(apiSource));
+  check("enabled-path-fails-closed-on-context-layout-edit-current-lesson-and-visible-exact-knob",
+    /if\(contextLost\)throw/.test(apiSource) &&
+    /if\(labEdit\.enabled\|\|activeLabLayout\)/.test(apiSource) &&
+    /if\(currentLessonId!==4\)/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /knob\.userData\?\.kind!=="potentiometer-knob"/.test(apiSource) &&
+    /lessonPotentiometerActuatorId!=="lesson-4-potentiometer"/.test(apiSource));
+  check("receipt-is-frozen-and-explicitly-nonauthoritative",
+    /function lessonPotentiometerActuationStatus\(ok=true\)/.test(apiSource) &&
+    /return Object\.freeze\(\{[\s\S]*active:[\s\S]*mode:[\s\S]*physicalVerified:false,[\s\S]*electricalAuthority:false/.test(apiSource));
+  check("callback-meta-is-exact-frozen-pointer-input-or-change-and-errors-contained",
+    /callback\(value,Object\.freeze\(\{[\s\S]*lessonId:4,[\s\S]*source:"pointer",[\s\S]*pointerType,[\s\S]*phase,[\s\S]*physicalVerified:false/.test(apiSource) &&
+    /phase!=="input"&&phase!=="change"/.test(apiSource) &&
+    /catch\{[\s\S]*return false/.test(apiSource));
+  check("scene-pot-api-never-mutates-controls-circuit-progress-or-avr",
+    !/state\.controls|controls\s*\[|connectCircuit\(|disconnectCircuit\(|complete|progress|avr/i.test(apiSource));
+  check("same-lesson-resync-preserves-fractional-ack-without-swapping-callback-or-resetting-active-gesture",
+    /const sameSemantic=lessonPotentiometerActuation\.enabled&&lessonPotentiometerActuation\.lessonId===4/.test(apiSource) &&
+    /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
+    !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
+  check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-owner",
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\)\?"none":""/.test(apiSource) &&
+    /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
+    /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
+  check("exact-knob-hit-is-nonrecursive-and-current-only",
+    /function lessonPotentiometerActuationHit\(event\)/.test(apiSource) &&
+    /currentLessonPotentiometerActuator\(\)/.test(apiSource) &&
+    /raycaster\.intersectObject\(current\.knob,false\)/.test(apiSource) &&
+    /hit\?\.object!==current\.knob/.test(apiSource));
+  check("pointerdown-pot-priority-precedes-button-lab-and-camera-without-value-callback",
+    downSource.indexOf("const potHit=lessonPotentiometerActuationHit") >= 0 &&
+    downSource.indexOf("const potHit=lessonPotentiometerActuationHit") < downSource.indexOf("const actuatorHit=lessonButtonActuationHit") &&
+    downSource.indexOf('kind:"lesson-potentiometer-actuator"') < downSource.indexOf("if(labEdit.enabled&&activeLabLayout)") &&
+    !/emitLessonPotentiometerValue/.test(downSource));
+  check("pointerdown-captures-stable-source-callback-value-center-and-pointer",
+    /sourceId:potHit\.sourceId/.test(downSource) &&
+    /sourceObject:potHit\.knob/.test(downSource) &&
+    /onValueChange:potHit\.onValueChange/.test(downSource) &&
+    /valueFloat:potHit\.value/.test(downSource) &&
+    /centerX:potHit\.center\.x/.test(downSource) &&
+    /setPointerCapture\?\.\(event\.pointerId\)/.test(downSource));
+  check("foreign-pointer-cannot-move-or-finish-owned-pot-gesture",
+    /if\(event\.pointerId!==drag\.pointerId\)return;/.test(moveSource) &&
+    /if\(!drag\|\|event\.pointerId!==drag\.pointerId\)return;/.test(finishSource));
+  check("gesture-uses-real-threshold-wrapped-angle-and-center-horizontal-fallback",
+    /if\(drag\.kind==="lesson-potentiometer-actuator"\)/.test(moveSource) &&
+    /if\(moved\)updateLessonPotentiometerDrag\(event\)/.test(moveSource) &&
+    /Math\.atan2\(Math\.sin\(angle-drag\.lastAngle\),Math\.cos\(angle-drag\.lastAngle\)\)/.test(apiSource) &&
+    /LESSON_POT_GESTURE_SWEEP/.test(apiSource) &&
+    /LESSON_POT_FALLBACK_RANGE_PX/.test(apiSource));
+  check("integer-input-callback-only-fires-on-value-change-and-is-bounded",
+    /drag\.valueFloat=Math\.max\(0,Math\.min\(1023/.test(apiSource) &&
+    /const candidate=Math\.round\(drag\.valueFloat\)/.test(apiSource) &&
+    /if\(candidate!==drag\.lastValue\)\{[\s\S]*emitLessonPotentiometerValue\(candidate,"input"/.test(apiSource));
+  check("pot-gesture-owns-move-without-camera-layout-or-direct-visual-mutation",
+    /drag\.kind==="lesson-potentiometer-actuator"[\s\S]*event\.preventDefault\(\)/.test(moveSource) &&
+    !/lesson-potentiometer-actuator[^\n]*(?:theta|phi|setLabVisualTransform|rotation\.)/.test(moveSource) &&
+    !/activeModule\.rotor\.rotation/.test(apiSource.slice(apiSource.indexOf("function updateLessonPotentiometerDrag"))));
+  check("pointerup-change-requires-select-actual-change-and-current-source",
+    /finished\.kind==="lesson-potentiometer-actuator"/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.knob===finished\.sourceObject/.test(finishSource) &&
+    /if\(select&&finished\.changed&&sourceStillCurrent\)/.test(finishSource) &&
+    /finished\.lastValue,"change",finished\.pointerType,finished\.onValueChange/.test(finishSource));
+  check("pointerup-folds-final-pot-delta-before-clearing-and-stops-if-callback-revokes",
+    /if\(select&&drag\.kind==="lesson-potentiometer-actuator"\)\{[\s\S]*Math\.hypot\(totalDx,totalDy\)>drag\.tapThreshold[\s\S]*releasePositionChanged[\s\S]*updateLessonPotentiometerDrag\(event\)[\s\S]*if\(drag!==activePotDrag\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonPotentiometerDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("cancel-and-lostcapture-share-no-change-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("disable-clears-gesture-without-fabricated-rollback",
+    /function cancelLessonPotentiometerGesture/.test(apiSource) &&
+    /drag=null;[\s\S]*releasePointerCapture/.test(apiSource) &&
+    !/cancelLessonPotentiometerGesture[\s\S]{0,420}emitLessonPotentiometerValue/.test(apiSource));
+  check("document-hidden-cancels-active-pot-gesture-without-final-replay",
+    /const onVisibility=\(\)=>\{[\s\S]*if\(document\.hidden\)\{[\s\S]*cancelLessonPotentiometerGesture\(false\);[\s\S]*return;/.test(sceneSource));
+  check("layout-edit-lesson-context-and-dispose-reset-pot-actuation",
+    /resetLessonPotentiometerActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonPotentiometerActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonPotentiometerActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonPotentiometerActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonPotentiometerActuation\(false\)/.test(publicSource));
+  check("visual-rotation-remains-downstream-of-snapshot-only",
+    /if\(snapshot\.kind==="potentiometer"\)activeModule\.rotor\.rotation\.y=/.test(updateSource) &&
+    /syncLessonPotentiometerVisualDataset\(\)/.test(updateSource));
+  check("diagnostics-expose-mode-value-gesture-and-nonauthority",
+    /dataset\.lessonPotMode=lessonPotentiometerActuation\.enabled\?"enabled":"off"/.test(apiSource) &&
+    /dataset\.lessonPotValue=Number\.isInteger/.test(apiSource) &&
+    /dataset\.lessonPotGesture=drag\?\.kind==="lesson-potentiometer-actuator"/.test(apiSource) &&
+    /dataset\.lessonPotPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonPotElectricalAuthority="false"/.test(apiSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-potentiometer-actuation",
+    !/lessonPotentiometerActuation|lesson-potentiometer-actuator/.test(
+      sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
+    ));
+  check("public-controller-exports-potentiometer-api",
+    /setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent/.test(publicSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonPotentiometerRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson4 potentiometer raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const geometry = new T.CylinderGeometry(.51, .51, .38, 32);
+  const material = new T.MeshBasicMaterial();
+  const knob = new T.Mesh(geometry, material);
+  knob.position.set(5.15, 1.20, .10);
+  knob.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const hitCount = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObject(knob, false).length;
+  };
+  check("default-view-ray-hits-exact-lesson4-knob-center",
+    hitCount(new T.Vector3(5.15, 1.20, .10)) > 0);
+  check("nearby-potentiometer-body-point-does-not-hit-knob-only-raycast",
+    hitCount(new T.Vector3(5.82, .87, .60)) === 0);
+  check("knob-raycast-is-nonrecursive-single-mesh-authority",
+    knob.children.length === 0 && raycaster.intersectObject(knob, false).every(hit => hit.object === knob));
+  geometry.dispose();
+  material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
 export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
   if (typeof sceneSource !== "string" || !sceneSource) {
     throw new TypeError("scene3d source text is required");
@@ -128,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -567,6 +762,10 @@ export async function runScene3DContracts() {
   };
 
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
+  const lessonPotSourceContracts = runScene3DLessonPotentiometerSourceContracts(sceneSource);
+  for (const name of lessonPotSourceContracts.checks) check("lesson-pot-source-"+name,true);
+  const lessonPotRaycastContracts = await runScene3DLessonPotentiometerRaycastContracts();
+  for (const name of lessonPotRaycastContracts.checks) check("lesson-pot-raycast-"+name,true);
   const lessonButtonSourceContracts = runScene3DLessonButtonActuationSourceContracts(sceneSource);
   for (const name of lessonButtonSourceContracts.checks) check("lesson-button-source-"+name,true);
   const lessonButtonRaycastContracts = await runScene3DLessonButtonActuationRaycastContracts();
@@ -1176,6 +1375,395 @@ export async function runScene3DContracts() {
       }
       throw new Error("Could not hit projected terminal " + terminalId);
     };
+
+    check("public-lesson4-potentiometer-api-starts-off",
+      typeof mounted.setLessonPotentiometerActuation === "function" &&
+      canvas.dataset.lessonPotMode === "off" &&
+      canvas.dataset.lessonPotValue === "" &&
+      canvas.dataset.lessonPotGesture === "none" &&
+      canvas.dataset.lessonPotPhysicalVerified === "false" &&
+      canvas.dataset.lessonPotElectricalAuthority === "false");
+    mounted.setLesson({ id: 4 });
+    mounted.control("reset");
+    mounted.update({
+      kind:"potentiometer",value:"ADC 512 → PWM 128",brightness:0,
+      button:false,angle:0,motorDirection:0,motorSpeed:0,
+    });
+    flushFrames();
+    let wrongPotLessonRejected = false;
+    try {
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:3,value:512,onValueChange:()=>{},
+      });
+    } catch (error) { wrongPotLessonRejected = error instanceof RangeError; }
+    check("lesson4-potentiometer-rejects-wrong-lesson", wrongPotLessonRejected);
+    let nonIntegerPotValueRejected = false;
+    try {
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:4,value:512.5,onValueChange:()=>{},
+      });
+    } catch (error) { nonIntegerPotValueRejected = error instanceof RangeError; }
+    check("lesson4-potentiometer-rejects-noninteger-value", nonIntegerPotValueRejected);
+    let extraPotFieldRejected = false;
+    try {
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:4,value:512,onValueChange:()=>{},extra:true,
+      });
+    } catch (error) { extraPotFieldRejected = error instanceof RangeError; }
+    check("lesson4-potentiometer-rejects-extra-enabled-field", extraPotFieldRejected);
+
+    const potEventsA = [];
+    const potEventsB = [];
+    const exactPotMeta = (meta,pointerType,phase) => {
+      if(!meta||!Object.isFrozen(meta)||Object.getPrototypeOf(meta)!==Object.prototype)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      if(Reflect.ownKeys(meta).sort().join(",")!==fields.slice().sort().join(","))return false;
+      if(meta.lessonId!==4||meta.source!=="pointer"||meta.pointerType!==pointerType||
+         meta.phase!==phase||meta.physicalVerified!==false)return false;
+      return fields.every(field=>{
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        return descriptor&&("value" in descriptor)&&descriptor.enumerable===true&&
+          descriptor.writable===false&&descriptor.configurable===false;
+      });
+    };
+    const potCallbackA = (value, meta) => potEventsA.push({ value, meta });
+    const potCallbackB = (value, meta) => potEventsB.push({ value, meta });
+    const potReceipt = mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,onValueChange:potCallbackA,
+    });
+    const potReceiptFields=[
+      "ok","enabled","active","lessonId","value","mode","physicalVerified","electricalAuthority",
+    ];
+    check("lesson4-potentiometer-enables-current-exact-knob",
+      Object.isFrozen(potReceipt) && potReceipt.ok === true &&
+      Object.getPrototypeOf(potReceipt) === Object.prototype &&
+      Reflect.ownKeys(potReceipt).sort().join(",") === potReceiptFields.slice().sort().join(",") &&
+      potReceiptFields.every(field=>{
+        const descriptor=Object.getOwnPropertyDescriptor(potReceipt,field);
+        return descriptor&&("value" in descriptor)&&descriptor.enumerable===true&&
+          descriptor.writable===false&&descriptor.configurable===false;
+      }) &&
+      potReceipt.enabled === true && potReceipt.active === true &&
+      potReceipt.lessonId === 4 && potReceipt.value === 512 &&
+      potReceipt.mode === "pointer-drag" &&
+      potReceipt.physicalVerified === false && potReceipt.electricalAuthority === false &&
+      canvas.dataset.lessonPotMode === "enabled" && canvas.dataset.lessonPotValue === "512" &&
+      canvas.style.touchAction === "none" && getComputedStyle(canvas).touchAction === "none");
+    const potCenter = projectedLegacyModulePoint(
+      canvas, new T.Vector3(5.15, 1.20, .10),
+    );
+    const potBodyPoint = projectedLegacyModulePoint(
+      canvas, new T.Vector3(5.82, .87, .60),
+    );
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1120, "mouse");
+    dispatchScenePointer(canvas, "pointerup", potCenter, 1120, "mouse");
+    check("lesson4-potentiometer-no-move-click-emits-no-value",
+      potEventsA.length === 0 && canvas.dataset.lessonPotGesture === "none");
+    const beforePotBody = potEventsA.length;
+    dispatchScenePointer(canvas, "pointerdown", potBodyPoint, 1121, "mouse");
+    dispatchScenePointer(canvas, "pointerup", potBodyPoint, 1121, "mouse");
+    check("lesson4-potentiometer-body-does-not-actuate-knob",
+      potEventsA.length === beforePotBody && canvas.dataset.lessonPotGesture === "none");
+
+    const potVisualBefore = Number(canvas.dataset.lessonPotVisualRotationY);
+    const potCameraBefore = JSON.stringify(mounted.getLabViewState().camera);
+    const potDown = dispatchScenePointer(canvas, "pointerdown", potCenter, 1122, "mouse");
+    check("lesson4-potentiometer-pointerdown-grabs-without-value-mutation",
+      potDown.defaultPrevented === true && potEventsA.length === 0 &&
+      canvas.dataset.lessonPotGesture === "grabbed" && canvas.dataset.lessonPotValue === "512");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+60,clientY:potCenter.clientY,
+    }, 2122, "mouse");
+    dispatchScenePointer(canvas, "pointerup", {
+      clientX:potCenter.clientX+60,clientY:potCenter.clientY,
+    }, 2122, "mouse");
+    check("lesson4-potentiometer-foreign-pointer-cannot-move-or-finish-grab",
+      potEventsA.length === 0 && canvas.dataset.lessonPotGesture === "grabbed");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+3,clientY:potCenter.clientY,
+    }, 1122, "mouse");
+    check("lesson4-potentiometer-subthreshold-jitter-emits-nothing",
+      potEventsA.length === 0 && canvas.dataset.lessonPotGesture === "grabbed");
+    const potResync = mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:600,onValueChange:potCallbackB,
+    });
+    check("lesson4-potentiometer-mid-drag-resync-updates-value-without-restarting-gesture",
+      potResync.active === true && potResync.value === 600 &&
+      canvas.dataset.lessonPotValue === "600" && canvas.dataset.lessonPotGesture === "grabbed");
+    const potMove = dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+40,clientY:potCenter.clientY,
+    }, 1122, "mouse");
+    check("lesson4-potentiometer-mouse-drag-emits-input-to-original-callback-only",
+      potMove.defaultPrevented === true && potEventsA.length === 1 && potEventsB.length === 0 &&
+      Number.isInteger(potEventsA[0].value) && potEventsA[0].value>600 && potEventsA[0].value<=1023 &&
+      exactPotMeta(potEventsA[0].meta,"mouse","input") &&
+      canvas.dataset.lessonPotGesture === "dragging");
+    const potCameraAfterMove = JSON.stringify(mounted.getLabViewState().camera);
+    check("lesson4-potentiometer-drag-never-orbits-camera",
+      potCameraAfterMove === potCameraBefore);
+    check("lesson4-potentiometer-visual-stays-downstream-before-host-snapshot",
+      Number(canvas.dataset.lessonPotVisualRotationY) === potVisualBefore);
+    const acceptedPotValue = potEventsA[0].value;
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:acceptedPotValue,onValueChange:potCallbackB,
+    });
+    mounted.update({
+      kind:"potentiometer",value:`ADC ${acceptedPotValue} → PWM 0`,brightness:0,
+      button:false,angle:0,motorDirection:0,motorSpeed:0,
+    });
+    const expectedPotRotation = acceptedPotValue / 1023 * Math.PI * 1.7;
+    check("lesson4-potentiometer-host-snapshot-drives-actual-rotor-visual",
+      Math.abs(Number(canvas.dataset.lessonPotVisualRotationY)-expectedPotRotation)<1e-9 &&
+      canvas.dataset.lessonPotValue === String(acceptedPotValue));
+    dispatchScenePointer(canvas, "pointerup", {
+      clientX:potCenter.clientX+40,clientY:potCenter.clientY,
+    }, 1122, "mouse");
+    check("lesson4-potentiometer-pointerup-emits-final-change-to-original-callback",
+      potEventsA.length === 2 && potEventsB.length === 0 &&
+      potEventsA[1].value === acceptedPotValue &&
+      exactPotMeta(potEventsA[1].meta,"mouse","change") &&
+      canvas.dataset.lessonPotGesture === "none");
+
+    const potAckEvents = [];
+    const potAckCallback = (value,meta) => {
+      potAckEvents.push({value,meta});
+      if(meta.phase==="input"){
+        mounted.setLessonPotentiometerActuation({
+          enabled:true,lessonId:4,value,onValueChange:potAckCallback,
+        });
+      }
+    };
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,onValueChange:potAckCallback,
+    });
+    dispatchScenePointer(canvas,"pointerdown",potCenter,1132,"mouse");
+    for(let step=1;step<=14;step++){
+      dispatchScenePointer(canvas,"pointermove",{
+        clientX:potCenter.clientX+step,clientY:potCenter.clientY,
+      },1132,"mouse");
+    }
+    dispatchScenePointer(canvas,"pointerup",{
+      clientX:potCenter.clientX+14,clientY:potCenter.clientY,
+    },1132,"mouse");
+    const potAckInputs=potAckEvents.filter(item=>item.meta.phase==="input");
+    check("lesson4-potentiometer-immediate-host-ack-preserves-fractional-drag-accumulator",
+      potAckInputs.length===10 && potAckInputs[potAckInputs.length-1].value===569 &&
+      potAckEvents.length===11 && potAckEvents[10].value===569 &&
+      exactPotMeta(potAckEvents[10].meta,"mouse","change"));
+
+    const releaseOnlyPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,
+      onValueChange:(value,meta)=>releaseOnlyPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas,"pointerdown",potCenter,1133,"mouse");
+    dispatchScenePointer(canvas,"pointerup",{
+      clientX:potCenter.clientX+20,clientY:potCenter.clientY,
+    },1133,"mouse");
+    check("lesson4-potentiometer-pointerup-folds-release-only-delta-before-change",
+      releaseOnlyPotEvents.length===2 &&
+      releaseOnlyPotEvents[0].value>512 &&
+      releaseOnlyPotEvents[1].value===releaseOnlyPotEvents[0].value &&
+      exactPotMeta(releaseOnlyPotEvents[0].meta,"mouse","input") &&
+      exactPotMeta(releaseOnlyPotEvents[1].meta,"mouse","change"));
+
+    const releaseTailPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,
+      onValueChange:(value,meta)=>releaseTailPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas,"pointerdown",potCenter,1134,"mouse");
+    dispatchScenePointer(canvas,"pointermove",{
+      clientX:potCenter.clientX+20,clientY:potCenter.clientY,
+    },1134,"mouse");
+    dispatchScenePointer(canvas,"pointerup",{
+      clientX:potCenter.clientX+40,clientY:potCenter.clientY,
+    },1134,"mouse");
+    check("lesson4-potentiometer-pointerup-folds-tail-after-last-pointermove",
+      releaseTailPotEvents.length===3 &&
+      releaseTailPotEvents[1].value>releaseTailPotEvents[0].value &&
+      releaseTailPotEvents[2].value===releaseTailPotEvents[1].value &&
+      exactPotMeta(releaseTailPotEvents[1].meta,"mouse","input") &&
+      exactPotMeta(releaseTailPotEvents[2].meta,"mouse","change"));
+
+    const releaseRevokePotEvents = [];
+    const releaseRevokeCallback = (value,meta) => {
+      releaseRevokePotEvents.push({value,meta});
+      if(meta.phase==="input")mounted.setLessonPotentiometerActuation({enabled:false});
+    };
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,onValueChange:releaseRevokeCallback,
+    });
+    dispatchScenePointer(canvas,"pointerdown",potCenter,1135,"mouse");
+    dispatchScenePointer(canvas,"pointerup",{
+      clientX:potCenter.clientX+20,clientY:potCenter.clientY,
+    },1135,"mouse");
+    check("lesson4-potentiometer-release-input-revocation-prevents-stale-final-change",
+      releaseRevokePotEvents.length===1 &&
+      exactPotMeta(releaseRevokePotEvents[0].meta,"mouse","input") &&
+      canvas.dataset.lessonPotMode==="off" && canvas.dataset.lessonPotGesture==="none" &&
+      canvas.style.touchAction==="" && getComputedStyle(canvas).touchAction==="pan-y");
+
+    for(const [pointerType,pointerId,startValue,deltaX] of [
+      ["touch",1136,400,50],["pen",1137,300,45],
+    ]){
+      const events=[];
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:4,value:startValue,
+        onValueChange:(value,meta)=>events.push({value,meta}),
+      });
+      dispatchScenePointer(canvas,"pointerdown",potCenter,pointerId,pointerType);
+      dispatchScenePointer(canvas,"pointermove",{
+        clientX:potCenter.clientX+deltaX,clientY:potCenter.clientY,
+      },pointerId,pointerType);
+      dispatchScenePointer(canvas,"pointerup",{
+        clientX:potCenter.clientX+deltaX,clientY:potCenter.clientY,
+      },pointerId,pointerType);
+      check(`lesson4-potentiometer-${pointerType}-successful-input-change-has-exact-meta`,
+        events.length===2 && events[1].value===events[0].value &&
+        exactPotMeta(events[0].meta,pointerType,"input") &&
+        exactPotMeta(events[1].meta,pointerType,"change"));
+    }
+
+    const touchPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:400,
+      onValueChange:(value,meta)=>touchPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1123, "touch");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+50,clientY:potCenter.clientY,
+    }, 1123, "touch");
+    const touchBeforeCancel = touchPotEvents.length;
+    dispatchScenePointer(canvas, "pointercancel", {
+      clientX:potCenter.clientX+50,clientY:potCenter.clientY,
+    }, 1123, "touch");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+80,clientY:potCenter.clientY,
+    }, 1123, "touch");
+    dispatchScenePointer(canvas, "pointerup", {
+      clientX:potCenter.clientX+80,clientY:potCenter.clientY,
+    }, 1123, "touch");
+    check("lesson4-potentiometer-touch-cancel-keeps-last-value-without-final-change-or-stale-replay",
+      touchBeforeCancel>=1 && touchPotEvents.length === touchBeforeCancel &&
+      touchPotEvents.every(item=>item.meta.pointerType==="touch"&&item.meta.phase==="input") &&
+      canvas.dataset.lessonPotGesture === "none");
+
+    const penPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:300,
+      onValueChange:(value,meta)=>penPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1124, "pen");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+45,clientY:potCenter.clientY,
+    }, 1124, "pen");
+    const penBeforeLostCapture = penPotEvents.length;
+    canvas.dispatchEvent(new PointerEvent("lostpointercapture", {
+      button:0,pointerId:1124,pointerType:"pen",
+      clientX:potCenter.clientX+45,clientY:potCenter.clientY,
+      bubbles:true,cancelable:true,
+    }));
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+70,clientY:potCenter.clientY,
+    }, 1124, "pen");
+    check("lesson4-potentiometer-pen-lostcapture-stops-without-final-change",
+      penBeforeLostCapture>=1 && penPotEvents.length === penBeforeLostCapture &&
+      penPotEvents.every(item=>item.meta.pointerType==="pen"&&item.meta.phase==="input") &&
+      canvas.dataset.lessonPotGesture === "none");
+
+    const disablePotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:500,
+      onValueChange:(value,meta)=>disablePotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1125, "mouse");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+35,clientY:potCenter.clientY,
+    }, 1125, "mouse");
+    const disablePotBefore = disablePotEvents.length;
+    const potOffReceipt = mounted.setLessonPotentiometerActuation({enabled:false});
+    dispatchScenePointer(canvas, "pointerup", {
+      clientX:potCenter.clientX+35,clientY:potCenter.clientY,
+    }, 1125, "mouse");
+    check("lesson4-potentiometer-disable-mid-drag-is-idempotent-without-rollback-or-final-replay",
+      disablePotBefore>=1 && disablePotEvents.length === disablePotBefore &&
+      potOffReceipt.enabled === false && potOffReceipt.active === false &&
+      canvas.dataset.lessonPotMode === "off" && canvas.dataset.lessonPotGesture === "none" &&
+      canvas.style.touchAction === "" && getComputedStyle(canvas).touchAction === "pan-y");
+
+    const labEditPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,
+      onValueChange:(value,meta)=>labEditPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1126, "touch");
+    mounted.setLabEdit({enabled:true});
+    dispatchScenePointer(canvas, "pointerup", potCenter, 1126, "touch");
+    check("lesson4-potentiometer-lab-edit-transition-cancels-without-value-replay",
+      labEditPotEvents.length === 0 && canvas.dataset.lessonPotMode === "off" &&
+      canvas.dataset.lessonPotGesture === "none" && canvas.style.touchAction === "none");
+    let potEnableDuringLabEditRejected = false;
+    try {
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:4,value:512,onValueChange:()=>{},
+      });
+    } catch (error) { potEnableDuringLabEditRejected = error instanceof RangeError; }
+    check("lesson4-potentiometer-cannot-enable-during-lab-edit", potEnableDuringLabEditRejected);
+    mounted.setLabEdit({enabled:false});
+    check("lesson4-potentiometer-lab-edit-off-restores-normal-canvas-pan-y",
+      canvas.style.touchAction === "" && getComputedStyle(canvas).touchAction === "pan-y");
+
+    const potLayout = createLabLayout(4, listTerminals(4));
+    mounted.setLabLayout(potLayout);
+    let potEnableWithLayoutRejected = false;
+    try {
+      mounted.setLessonPotentiometerActuation({
+        enabled:true,lessonId:4,value:512,onValueChange:()=>{},
+      });
+    } catch (error) { potEnableWithLayoutRejected = error instanceof RangeError; }
+    check("lesson4-potentiometer-cannot-enable-with-conceptual-lab-layout",
+      potEnableWithLayoutRejected && canvas.dataset.lessonPotMode === "off");
+    mounted.setLabLayout(null);
+
+    const lessonSwitchPotEvents = [];
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:450,
+      onValueChange:(value,meta)=>lessonSwitchPotEvents.push({value,meta}),
+    });
+    dispatchScenePointer(canvas, "pointerdown", potCenter, 1127, "mouse");
+    dispatchScenePointer(canvas, "pointermove", {
+      clientX:potCenter.clientX+32,clientY:potCenter.clientY,
+    }, 1127, "mouse");
+    const potBeforeLessonSwitch = lessonSwitchPotEvents.length;
+    mounted.setLesson({id:5});
+    dispatchScenePointer(canvas, "pointerup", potCenter, 1127, "mouse");
+    check("lesson4-potentiometer-lesson-switch-prevents-stale-final-replay",
+      potBeforeLessonSwitch>=1 && lessonSwitchPotEvents.length === potBeforeLessonSwitch &&
+      canvas.dataset.lessonPotMode === "off" && canvas.dataset.lessonPotGesture === "none" &&
+      canvas.dataset.lessonPotVisualRotationY === "" && canvas.style.touchAction === "" &&
+      getComputedStyle(canvas).touchAction === "pan-y");
+
+    mounted.setLesson({id:4});
+    mounted.control("reset");
+    flushFrames();
+    mounted.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,
+      onValueChange:()=>{throw new Error("intentional lesson4 knob callback failure");},
+    });
+    let potCallbackFailureEscaped = false;
+    try {
+      dispatchScenePointer(canvas, "pointerdown", potCenter, 1128, "mouse");
+      dispatchScenePointer(canvas, "pointermove", {
+        clientX:potCenter.clientX+45,clientY:potCenter.clientY,
+      }, 1128, "mouse");
+      dispatchScenePointer(canvas, "pointerup", {
+        clientX:potCenter.clientX+45,clientY:potCenter.clientY,
+      }, 1128, "mouse");
+    } catch { potCallbackFailureEscaped = true; }
+    check("lesson4-potentiometer-callback-errors-are-contained-without-stuck-gesture",
+      potCallbackFailureEscaped === false && canvas.dataset.lessonPotGesture === "none");
+    mounted.setLessonPotentiometerActuation({enabled:false});
 
     check("public-lesson-button-actuation-api-starts-off",
       typeof mounted.setLessonButtonActuation === "function" &&
@@ -3410,6 +3998,74 @@ export async function runScene3DContracts() {
       remountCanvas.dataset.labTerminalDragSource === "" &&
       remountCanvas.dataset.labTerminalDragTarget === "" &&
       remountCanvas.dataset.labTerminalDragPreview === "none");
+
+    host.remove();
+    host = makeHost();
+    const potLoss = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const potLossCanvas = host.querySelector("canvas");
+    potLossCanvas.setPointerCapture = () => {};
+    potLossCanvas.releasePointerCapture = () => {};
+    potLoss.setLesson({id:4});
+    potLoss.control("reset");
+    flushFrames();
+    const potLossEvents = [];
+    potLoss.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:512,
+      onValueChange:(value,meta)=>potLossEvents.push({value,meta}),
+    });
+    const potLossPoint = projectedLegacyModulePoint(
+      potLossCanvas, new T.Vector3(5.15, 1.20, .10),
+    );
+    dispatchScenePointer(potLossCanvas,"pointerdown",potLossPoint,1130,"touch");
+    dispatchScenePointer(potLossCanvas,"pointermove",{
+      clientX:potLossPoint.clientX+50,clientY:potLossPoint.clientY,
+    },1130,"touch");
+    const potLossBefore = potLossEvents.length;
+    check("lesson4-potentiometer-context-loss-fixture-has-input-and-active-drag",
+      potLossBefore>=1 && potLossCanvas.dataset.lessonPotGesture==="dragging");
+    const potLossEvent = new Event("webglcontextlost",{cancelable:true});
+    potLossCanvas.dispatchEvent(potLossEvent);
+    dispatchScenePointer(potLossCanvas,"pointerup",{
+      clientX:potLossPoint.clientX+50,clientY:potLossPoint.clientY,
+    },1130,"touch");
+    check("lesson4-potentiometer-context-loss-clears-without-final-value-replay",
+      potLossEvent.defaultPrevented===true && potLossEvents.length===potLossBefore &&
+      potLossCanvas.dataset.lessonPotMode==="off" &&
+      potLossCanvas.dataset.lessonPotGesture==="none");
+    potLoss.dispose();
+
+    host.remove();
+    host = makeHost();
+    const potDispose = mountScene(host);
+    await waitTask();
+    flushFrames();
+    const potDisposeCanvas = host.querySelector("canvas");
+    potDisposeCanvas.setPointerCapture = () => {};
+    potDisposeCanvas.releasePointerCapture = () => {};
+    potDispose.setLesson({id:4});
+    potDispose.control("reset");
+    flushFrames();
+    const potDisposeEvents = [];
+    potDispose.setLessonPotentiometerActuation({
+      enabled:true,lessonId:4,value:256,
+      onValueChange:(value,meta)=>potDisposeEvents.push({value,meta}),
+    });
+    const potDisposePoint = projectedLegacyModulePoint(
+      potDisposeCanvas, new T.Vector3(5.15, 1.20, .10),
+    );
+    dispatchScenePointer(potDisposeCanvas,"pointerdown",potDisposePoint,1131,"pen");
+    dispatchScenePointer(potDisposeCanvas,"pointermove",{
+      clientX:potDisposePoint.clientX+42,clientY:potDisposePoint.clientY,
+    },1131,"pen");
+    const potDisposeBefore = potDisposeEvents.length;
+    potDispose.dispose();
+    check("lesson4-potentiometer-dispose-clears-without-final-value-replay",
+      potDisposeBefore>=1 && potDisposeEvents.length===potDisposeBefore &&
+      potDisposeCanvas.dataset.lessonPotMode==="off" &&
+      potDisposeCanvas.dataset.lessonPotGesture==="none" &&
+      !potDisposeCanvas.isConnected);
 
     host.remove();
     host = makeHost();
