@@ -825,6 +825,106 @@ def main() -> None:
             and actual.get("sceneContext") == "ready"
         )
 
+    def lesson06_scene_ldr_pixel(page, light_adc: int | None = None):
+        """Project the authored Lesson06 conceptual lamp center for real pointer QA.
+
+        Only the published module/light-source transform and initial camera are
+        duplicated here. Production Three.js raycasting remains the authority
+        for whether a genuine browser pointer owns the tagged target.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedLight => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson06 3D canvas missing');
+            const current=canvas.dataset.lessonLdrPreviewLight!==''?
+              Number(canvas.dataset.lessonLdrPreviewLight):
+              Number(canvas.dataset.lessonLdrLight);
+            const light=requestedLight===null?current:Number(requestedLight);
+            if(!Number.isInteger(light)||light<0||light>1023){
+              throw new Error('Lesson06 conceptual light missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const localX=1.45+((1023-light)/1023)*2.4;
+            const point=new T.Vector3(5.15+localX,.55+.80,.10+.10);
+            const projected=point.project(camera);
+            const x=rect.left+(projected.x+1)*rect.width/2;
+            const y=rect.top+(1-projected.y)*rect.height/2;
+            return Object.freeze({
+              light,x,y,
+              insideFrustum:projected.z>=-1&&projected.z<=1,
+              insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+              onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""", light_adc)
+
+    def lesson06_ldr_acceptance_state(page):
+        """Read native Lesson06 range and public LDR scene diagnostics only."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-light');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson06 canonical LDR UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),
+              min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',
+              output:output?.textContent||'',
+              label:label?.textContent||'',
+              labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonLdrMode||'',
+              sceneLight:canvas.dataset.lessonLdrLight||'',
+              previewLight:canvas.dataset.lessonLdrPreviewLight||'',
+              gesture:canvas.dataset.lessonLdrGesture||'',
+              targetCount:Number(canvas.dataset.lessonLdrTargetCount||0),
+              physicalVerified:canvas.dataset.lessonLdrPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonLdrElectricalAuthority||'',
+              measuredIlluminance:canvas.dataset.lessonLdrMeasuredIlluminance||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson06_ldr_state_agrees(actual: dict[str, object], expected_light: int) -> bool:
+        return (
+            0 <= expected_light <= 1023
+            and actual.get("value") == expected_light
+            and actual.get("min") == "0"
+            and actual.get("max") == "1023"
+            and actual.get("step") == "1"
+            and actual.get("control") == "light"
+            and actual.get("output") == str(expected_light)
+            and actual.get("labelFor") == "control-light"
+            and actual.get("labelCount") == 1
+            and "Mức ánh sáng" in str(actual.get("label"))
+            and actual.get("mode") == "pointer-slide"
+            and actual.get("sceneLight") == str(expected_light)
+            and actual.get("previewLight") == ""
+            and actual.get("gesture") == "none"
+            and actual.get("targetCount") == 1
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("measuredIlluminance") == "false"
+            and actual.get("sceneContext") == "ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1328,7 +1428,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 553
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 590
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -10210,6 +10310,690 @@ def main() -> None:
                               ultrasonic_progress_storage)
                 finally:
                     ultrasonic_context.close()
+
+                # Lesson06 LDR: one tagged conceptual lamp is an optional 3D
+                # pointer surface for the existing native 0..1023 light range.
+                # The scene may preview a lamp position, but only release may
+                # request a host-owned native control change.
+                ldr_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    ldr_page=ldr_context.new_page()
+                    capture_console(ldr_page)
+                    ldr_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(ldr_page)
+                    ldr_page.locator('.lesson-link[data-lesson="6"]').click()
+                    ldr_canvas=ldr_page.locator("#sceneMount canvas")
+                    ldr_slider=ldr_page.locator("#control-light")
+                    ldr_progress=ldr_page.locator("#progressText").inner_text()
+                    ldr_progress_storage=ldr_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    ldr_complete_visible=ldr_page.locator("#completeButton").is_visible()
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-light')?.value==='650'
+                          &&canvas?.dataset.lessonLdrMode==='pointer-slide'
+                          &&canvas.dataset.lessonLdrLight==='650'
+                          &&canvas.dataset.lessonLdrTargetCount==='1';
+                    }""",timeout=5000)
+                    ldr_initial=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_initial_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    check("post-v16-lesson06-ldr-native-range-and-tagged-light-source-ready",
+                          lesson06_ldr_state_agrees(ldr_initial,650)
+                          and ldr_initial_pixel["insideFrustum"]
+                          and ldr_initial_pixel["insideCanvas"]
+                          and ldr_initial_pixel["onScreen"]
+                          and ldr_initial_pixel["canvasUncovered"]
+                          and "không đo lux" in ldr_initial["canvasLabel"].lower(),
+                          json.dumps({"state":ldr_initial,
+                                      "pixel":ldr_initial_pixel},ensure_ascii=False))
+
+                    # Native HTML remains the complete keyboard path.
+                    ldr_slider.focus()
+                    ldr_slider.press("Home")
+                    ldr_home=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_slider.press("End")
+                    ldr_end=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-native-keyboard-home-end-cover-0-1023",
+                          lesson06_ldr_state_agrees(ldr_home,0)
+                          and ldr_home["focused"] is True
+                          and lesson06_ldr_state_agrees(ldr_end,1023)
+                          and ldr_end["focused"] is True
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+                    ldr_page.locator("#resetButton").click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#control-light')?.value==='650'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrLight==='650'
+                    """,timeout=3000)
+
+                    # A genuine no-move mouse click is below the drag threshold;
+                    # it must not create a preview or host change.
+                    tap_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(tap_pixel["x"],tap_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_tap_pressed=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.mouse.up()
+                    ldr_tap_after=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-mouse-tap-is-noop",
+                          ldr_tap_pressed["gesture"]=="grabbed"
+                          and ldr_tap_pressed["previewLight"]==""
+                          and ldr_tap_pressed["value"]==650
+                          and lesson06_ldr_state_agrees(ldr_tap_after,650))
+
+                    # Real mouse drag RIGHT by 60 CSS px: 650 - 60*5 = 350.
+                    # The native range remains 650 during preview.
+                    mouse_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(mouse_pixel["x"],mouse_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_mouse_grab=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-mouse-down-grabs-without-preview-or-host-write",
+                          ldr_mouse_grab["gesture"]=="grabbed"
+                          and ldr_mouse_grab["previewLight"]==""
+                          and ldr_mouse_grab["value"]==650
+                          and ldr_mouse_grab["sceneLight"]=="650")
+                    ldr_page.mouse.move(
+                        mouse_pixel["x"]+60,mouse_pixel["y"],steps=8)
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonLdrGesture==='dragging'
+                          &&canvas.dataset.lessonLdrPreviewLight==='350';
+                    }""",timeout=3000)
+                    ldr_mouse_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-mouse-drag-right-decreases-preview-only",
+                          ldr_mouse_preview["value"]==650
+                          and ldr_mouse_preview["sceneLight"]=="650"
+                          and ldr_mouse_preview["previewLight"]=="350"
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+                    ldr_page.mouse.up()
+                    ldr_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-light');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonLdrLight===String(expected)
+                          &&canvas.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight==='';
+                    }""",arg=350,timeout=3000)
+                    ldr_mouse_commit=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-mouse-release-commits-through-native-range",
+                          lesson06_ldr_state_agrees(ldr_mouse_commit,350)
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+
+                    # Simulator semantics remain host-owned: current dark value
+                    # drives D13 HIGH only while running. Pause keeps setpoint 350
+                    # while the same simulator model returns D13 LOW.
+                    ldr_simulator_semantics=ldr_page.evaluate("""async light => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const stopped=simulate(6,{light},0,false,{});
+                        const running=simulate(6,{light},0,true,{});
+                        const bright=simulate(6,{light:400},0,true,{});
+                        const pin=(snapshot,name)=>
+                          snapshot.pins.find(([pinName])=>pinName===name)?.[1]??null;
+                        return Object.freeze({
+                          stoppedD13:pin(stopped,'D13'),
+                          runningD13:pin(running,'D13'),
+                          brightRunningD13:pin(bright,'D13'),
+                          stoppedA0:pin(stopped,'A0'),
+                          runningA0:pin(running,'A0'),
+                          stoppedLed:stopped.led,
+                          runningLed:running.led,
+                          brightRunningLed:bright.led,
+                          runningValue:running.value,
+                          runningStatus:running.status,
+                        });
+                    }""",350)
+                    ldr_run_button=ldr_page.locator("#runButton")
+                    ldr_run_button.click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-light')?.value==='350'
+                    """,timeout=3000)
+                    ldr_running_ui=ldr_page.locator("#simOutput").inner_text()
+                    ldr_run_button.click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-light')?.value==='350'
+                    """,timeout=3000)
+                    check("post-v16-lesson06-ldr-dark-simulator-drives-d13-only-while-running-and-pause-keeps-setpoint",
+                          ldr_simulator_semantics["stoppedD13"]=="LOW"
+                          and ldr_simulator_semantics["runningD13"]=="HIGH"
+                          and ldr_simulator_semantics["brightRunningD13"]=="LOW"
+                          and ldr_simulator_semantics["stoppedA0"]=="350"
+                          and ldr_simulator_semantics["runningA0"]=="350"
+                          and ldr_simulator_semantics["stoppedLed"] is False
+                          and ldr_simulator_semantics["runningLed"] is True
+                          and ldr_simulator_semantics["brightRunningLed"] is False
+                          and ldr_running_ui==
+                              f"{ldr_simulator_semantics['runningValue']} · "
+                              f"{ldr_simulator_semantics['runningStatus']}"
+                          and lesson06_ldr_state_agrees(
+                              lesson06_ldr_acceptance_state(ldr_page),350))
+
+                    # A real value-changing native action supersedes a held scene
+                    # proposal. Reset restores the authored 650 target; a small
+                    # right drag previews 550; End changes 650→1023 and retires
+                    # the old pointer authority before the eventual mouseup.
+                    ldr_page.locator("#resetButton").click()
+                    ldr_page.wait_for_function(
+                        "() => document.querySelector('#control-light')?.value==='650'",
+                        timeout=3000)
+                    supersede_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(
+                        supersede_pixel["x"],supersede_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(
+                        supersede_pixel["x"]+20,supersede_pixel["y"],steps=5)
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_supersede_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_slider.focus()
+                    ldr_slider.press("End")
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-light')?.value==='1023'
+                          &&canvas?.dataset.lessonLdrLight==='1023'
+                          &&canvas.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight==='';
+                    }""",timeout=3000)
+                    ldr_page.mouse.up()
+                    ldr_supersede_after=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-native-value-change-revokes-stale-mouse",
+                          ldr_supersede_preview["value"]==650
+                          and ldr_supersede_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(
+                              ldr_supersede_after,1023))
+                    ldr_page.locator("#resetButton").click()
+                    ldr_page.wait_for_function(
+                        "() => document.querySelector('#control-light')?.value==='650'",
+                        timeout=3000)
+
+                    ldr_input=ldr_context.new_cdp_session(ldr_page)
+
+                    # Genuine Chrome touch preview followed by touchCancel.
+                    touch_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    touch_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":101,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_cancel_move={
+                        **touch_start,
+                        "x":touch_pixel["x"]+20,"y":touch_pixel["y"],
+                    }
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_cancel_move],
+                    })
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_touch_cancel_preview=lesson06_ldr_acceptance_state(
+                        ldr_page)
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight==='';
+                    }""",timeout=3000)
+                    ldr_touch_cancel=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-touchcancel-discards-preview-without-commit",
+                          ldr_touch_cancel_preview["value"]==650
+                          and ldr_touch_cancel_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(ldr_touch_cancel,650))
+
+                    # Rightward touch reaches the lower 0 clamp under pointer
+                    # capture. Keep the endpoint inside the browser viewport.
+                    touch_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    if touch_pixel["x"]+130>1272:
+                        raise AssertionError(
+                            "Lesson06 LDR lamp lacks 130px rightward viewport room")
+                    touch_low_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":102,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={
+                        **touch_low_start,
+                        "x":touch_pixel["x"]+130,"y":touch_pixel["y"],
+                    }
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low_start],
+                    })
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='0'
+                    """,timeout=3000)
+                    ldr_touch_low_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#control-light')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrGesture==='none'
+                    """,timeout=3000)
+                    ldr_touch_low=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-touch-drag-right-clamps-and-commits-zero",
+                          ldr_touch_low_preview["value"]==650
+                          and ldr_touch_low_preview["previewLight"]=="0"
+                          and lesson06_ldr_state_agrees(ldr_touch_low,0))
+
+                    ldr_page.locator("#resetButton").click()
+                    ldr_page.wait_for_function(
+                        "() => document.querySelector('#control-light')?.value==='650'",
+                        timeout=3000)
+
+                    # Genuine Chrome pen path covers the upper 1023 clamp.
+                    pen_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    if pen_pixel["x"]-75<8:
+                        raise AssertionError(
+                            "Lesson06 LDR lamp lacks 75px leftward viewport room")
+                    ldr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    ldr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    ldr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"]-75,"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"pointerType":"pen",
+                    })
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='1023'
+                    """,timeout=3000)
+                    ldr_pen_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"]-75,"y":pen_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#control-light')?.value==='1023'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrGesture==='none'
+                    """,timeout=3000)
+                    ldr_pen_commit=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-pen-drag-left-clamps-and-commits-1023",
+                          ldr_pen_preview["value"]==650
+                          and ldr_pen_preview["previewLight"]=="1023"
+                          and lesson06_ldr_state_agrees(ldr_pen_commit,1023))
+
+                    ldr_page.locator("#resetButton").click()
+                    ldr_page.wait_for_function(
+                        "() => document.querySelector('#control-light')?.value==='650'",
+                        timeout=3000)
+
+                    # Native lostpointercapture is a non-commit cancel path.
+                    ldr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2ELdrPointerId=null;
+                        window.__arduinoE2ELdrGotCaptureId=null;
+                        window.__arduinoE2ELdrLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2ELdrPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2ELdrGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2ELdrLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(
+                        lost_pixel["x"]+20,lost_pixel["y"],steps=4)
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ELdrPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2ELdrGotCaptureId===id
+                          &&canvas.dataset.lessonLdrPreviewLight==='550';
+                    }""",timeout=3000)
+                    ldr_lost_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ELdrPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson06 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    ldr_page.mouse.move(lost_pixel["x"]+20.5,lost_pixel["y"]+.5)
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight===''
+                          &&window.__arduinoE2ELdrLostCaptureId===
+                             window.__arduinoE2ELdrPointerId;
+                    }""",timeout=3000)
+                    ldr_page.mouse.up()
+                    ldr_lost_after=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-native-lostcapture-discards-preview-without-commit",
+                          ldr_lost_preview["value"]==650
+                          and ldr_lost_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(ldr_lost_after,650))
+
+                    # Run/Pause via the real HTML button retires a held 3D light
+                    # proposal before changing run state; late mouseup is inert.
+                    run_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(run_pixel["x"],run_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(run_pixel["x"]+20,run_pixel["y"],steps=4)
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_run_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_run_button=ldr_page.locator("#runButton")
+                    ldr_run_button.focus()
+                    ldr_page.keyboard.press("Enter")
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-light')?.value==='650'
+                          &&canvas?.dataset.lessonLdrMode==='pointer-slide'
+                          &&canvas.dataset.lessonLdrLight==='650'
+                          &&canvas.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight==='';
+                    }""",timeout=3000)
+                    ldr_run_state=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.keyboard.press("Enter")
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-light')?.value==='650'
+                          &&canvas?.dataset.lessonLdrGesture==='none'
+                          &&canvas.dataset.lessonLdrPreviewLight==='';
+                    }""",timeout=3000)
+                    ldr_pause_state=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.mouse.up()
+                    ldr_late_up=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          ldr_run_preview["value"]==650
+                          and ldr_run_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(ldr_run_state,650)
+                          and lesson06_ldr_state_agrees(ldr_pause_state,650)
+                          and lesson06_ldr_state_agrees(ldr_late_up,650)
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+
+                    # Real tab switching may yield visibilitychange, only blur, or
+                    # neither in a given headless implementation. Observe actual
+                    # browser events and never fabricate hidden state.
+                    ldr_page.evaluate("""() => {
+                        window.__arduinoE2ELdrBlurCount=0;
+                        window.__arduinoE2ELdrFocusCount=0;
+                        window.addEventListener('blur',()=>{
+                          window.__arduinoE2ELdrBlurCount+=1;
+                        });
+                        window.addEventListener('focus',()=>{
+                          window.__arduinoE2ELdrFocusCount+=1;
+                        });
+                    }""")
+                    visibility_peer=ldr_context.new_page()
+                    visibility_peer.goto("about:blank")
+                    ldr_page.bring_to_front()
+                    ldr_page.wait_for_function(
+                        "() => document.hidden===false",timeout=3000)
+                    visibility_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(
+                        visibility_pixel["x"],visibility_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(
+                        visibility_pixel["x"]+20,visibility_pixel["y"],steps=4)
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_visibility_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    visibility_peer.bring_to_front()
+                    ldr_background_capability=ldr_page.evaluate("""() => ({
+                        hidden:document.hidden===true,
+                        blurCount:window.__arduinoE2ELdrBlurCount||0,
+                    })""")
+                    if ldr_background_capability["hidden"]:
+                        ldr_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='off'
+                        """,polling=100,timeout=5000)
+                    ldr_background_state=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.bring_to_front()
+                    if (not ldr_background_capability["hidden"] and
+                            ldr_background_capability["blurCount"]==0 and
+                            ldr_background_state["gesture"]!="none"):
+                        ldr_page.locator("#resetButton").focus()
+                        ldr_page.keyboard.press("Enter")
+                    ldr_page.wait_for_function("""() =>
+                        document.hidden===false
+                          &&document.querySelector('#control-light')?.value==='650'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight===''
+                    """,timeout=5000)
+                    ldr_page.mouse.up()
+                    ldr_visibility_after=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_focus_count=ldr_page.evaluate(
+                        "window.__arduinoE2ELdrFocusCount||0")
+                    visibility_peer.close()
+                    check("post-v16-lesson06-ldr-real-tab-switch-respects-visibility-blur-capability-and-cancels-safely",
+                          ldr_visibility_preview["value"]==650
+                          and ldr_visibility_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(
+                              ldr_visibility_after,650)
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress,
+                          json.dumps({
+                              **ldr_background_capability,
+                              "focusCount":ldr_focus_count,
+                              "backgroundMode":ldr_background_state["mode"],
+                              "backgroundGesture":ldr_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL loss revokes a held preview. Restore may only
+                    # re-arm the current native light value.
+                    loss_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(loss_pixel["x"]+20,loss_pixel["y"],steps=4)
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_pre_loss=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2ELdrGL=gl;
+                        window.__arduinoE2ELdrLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ELdrGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonLdrMode==='off'
+                          &&canvas.dataset.lessonLdrGesture==='none';
+                    }""",timeout=10000)
+                    ldr_lost_context=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-webgl-loss-revokes-preview-without-host-write",
+                          ldr_pre_loss["value"]==650
+                          and ldr_pre_loss["previewLight"]=="550"
+                          and ldr_lost_context["mode"]=="off"
+                          and ldr_lost_context["gesture"]=="none"
+                          and ldr_lost_context["previewLight"]==""
+                          and ldr_lost_context["value"]==650
+                          and ldr_lost_context["measuredIlluminance"]=="false"
+                          and ldr_lost_context["canvasBusy"]=="true")
+                    ldr_page.mouse.up()
+                    ldr_page.evaluate(
+                        "window.__arduinoE2ELdrLoseExtension.restoreContext()")
+                    ldr_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ELdrGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonLdrMode==='pointer-slide'
+                          &&canvas.dataset.lessonLdrLight===String(expected)
+                          &&canvas.dataset.lessonLdrGesture==='none';
+                    }""",arg=650,timeout=10000)
+                    ldr_restored=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-webgl-restore-rearms-current-light-only",
+                          lesson06_ldr_state_agrees(ldr_restored,650)
+                          and ldr_restored["canvasBusy"] is None)
+
+                    # Stage roundtrip: wiring owns the viewport while selected;
+                    # 3D returns with only the native 650 value re-armed.
+                    ldr_page.locator("#stageTabWiring").click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='off'
+                    """,timeout=3000)
+                    ldr_stage_off=ldr_canvas.get_attribute("data-lesson-ldr-mode")
+                    ldr_page.locator("#stageTab3d").click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrLight==='650'
+                    """,timeout=3000)
+                    check("post-v16-lesson06-ldr-stage-roundtrip-revokes-and-rearms-current-native-light",
+                          ldr_stage_off=="off"
+                          and lesson06_ldr_state_agrees(
+                              lesson06_ldr_acceptance_state(ldr_page),650))
+
+                    # Lab edit mounts a conceptual layout and must revoke the LDR
+                    # light-source owner. Exiting edit clears layout and re-arms.
+                    ldr_page.locator("#labEditToggle").click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='off'
+                    """,timeout=5000)
+                    ldr_edit_off=ldr_canvas.get_attribute("data-lesson-ldr-mode")
+                    ldr_page.locator("#labEditToggle").click()
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonLdrLight==='650'
+                    """,timeout=5000)
+                    check("post-v16-lesson06-ldr-lab-edit-layout-roundtrip-revokes-and-rearms-current-light",
+                          ldr_edit_off=="off"
+                          and lesson06_ldr_state_agrees(
+                              lesson06_ldr_acceptance_state(ldr_page),650))
+
+                    # Exact lesson ownership removes the target and native light
+                    # input; returning to Lesson06 restores authored default 650.
+                    ldr_page.locator('.lesson-link[data-lesson="5"]').click()
+                    check("post-v16-lesson06-ldr-lesson-switch-revokes-old-light-source-authority",
+                          ldr_canvas.get_attribute("data-lesson-ldr-mode")=="off"
+                          and ldr_canvas.get_attribute(
+                              "data-lesson-ldr-target-count")=="0"
+                          and ldr_page.locator("#control-light").count()==0
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+                    ldr_page.locator('.lesson-link[data-lesson="6"]').click()
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-light')?.value==='650'
+                          &&canvas?.dataset.lessonLdrMode==='pointer-slide'
+                          &&canvas.dataset.lessonLdrLight==='650'
+                          &&canvas.dataset.lessonLdrTargetCount==='1';
+                    }""",timeout=5000)
+                    check("post-v16-lesson06-ldr-return-restores-authored-650-default",
+                          lesson06_ldr_state_agrees(
+                              lesson06_ldr_acceptance_state(ldr_page),650)
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress)
+
+                    # Native range remains keyboard-operable and 44px high on the
+                    # 375px viewport, with explicit non-measurement diagnostics.
+                    ldr_page.set_viewport_size({"width":375,"height":812})
+                    ldr_slider=ldr_page.locator("#control-light")
+                    ldr_slider.scroll_into_view_if_needed()
+                    ldr_mobile_rect=ldr_slider.bounding_box()
+                    ldr_slider.focus()
+                    ldr_mobile=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          ldr_mobile_rect is not None
+                          and ldr_mobile_rect["width"]>=44
+                          and ldr_mobile_rect["height"]>=44
+                          and ldr_mobile["focused"] is True
+                          and ldr_mobile["labelCount"]==1
+                          and ldr_mobile["labelFor"]=="control-light"
+                          and "Mức ánh sáng" in ldr_mobile["label"]
+                          and ldr_mobile["measuredIlluminance"]=="false"
+                          and ldr_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+                    ldr_page.set_viewport_size({"width":1280,"height":820})
+                    ldr_page.wait_for_function(
+                        "() => innerWidth===1280",timeout=3000)
+
+                    # Actual reload exercises beforeunload + scene dispose while a
+                    # real drag is held. Reloaded Lesson06 starts from authored650.
+                    dispose_pixel=lesson06_scene_ldr_pixel(ldr_page)
+                    ldr_page.mouse.move(dispose_pixel["x"],dispose_pixel["y"])
+                    ldr_page.mouse.down()
+                    ldr_page.mouse.move(dispose_pixel["x"]+20,dispose_pixel["y"],steps=4)
+                    ldr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonLdrPreviewLight==='550'
+                    """,timeout=3000)
+                    ldr_dispose_preview=lesson06_ldr_acceptance_state(ldr_page)
+                    ldr_page.reload(wait_until="domcontentloaded",timeout=20000)
+                    ready(ldr_page)
+                    ldr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-light')?.value==='650'
+                          &&canvas?.dataset.lessonLdrMode==='pointer-slide'
+                          &&canvas.dataset.lessonLdrLight==='650'
+                          &&canvas.dataset.lessonLdrGesture==='none';
+                    }""",timeout=5000)
+                    ldr_page.mouse.up()
+                    ldr_after_dispose=lesson06_ldr_acceptance_state(ldr_page)
+                    check("post-v16-lesson06-ldr-real-reload-disposes-held-gesture-without-stale-replay",
+                          ldr_dispose_preview["value"]==650
+                          and ldr_dispose_preview["previewLight"]=="550"
+                          and lesson06_ldr_state_agrees(ldr_after_dispose,650)
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress
+                          and ldr_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              ldr_progress_storage)
+
+                    # LDR input remains simulation-only: no learner edge/history,
+                    # progress/completion write, AVR evidence, or lux authority.
+                    ldr_page.locator("#stageTabWiring").click()
+                    ldr_undo=ldr_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    ldr_redo=ldr_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson06-ldr-no-electrical-graph-history-progress-or-physical-illuminance-write",
+                          ldr_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and ldr_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and ldr_page.locator(
+                              ".wire-activate").get_attribute(
+                                  "aria-pressed")=="false"
+                          and ldr_undo.count()==1 and ldr_undo.is_disabled()
+                          and ldr_redo.count()==1 and ldr_redo.is_disabled()
+                          and ldr_canvas.get_attribute(
+                              "data-lesson-ldr-mode")=="off"
+                          and ldr_canvas.get_attribute(
+                              "data-lesson-ldr-measured-illuminance")=="false"
+                          and ldr_page.locator(
+                              "#progressText").inner_text()==ldr_progress
+                          and ldr_page.locator(
+                              "#completeButton").is_visible()==
+                              ldr_complete_visible
+                          and ldr_page.locator("#avrMetrics").is_hidden()
+                          and ldr_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              ldr_progress_storage)
+                finally:
+                    ldr_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

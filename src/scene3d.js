@@ -36,6 +36,9 @@ const LESSON_FSR_DRAG_ADC_PER_PX = 5;
 const LESSON_ULTRASONIC_SOURCE_ID = "lesson-7-ultrasonic-obstacle";
 const LESSON_ULTRASONIC_DRAG_CM_PER_PX = 2;
 const LESSON_ULTRASONIC_VISUAL_SPAN = 2.4; // Conceptual display units, NOT centimeters.
+const LESSON_LDR_SOURCE_ID = "lesson-6-ldr-light-source";
+const LESSON_LDR_DRAG_ADC_PER_PX = 5; // Input convention, NOT lux per pixel.
+const LESSON_LDR_VISUAL_SPAN = 2.4; // Conceptual display units, NOT measured distance.
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1013,7 +1016,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1060,6 +1063,15 @@ function createModule(scene, kind, shared) {
       if(kind==="ldr"){
         const track=box(module,[.85,.03,.09],0x3b3c2e,[0,.58,0]);track.rotation.y=-.4;
         box(module,[.05,.035,.84],0x3b3c2e,[0,.59,0]);
+        // A separate semantic light-source handle, never a lux or voltage
+        // measurement and never a new electrical connection to the LDR.
+        const lamp=box(module,[.62,.88,.42],0xf0c35f,
+          [1.45+((1023-650)/1023)*LESSON_LDR_VISUAL_SPAN,.80,.10]);
+        lamp.userData={
+          kind:"ldr-light-source-target",lessonId:6,sourceId:LESSON_LDR_SOURCE_ID,
+          physicalVerified:false,electricalAuthority:false,measuredIlluminance:false,
+        };
+        state.ldrLightSource=lamp;
       }else if(kind==="temperature"){canvasLabel(module,"°C",0,.58,0,.85,77,"#fff");
       }else{
         canvasLabel(module,"FSR",0,.58,0,.95,62,"#edf6eb");
@@ -1206,6 +1218,7 @@ export function mountScene(host, onSelect = () => {}) {
   // A separate, transient 3D handle for the native Lesson07 distance range.
   // No 3D position becomes a sonar measurement or electrical graph edge.
   let lessonUltrasonicActuation={enabled:false,lessonId:null,distance:null,onDistanceChange:null};
+  let lessonLdrActuation={enabled:false,lessonId:null,light:null,onLightChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1417,6 +1430,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonUltrasonicActuation.enabled){
       parts.push("Vật cản 3D khái niệm bài 7: kéo sang phải để tăng hoặc sang trái để giảm khoảng cách đặt 2–400 cm, hai đơn vị khoảng cách giả lập cho mỗi pixel; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML. Có thể dùng bàn phím trên thanh trượt. Vị trí hình học không phải cm đo thực, xung Echo vật lý, kết nối điện hay AVR.");
     }
+    if(lessonLdrActuation.enabled){
+      parts.push("Nguồn sáng 3D khái niệm bài 6: kéo sang phải làm giảm chỉ số ánh sáng A0, kéo sang trái làm tăng, năm điểm ADC mỗi pixel; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML 0–1023. Bàn phím dùng thanh trượt HTML. Khoảng cách hình học không đo lux, điện áp, độ rọi, điện trở hay tín hiệu vật lý; không chứng minh nối dây hay chạy AVR.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1572,6 +1588,14 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonUltrasonicPhysicalVerified="false";
   canvas.dataset.lessonUltrasonicElectricalAuthority="false";
   canvas.dataset.lessonUltrasonicMeasuredEcho="false";
+  canvas.dataset.lessonLdrMode="off";
+  canvas.dataset.lessonLdrLight="";
+  canvas.dataset.lessonLdrPreviewLight="";
+  canvas.dataset.lessonLdrGesture="none";
+  canvas.dataset.lessonLdrTargetCount="0";
+  canvas.dataset.lessonLdrPhysicalVerified="false";
+  canvas.dataset.lessonLdrElectricalAuthority="false";
+  canvas.dataset.lessonLdrMeasuredIlluminance="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2824,6 +2848,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
+    resetLessonLdrActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3832,6 +3857,155 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonLdrVisual(){
+    const gesture=drag?.kind==="lesson-ldr-actuator"?drag:null;
+    const preview=gesture&&moved?gesture.previewLight:null;
+    const visualLight=preview??lessonLdrActuation.light??650;
+    if(activeModule?.ldrLightSource&&currentLessonId===6){
+      // This is a visual input handle, not measured optical attenuation.
+      activeModule.ldrLightSource.position.x=
+        1.45+((1023-visualLight)/1023)*LESSON_LDR_VISUAL_SPAN;
+    }
+    canvas.dataset.lessonLdrMode=lessonLdrActuation.enabled?"pointer-slide":"off";
+    canvas.dataset.lessonLdrLight=lessonLdrActuation.enabled
+      ?String(lessonLdrActuation.light):"";
+    canvas.dataset.lessonLdrPreviewLight=preview===null?"":String(preview);
+    canvas.dataset.lessonLdrGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonLdrTargetCount=activeModule?.ldrLightSource?"1":"0";
+    canvas.dataset.lessonLdrPhysicalVerified="false";
+    canvas.dataset.lessonLdrElectricalAuthority="false";
+    canvas.dataset.lessonLdrMeasuredIlluminance="false";
+  }
+  function currentLessonLdrActuator(){
+    if(!lessonLdrActuation.enabled||disposed||contextLost||
+       currentLessonId!==6||lessonLdrActuation.lessonId!==6||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonLdrActuation.light)||
+       lessonLdrActuation.light<0||lessonLdrActuation.light>1023||
+       typeof lessonLdrActuation.onLightChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const lightSource=activeModule?.ldrLightSource;
+    if(lightSource?.isMesh!==true||lightSource.parent!==activeModule.module||
+       lightSource.userData?.kind!=="ldr-light-source-target"||
+       lightSource.userData.sourceId!==LESSON_LDR_SOURCE_ID||
+       lightSource.userData.lessonId!==6||
+       lightSource.userData.physicalVerified!==false||
+       lightSource.userData.electricalAuthority!==false||
+       lightSource.userData.measuredIlluminance!==false)return null;
+    return {lightSource,lessonId:6,sourceId:LESSON_LDR_SOURCE_ID,
+      light:lessonLdrActuation.light,onLightChange:lessonLdrActuation.onLightChange};
+  }
+  function lessonLdrStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonLdrActuation.enabled,
+      active:currentLessonLdrActuator()!==null,
+      lessonId:lessonLdrActuation.lessonId,
+      light:lessonLdrActuation.enabled?lessonLdrActuation.light:null,
+      previewLight:drag?.kind==="lesson-ldr-actuator"&&moved
+        ?drag.previewLight:null,
+      targetCount:activeModule?.ldrLightSource?1:0,
+      mode:lessonLdrActuation.enabled?"pointer-slide":"off",
+      physicalVerified:false,electricalAuthority:false,measuredIlluminance:false});
+  }
+  function cancelLessonLdrGesture(redraw=false){
+    if(drag?.kind!=="lesson-ldr-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonLdrVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonLdrActuation(redraw=false){
+    cancelLessonLdrGesture(false);
+    lessonLdrActuation={enabled:false,lessonId:null,light:null,onLightChange:null};
+    syncLessonLdrVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonLdrStatus(true);
+  }
+  function setLessonLdrActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,light:null,previewLight:null,targetCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,measuredIlluminance:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson LDR options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonLdrActuation(true);
+    const required=["enabled","lessonId","light","onLightChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const descriptor=Object.getOwnPropertyDescriptor(options,key);
+         return !descriptor||!("value" in descriptor);
+       }))throw new RangeError("LDR enabled phải có đúng enabled/lessonId/light/onLightChange");
+    if(options.lessonId!==6||currentLessonId!==6){
+      throw new RangeError("Nguồn sáng LDR 3D chỉ được điều khiển trong bài 6");
+    }
+    if(!Number.isInteger(options.light)||options.light<0||options.light>1023){
+      throw new RangeError("Chỉ số ánh sáng LDR giả lập phải là số nguyên 0–1023");
+    }
+    if(typeof options.onLightChange!=="function"){
+      throw new TypeError("onLightChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.ldrLightSource?.userData?.sourceId!==LESSON_LDR_SOURCE_ID){
+      throw new RangeError("Nguồn sáng không khả dụng trong scene/edit/layout hiện tại");
+    }
+    const same=lessonLdrActuation.enabled&&lessonLdrActuation.lessonId===6;
+    if(!same){
+      resetLessonLdrActuation(false);
+    }else if(drag?.kind==="lesson-ldr-actuator"&&
+      (options.light!==lessonLdrActuation.light||
+       options.onLightChange!==lessonLdrActuation.onLightChange)){
+      cancelLessonLdrGesture(false);
+    }
+    lessonLdrActuation={enabled:true,lessonId:6,light:options.light,
+      onLightChange:options.onLightChange};
+    syncLessonLdrVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonLdrStatus(true);
+  }
+  function lessonLdrHit(event){
+    const current=currentLessonLdrActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||
+       (pointerType==="mouse"&&event.button!==0)||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.lightSource,false)[0]??null;
+    return hit?.object===current.lightSource?{...current,pointerType}:null;
+  }
+  function updateLessonLdrDrag(event){
+    if(drag?.kind!=="lesson-ldr-actuator"||!moved)return false;
+    const current=currentLessonLdrActuator();
+    if(!current||current.lightSource!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.light!==drag.startHostLight||
+       current.onLightChange!==drag.onLightChange){
+      cancelLessonLdrGesture(true);
+      return false;
+    }
+    const deltaX=event.clientX-drag.startClientX;
+    drag.previewLight=Math.max(0,Math.min(1023,
+      Math.round(drag.startHostLight-deltaX*LESSON_LDR_DRAG_ADC_PER_PX)));
+    syncLessonLdrVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonLdrLight(light,pointerType,callback){
+    if(!Number.isInteger(light)||light<0||light>1023||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(light,Object.freeze({
+        lessonId:6,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -3849,7 +4023,8 @@ export function mountScene(host, onSelect = () => {}) {
   function syncSceneOwnedTouchAction(){
     canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled||
       lessonPianoActuation.enabled||lessonServoActuation.enabled||
-      lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled)?"none":"";
+      lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled||
+      lessonLdrActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -4073,6 +4248,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonServoActuation(false);
     if(nextEditEnabled)resetLessonFsrActuation(false);
     if(nextEditEnabled)resetLessonUltrasonicActuation(false);
+    if(nextEditEnabled)resetLessonLdrActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -4729,6 +4905,20 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const ldrHit=lessonLdrHit(event);
+    if(ldrHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-ldr-actuator",lessonId:6,
+        sourceId:ldrHit.sourceId,sourceObject:ldrHit.lightSource,
+        startHostLight:ldrHit.light,previewLight:ldrHit.light,
+        onLightChange:ldrHit.onLightChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonLdrVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -4875,6 +5065,9 @@ export function mountScene(host, onSelect = () => {}) {
     }else if(drag.kind==="lesson-ultrasonic-actuator"){
       event.preventDefault();
       if(moved)updateLessonUltrasonicDrag(event);
+    }else if(drag.kind==="lesson-ldr-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonLdrDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -4943,6 +5136,16 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-ldr-actuator"){
+      const deltaX=event.clientX-drag.startClientX;
+      const deltaY=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(deltaX,deltaY)>drag.tapThreshold)moved=true;
+      if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonLdrDrag(event);
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
     if(select&&drag.kind==="lesson-ultrasonic-actuator"){
       const deltaX=event.clientX-drag.startClientX;
       const deltaY=event.clientY-drag.startClientY;
@@ -5104,6 +5307,24 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    if(finished.kind==="lesson-ldr-actuator"){
+      const current=currentLessonLdrActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===6&&
+        current.lightSource===finished.sourceObject&&
+        current.sourceId===finished.sourceId&&
+        current.light===finished.startHostLight&&
+        current.onLightChange===finished.onLightChange);
+      syncLessonLdrVisual(); // Clear preview before notifying the native host.
+      if(select&&moved&&stillCurrent&&
+         Number.isInteger(finished.previewLight)&&
+         finished.previewLight>=0&&finished.previewLight<=1023&&
+         finished.previewLight!==finished.startHostLight){
+        emitLessonLdrLight(finished.previewLight,finished.pointerType,
+          finished.onLightChange);
+      }
+      invalidate();
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -5225,6 +5446,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonServoGesture(false);
       cancelLessonFsrGesture(false);
       cancelLessonUltrasonicGesture(false);
+      cancelLessonLdrGesture(false);
       return;
     }
     invalidate();
@@ -5295,6 +5517,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
+    resetLessonLdrActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -5355,6 +5578,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
+    resetLessonLdrActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -5368,6 +5592,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonServoVisual();
     syncLessonFsrVisual();
     syncLessonUltrasonicVisual();
+    syncLessonLdrVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -5450,6 +5675,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonServoVisual();
     syncLessonFsrVisual();
     syncLessonUltrasonicVisual();
+    syncLessonLdrVisual();
     invalidate();
   }
   function control(action){
@@ -5467,7 +5693,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -5478,6 +5704,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
+    resetLessonLdrActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

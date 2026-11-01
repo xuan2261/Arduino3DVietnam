@@ -80,7 +80,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
     /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
     !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
   check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners",
-    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(apiSource) &&
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\)\?"none":""/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
   check("exact-knob-hit-is-nonrecursive-and-current-only",
@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -514,7 +514,7 @@ export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
     /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
     /b\.type="button"/.test(renderControlsSource));
   check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -726,7 +726,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
     /resetLessonServoActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonServoActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-servo-pointer-drag",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("servo-visual-is-transient-preview-over-latest-simulator-snapshot-with-explicit-diagnostics",
     /const gesture=drag\?\.kind==="lesson-servo-actuator"\?drag:null/.test(apiSource) &&
     /const preview=gesture&&moved\?gesture\.previewAngle:null/.test(apiSource) &&
@@ -743,7 +743,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
   check("canvas-keyboard-path-is-not-hijacked-by-servo-actuation",
     !/lessonServo|servo-horn-grip|setLessonServoActuation/.test(onKeySource));
   check("public-controller-exports-servo-api-after-existing-button-potentiometer-and-piano-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
   check("lesson12-native-range-is-authored-zero-to-180-step-one-default-90-and-rendered-as-keyboard-capable-range",
     /id: 12,[\s\S]*controls: \[slider\("angle", "Góc servo", 0, 180, 90, "°"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1018,7 +1018,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
     /resetLessonFsrActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonFsrActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-fsr-pointer-press-and-squeeze",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-plus96-five-per-pixel-keyboard-fallback-and-no-newton-electrical-claim",
     /Đĩa FSR 3D bài 15:[\s\S]*tăng 96 điểm ADC khái niệm,[\s\S]*kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel,[\s\S]*thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML[\s\S]*Có thể dùng bàn phím trên thanh trượt[\s\S]*không phải lực newton/.test(sceneSource));
   check("fsr-diagnostics-expose-host-value-preview-gesture-single-pad-and-no-authority",
@@ -1033,7 +1033,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
   check("canvas-keyboard-path-is-not-hijacked-by-fsr-actuation",
     !/lessonFsr|fsr-press-pad|setLessonFsrActuation/.test(onKeySource));
   check("public-controller-exports-fsr-api-after-existing-button-potentiometer-piano-and-servo-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
   check("lesson15-native-range-is-authored-zero-to-1023-step-one-default300-adc-and-rendered-as-keyboard-capable-range",
     /id: 15,[\s\S]*controls: \[slider\("force", "Chỉ số FSR", 0, 1023, 300, "ADC"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1311,7 +1311,7 @@ export function runScene3DLessonUltrasonicSourceContracts(sceneSource, appSource
     /syncLessonUltrasonicVisual\(\)/.test(updateSource) &&
     !/emitLessonUltrasonicDistance|onControlsInput/.test(updateSource));
   check("scene-owned-touch-action-covers-ultrasonic-pointer-slide",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-two-per-pixel-rightward-slide-release-keyboard-and-no-real-sonar-claim",
     /Vật cản 3D khái niệm bài 7:[\s\S]*kéo sang phải để tăng hoặc sang trái để giảm khoảng cách đặt 2–400 cm,[\s\S]*hai đơn vị khoảng cách giả lập cho mỗi pixel;[\s\S]*thả mới cập nhật thanh trượt HTML\.[\s\S]*Có thể dùng bàn phím trên thanh trượt\.[\s\S]*không phải cm đo thực, xung Echo vật lý, kết nối điện hay AVR/.test(sceneSource));
   check("ultrasonic-diagnostics-expose-host-distance-preview-gesture-single-target-and-no-authority",
@@ -1326,7 +1326,7 @@ export function runScene3DLessonUltrasonicSourceContracts(sceneSource, appSource
   check("canvas-keyboard-path-is-not-hijacked-by-ultrasonic-actuation",
     !/lessonUltrasonic|ultrasonic-obstacle-target|setLessonUltrasonicActuation/.test(onKeySource));
   check("public-controller-exports-ultrasonic-api-after-existing-button-potentiometer-piano-servo-and-fsr-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
   check("lesson07-native-range-is-authored-two-to-400-step-one-default70-centimeters-and-rendered-as-keyboard-capable-range",
     /id: 7,[\s\S]*controls: \[slider\("distance", "Khoảng cách", 2, 400, 70, "cm"\)\]/.test(lessonsSource) &&
     /insight: "Mô phỏng cảnh báo khi khoảng cách dưới 20 cm; khoảng đo sử dụng ở đây chỉ là tham số giả lập\."/.test(lessonsSource) &&
@@ -1448,6 +1448,310 @@ export async function runScene3DLessonUltrasonicRaycastContracts() {
 
   obstacle.geometry.dispose();
   material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonLdrSourceContracts(sceneSource, appSource, lessonsSource, simulatorSource, appCssSource) {
+  for (const [name, value] of Object.entries({sceneSource, appSource, lessonsSource, simulatorSource, appCssSource})) {
+    if (typeof value !== "string" || !value) throw new TypeError(name + " text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson06 LDR source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonLdrVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const touchActionStart = sceneSource.indexOf("function syncSceneOwnedTouchAction");
+  const touchActionEnd = sceneSource.indexOf("function lessonPotentiometerActuationStatus", touchActionStart);
+  const touchActionSource = sceneSource.slice(touchActionStart, touchActionEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const onKeyStart = sceneSource.indexOf("const onKey=", visibilityEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=", onKeyStart);
+  const onKeySource = sceneSource.slice(onKeyStart, contextLostStart);
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control(action)", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const controlsInputStart = appSource.indexOf("function onControlsInput(event)");
+  const controlsInputEnd = appSource.indexOf("function setButtonPress", controlsInputStart);
+  const controlsInputSource = appSource.slice(controlsInputStart, controlsInputEnd);
+  const startPauseStart = appSource.indexOf("function startPause()");
+  const startPauseEnd = appSource.indexOf("function resetSimulation", startPauseStart);
+  const startPauseSource = appSource.slice(startPauseStart, startPauseEnd);
+  const appLdrStart = appSource.indexOf("function revokeSceneLessonLdrActuation");
+  const appLdrEnd = appSource.indexOf("function playNote", appLdrStart);
+  const appLdrSource = appSource.slice(appLdrStart, appLdrEnd);
+  const simulatorLdrStart = simulatorSource.indexOf("case 6:");
+  const simulatorLdrEnd = simulatorSource.indexOf("case 7:", simulatorLdrStart);
+  const simulatorLdrSource = simulatorSource.slice(simulatorLdrStart, simulatorLdrEnd);
+
+  check("lesson06-creates-exactly-one-tagged-nonauthoritative-unmeasured-light-source-target",
+    /const LESSON_LDR_SOURCE_ID = "lesson-6-ldr-light-source";/.test(sceneSource) &&
+    (moduleSource.match(/kind:"ldr-light-source-target"/g)?.length ?? 0) === 1 &&
+    /kind:"ldr-light-source-target",lessonId:6,[\s\S]*sourceId:LESSON_LDR_SOURCE_ID,[\s\S]*physicalVerified:false,electricalAuthority:false,measuredIlluminance:false/.test(moduleSource));
+  check("ldr-conceptual-horizontal-drag-step-and-farther-darker-visual-mapping-are-exact",
+    /const LESSON_LDR_DRAG_ADC_PER_PX = 5;/.test(sceneSource) &&
+    /const LESSON_LDR_VISUAL_SPAN = 2\.4; \/\/ Conceptual display units, NOT measured distance\./.test(sceneSource) &&
+    /const visualLight=preview\?\?lessonLdrActuation\.light\?\?650/.test(apiSource) &&
+    /ldrLightSource\.position\.x=[\s\S]*1\.45\+\(\(1023-visualLight\)\/1023\)\*LESSON_LDR_VISUAL_SPAN/.test(apiSource));
+  check("ldr-datasets-initialize-off-empty-zero-and-explicitly-unverified",
+    /dataset\.lessonLdrMode="off"/.test(sceneSource) &&
+    /dataset\.lessonLdrLight=""/.test(sceneSource) &&
+    /dataset\.lessonLdrPreviewLight=""/.test(sceneSource) &&
+    /dataset\.lessonLdrGesture="none"/.test(sceneSource) &&
+    /dataset\.lessonLdrTargetCount="0"/.test(sceneSource) &&
+    /dataset\.lessonLdrPhysicalVerified="false"/.test(sceneSource) &&
+    /dataset\.lessonLdrElectricalAuthority="false"/.test(sceneSource) &&
+    /dataset\.lessonLdrMeasuredIlluminance="false"/.test(sceneSource));
+  check("public-ldr-api-is-exact-four-field-enabled-shape-with-idempotent-safe-off",
+    /function setLessonLdrActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonLdrActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","light","onLightChange"\]/.test(apiSource) &&
+    /Object\.getPrototypeOf\(options\)!==Object\.prototype/.test(apiSource));
+  check("enabled-ldr-path-is-exactly-lesson06-integer-zero-to-1023-with-function-callback",
+    /options\.lessonId!==6\|\|currentLessonId!==6/.test(apiSource) &&
+    /!Number\.isInteger\(options\.light\)\|\|options\.light<0\|\|options\.light>1023/.test(apiSource) &&
+    /typeof options\.onLightChange!=="function"/.test(apiSource));
+  check("ldr-actuator-fails-closed-on-context-layout-edit-hidden-or-noncanonical-target",
+    /!lessonLdrActuation\.enabled\|\|disposed\|\|contextLost/.test(apiSource) &&
+    /labEdit\.enabled\|\|activeLabLayout/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /\.userData\?\.kind!=="ldr-light-source-target"/.test(apiSource) &&
+    /\.userData\.sourceId!==LESSON_LDR_SOURCE_ID/.test(apiSource) &&
+    /\.userData\.lessonId!==6/.test(apiSource) &&
+    /\.userData\.physicalVerified!==false/.test(apiSource) &&
+    /\.userData\.electricalAuthority!==false/.test(apiSource) &&
+    /\.userData\.measuredIlluminance!==false/.test(apiSource));
+  check("ldr-status-is-frozen-with-preview-target-count-mode-and-no-authority",
+    /function lessonLdrStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonLdrActuator\(\)!==null,[\s\S]*previewLight:[\s\S]*targetCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false,measuredIlluminance:false/.test(apiSource));
+  check("scene-ldr-api-never-mutates-host-controls-electrical-graph-progress-storage-or-avr",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|markCompleted|quizSolved|localStorage|avr/i.test(apiSource));
+  check("ldr-hit-test-raycasts-only-current-exact-target-nonrecursively",
+    /function lessonLdrHit\(event\)/.test(apiSource) &&
+    /const current=currentLessonLdrActuator\(\)/.test(apiSource) &&
+    /scene\.updateMatrixWorld\(true\)/.test(apiSource) &&
+    /raycaster\.intersectObject\(current\.[A-Za-z0-9_]+,false\)\[0\]\?\?null/.test(apiSource));
+  const ldrDownStart = downSource.indexOf("const ldrHit=lessonLdrHit(event)");
+  const ldrDownEnd = downSource.indexOf("if(labEdit.enabled&&activeLabLayout)", ldrDownStart);
+  const ldrDownSource = downSource.slice(ldrDownStart, ldrDownEnd);
+  check("pointerdown-ldr-owner-precedes-lab-and-captures-stable-host-light-callback-without-host-write",
+    ldrDownStart >= 0 && ldrDownEnd > ldrDownStart &&
+    /kind:"lesson-ldr-actuator",lessonId:6/.test(ldrDownSource) &&
+    /startHostLight:ldrHit\.light/.test(ldrDownSource) &&
+    /previewLight:ldrHit\.light/.test(ldrDownSource) &&
+    /onLightChange:ldrHit\.onLightChange/.test(ldrDownSource) &&
+    /canvas\.setPointerCapture\?\.\(event\.pointerId\)/.test(ldrDownSource) &&
+    !/emitLessonLdrLight|onControlsInput|state\.controls/.test(ldrDownSource));
+  const ldrMoveStart = moveSource.indexOf('drag.kind==="lesson-ldr-actuator"');
+  const ldrMoveEnd = moveSource.indexOf('}else if(drag.kind==="lab-component")', ldrMoveStart);
+  const ldrMoveSource = moveSource.slice(ldrMoveStart, ldrMoveEnd);
+  check("pointermove-owns-ldr-preview-without-camera-layout-or-host-callback",
+    ldrMoveStart >= 0 && ldrMoveEnd > ldrMoveStart &&
+    /event\.preventDefault\(\)/.test(ldrMoveSource) &&
+    /if\(moved\)updateLessonLdrDrag\(event\)/.test(ldrMoveSource) &&
+    !/theta|phi|setLabVisualTransform|emitLessonLdrLight|onControlsInput/.test(ldrMoveSource));
+  check("ldr-preview-is-bounded-start-minus-five-adc-per-rightward-css-pixel",
+    /const deltaX=event\.clientX-drag\.startClientX/.test(apiSource) &&
+    /drag\.previewLight=Math\.max\(0,Math\.min\(1023,[\s\S]*Math\.round\(drag\.startHostLight-deltaX\*LESSON_LDR_DRAG_ADC_PER_PX\)\)\)/.test(apiSource));
+  check("pointerup-folds-final-ldr-release-displacement-before-clearing-owned-drag",
+    /if\(select&&drag\.kind==="lesson-ldr-actuator"\)[\s\S]*const deltaX=event\.clientX-drag\.startClientX;[\s\S]*Math\.hypot\(deltaX,deltaY\)>drag\.tapThreshold[\s\S]*const original=drag;[\s\S]*updateLessonLdrDrag\(event\)[\s\S]*if\(drag!==original\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonLdrDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("pointerup-ldr-commit-requires-current-source-host-light-callback-move-and-new-bounded-preview",
+    /finished\.kind==="lesson-ldr-actuator"/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.light===finished\.startHostLight/.test(finishSource) &&
+    /current\.onLightChange===finished\.onLightChange/.test(finishSource) &&
+    /if\(select&&moved&&stillCurrent&&[\s\S]*Number\.isInteger\(finished\.previewLight\)&&[\s\S]*finished\.previewLight>=0&&finished\.previewLight<=1023&&[\s\S]*finished\.previewLight!==finished\.startHostLight\)[\s\S]*emitLessonLdrLight/.test(finishSource));
+  check("ldr-host-callback-meta-is-frozen-exact-five-field-pointer-change-and-physical-unverified",
+    /callback\(light,Object\.freeze\(\{[\s\S]*lessonId:6,source:"pointer",pointerType,phase:"change",[\s\S]*physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("pointercancel-and-lostcapture-share-ldr-noncommit-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("hidden-document-cancels-ldr-preview-without-host-change",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonLdrGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonLdrLight/.test(visibilitySource));
+  check("layout-edit-lesson-context-loss-and-dispose-reset-ldr-actuation",
+    /resetLessonLdrActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonLdrActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonLdrActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonLdrActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonLdrActuation\(false\)/.test(publicSource));
+  check("scene-update-resyncs-ldr-visual-without-emitting-input",
+    /syncLessonLdrVisual\(\)/.test(updateSource) &&
+    !/emitLessonLdrLight|onControlsInput/.test(updateSource));
+  check("scene-owned-touch-action-covers-ldr-pointer-slide",
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\)\?"none":""/.test(touchActionSource));
+  check("canvas-accessibility-explains-rightward-decrease-minus-five-release-keyboard-and-no-lux-voltage-photoresistance-claim",
+    /Nguồn sáng 3D khái niệm bài 6:[\s\S]*kéo sang phải làm giảm chỉ số ánh sáng A0,[\s\S]*kéo sang trái làm tăng,[\s\S]*năm điểm ADC mỗi pixel;[\s\S]*thả mới cập nhật thanh trượt HTML 0–1023\.[\s\S]*Bàn phím dùng thanh trượt HTML\.[\s\S]*không đo lux, điện áp, độ rọi, điện trở/.test(sceneSource));
+  check("ldr-diagnostics-expose-host-light-preview-gesture-single-target-and-no-authority",
+    /dataset\.lessonLdrMode=lessonLdrActuation\.enabled\?"pointer-slide":"off"/.test(apiSource) &&
+    /dataset\.lessonLdrLight=lessonLdrActuation\.enabled/.test(apiSource) &&
+    /dataset\.lessonLdrPreviewLight=preview===null\?"":String\(preview\)/.test(apiSource) &&
+    /dataset\.lessonLdrGesture=gesture\?\(moved\?"dragging":"grabbed"\):"none"/.test(apiSource) &&
+    /dataset\.lessonLdrTargetCount=/.test(apiSource) &&
+    /dataset\.lessonLdrPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonLdrElectricalAuthority="false"/.test(apiSource) &&
+    /dataset\.lessonLdrMeasuredIlluminance="false"/.test(apiSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-ldr-actuation",
+    !/lessonLdr|ldr-light-source-target|setLessonLdrActuation/.test(onKeySource));
+  check("public-controller-exports-ldr-api-after-existing-ultrasonic-owner",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent/.test(publicSource));
+  check("lesson06-native-range-is-authored-zero-to-1023-step-one-default650-adc-and-rendered-as-keyboard-capable-range",
+    /id: 6,[\s\S]*controls: \[slider\("light", "Mức ánh sáng", 0, 1023, 650\)\]/.test(lessonsSource) &&
+    /insight: "Trong sơ đồ bài này, ADC thấp đại diện ánh sáng yếu; nếu ADC < 400, LED bật\."/.test(lessonsSource) &&
+    /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
+    /input\.type="range";input\.id=`control-\$\{config\.key\}`;input\.dataset\.control=config\.key/.test(renderControlsSource) &&
+    /Object\.assign\(input,\{min:config\.min,max:config\.max,step:config\.step,value:state\.controls\[config\.key\]\}\)/.test(renderControlsSource));
+  check("lesson06-native-light-range-has-44px-keyboard-target-and-focus-ring",
+    /\.control-field input#control-light\[type=range\] \{ min-height: 44px; height: 44px; \}/.test(appCssSource) &&
+    /\.control-field input#control-light\[type=range\]:focus-visible \{ outline: 3px solid #0b8b7b; outline-offset: 2px; \}/.test(appCssSource));
+  check("lesson06-simulator-clamps-adc-zero-to-1023-uses-dark-below400-and-gates-led-output-on-running",
+    /const light = Math\.round\(clamp\(c\.light, 0, 1023\)\)/.test(simulatorLdrSource) &&
+    /const dark = light < 400/.test(simulatorLdrSource) &&
+    /kind: "ldr", led: running && dark, brightness: running && dark \? 1 : 0/.test(simulatorLdrSource) &&
+    /value: `Ánh sáng: \$\{light\} ADC`/.test(simulatorLdrSource) &&
+    /serial: `A0=\$\{light\}; DARK=\$\{dark\}; LED=\$\{running && dark \? "ON" : "OFF"\}`/.test(simulatorLdrSource) &&
+    /pins: \[\["A0", String\(light\)\], \["D13", running && dark \? "HIGH" : "LOW"\]\]/.test(simulatorLdrSource));
+  check("host-revoke-retires-ldr-binding-and-safe-offs-scene-without-changing-light",
+    /function revokeSceneLessonLdrActuation\(\)\{[\s\S]*const binding=state\.sceneLdrActuation;[\s\S]*if\(binding\)binding\.active=false;[\s\S]*state\.sceneLdrActuation=null;[\s\S]*setLessonLdrActuation\?\.\(\{enabled:false\}\)/.test(appLdrSource) &&
+    !/state\.controls\.light\s*=/.test(appLdrSource.slice(0, appLdrSource.indexOf("function syncSceneLessonLdrActuation"))));
+  check("host-sync-requires-exact-current-connected-enabled-lesson06-native-light-range-and-valid-stage",
+    /function syncSceneLessonLdrActuation\(\)/.test(appLdrSource) &&
+    /if\(!scene\?\.setLessonLdrActuation\)return/.test(appLdrSource) &&
+    /find\(item=>item\.key==="light"\)/.test(appLdrSource) &&
+    /const light=state\.controls\.light/.test(appLdrSource) &&
+    /const slider=\$\("control-light"\)/.test(appLdrSource) &&
+    /state\.lessonId===6&&config\?\.type==="slider"&&[\s\S]*config\.min===0&&config\.max===1023&&config\.step===1/.test(appLdrSource) &&
+    /Number\.isInteger\(light\)&&light>=0&&light<=1023/.test(appLdrSource) &&
+    /slider\?\.tagName==="INPUT"&&slider\.type==="range"&&[\s\S]*slider\.dataset\.control==="light"&&[\s\S]*slider\.min==="0"&&slider\.max==="1023"&&slider\.step==="1"&&[\s\S]*!slider\.disabled&&slider\.isConnected/.test(appLdrSource) &&
+    /if\(!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\)/.test(appLdrSource));
+  check("host-scene-ldr-callback-requires-current-binding-bounded-light-and-exact-frozen-five-field-meta",
+    /binding\.onLightChange=\(proposed,meta\)=>\{[\s\S]*binding!==state\.sceneLdrActuation\|\|!binding\.active\|\|[\s\S]*state\.lessonId!==6\|\|state\.stageTab!=="3d"\|\|document\.hidden\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\|\|[\s\S]*!Number\.isInteger\(proposed\)\|\|proposed<0\|\|proposed>1023/.test(appLdrSource) &&
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|[\s\S]*Object\.getPrototypeOf\(meta\)!==Object\.prototype\|\|[\s\S]*Reflect\.ownKeys\(meta\)\.length!==5/.test(appLdrSource) &&
+    /const fields=\["lessonId","source","pointerType","phase","physicalVerified"\]/.test(appLdrSource) &&
+    /values\.lessonId!==6\|\|values\.source!=="pointer"\|\|[\s\S]*!\["mouse","touch","pen"\]\.includes\(values\.pointerType\)\|\|[\s\S]*values\.phase!=="change"\|\|values\.physicalVerified!==false/.test(appLdrSource));
+  check("accepted-scene-ldr-change-reuses-native-change-path-and-requires-nonauthoritative-unmeasured-single-target-receipt",
+    /const native=\$\("control-light"\)/.test(appLdrSource) &&
+    /native!==slider\|\|native\?\.tagName!=="INPUT"\|\|native\.type!=="range"\|\|[\s\S]*native\.dataset\.control!=="light"\|\|native\.min!=="0"\|\|[\s\S]*native\.max!=="1023"\|\|native\.step!=="1"\|\|[\s\S]*native\.disabled\|\|!native\.isConnected/.test(appLdrSource) &&
+    /native\.value=String\(proposed\);[\s\S]*onControlsInput\(\{target:native,type:"change",source:"scene"\}\);[\s\S]*return true/.test(appLdrSource) &&
+    /scene\.setLessonLdrActuation\(\{[\s\S]*enabled:true,lessonId:6,light,onLightChange:binding\.onLightChange,[\s\S]*\}\)/.test(appLdrSource) &&
+    /receipt\?\.active!==true\|\|receipt\?\.targetCount!==1\|\|[\s\S]*receipt\?\.physicalVerified!==false\|\|receipt\?\.electricalAuthority!==false\|\|[\s\S]*receipt\?\.measuredIlluminance!==false/.test(appLdrSource) &&
+    !/connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|recordPracticeAction|markCompleted|quizSolved|mastery/.test(appLdrSource));
+  check("native-light-input-revokes-held-ldr-preview-before-host-change-and-resyncs-scene-afterward",
+    /if\(key==="light"&&state\.lessonId===6&&config\.type==="slider"&&[\s\S]*event\.source!=="scene"\)[\s\S]*revokeSceneLessonLdrActuation\(\)/.test(controlsInputSource) &&
+    /if\(key==="light"&&state\.lessonId===6&&config\.type==="slider"\)[\s\S]*syncSceneLessonLdrActuation\(\)/.test(controlsInputSource));
+  check("start-pause-revokes-stale-ldr-preview-before-run-state-change-and-finally-rearms",
+    /const rearmLdr=state\.lessonId===6;[\s\S]*if\(rearmLdr\)revokeSceneLessonLdrActuation\(\);[\s\S]*try\{/.test(startPauseSource) &&
+    /\}finally\{[\s\S]*if\(rearmLdr\)syncSceneLessonLdrActuation\(\);[\s\S]*\}\s*\}/.test(startPauseSource));
+  check("host-stage-reset-lesson-visibility-focus-edit-layout-reconcile-webgl-beforeunload-and-initial-mount-own-ldr-lifecycle",
+    /function renderStage\(\)[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /function resetSimulation\(\)[\s\S]*revokeSceneLessonLdrActuation\(\)[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /function setLesson\(id,replaceHash=true\)[\s\S]*revokeSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /document\.addEventListener\("visibilitychange",\(\)=>\{[\s\S]*revokeSceneLessonLdrActuation\(\)[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("blur",\(\)=>\{[\s\S]*revokeSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("focus",\(\)=>\{[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("beforeunload",\(\)=>\{[\s\S]*revokeSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /onEditModeChange\(\)\{[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /onLayoutChange\(\)\{[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /onSceneReconciled\(layout,meta,lessonId\)\{[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource) &&
+    /state\.scene=mountScene[\s\S]*syncSceneLessonLdrActuation\(\)/.test(appSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonLdrRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson06 LDR raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const module = new T.Group();
+  module.position.set(5.15, .55, .10);
+  const targetMaterial = new T.MeshBasicMaterial();
+  const sensorMaterial = new T.MeshBasicMaterial();
+  const target = new T.Mesh(new T.SphereGeometry(.38, 18, 12), targetMaterial);
+  target.position.set(1.55, .85, .10);
+  target.userData = {
+    kind: "ldr-light-source-target", lessonId: 6,
+    sourceId: "lesson-6-ldr-light-source",
+    physicalVerified: false, electricalAuthority: false, measuredIlluminance: false,
+  };
+  const sensor = new T.Mesh(new T.CylinderGeometry(.71, .71, .22, 32), sensorMaterial);
+  sensor.position.set(0, .45, 0);
+  module.add(target, sensor);
+  module.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const firstHitAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObject(target, false)[0]?.object ?? null;
+  };
+  const targetCenter = target.getWorldPosition(new T.Vector3());
+  const sensorCenter = sensor.getWorldPosition(new T.Vector3());
+  check("exactly-one-native-three-ldr-light-source-is-the-tagged-raycast-surface",
+    module.children.filter(child=>child.userData?.kind==="ldr-light-source-target").length===1 &&
+    target.isMesh===true && target.parent===module && target.children.length===0 &&
+    target.userData.lessonId===6 && target.userData.sourceId==="lesson-6-ldr-light-source" &&
+    target.userData.physicalVerified===false && target.userData.electricalAuthority===false &&
+    target.userData.measuredIlluminance===false);
+  check("default-view-ldr-light-source-center-hits-exact-target",
+    firstHitAt(targetCenter)===target);
+  check("ldr-sensor-body-point-does-not-hit-light-source-only-raycast",
+    firstHitAt(sensorCenter)===null);
+
+  target.geometry.dispose();
+  sensor.geometry.dispose();
+  targetMaterial.dispose();
+  sensorMaterial.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
 
@@ -1864,6 +2168,11 @@ export async function runScene3DContracts() {
   for (const name of lessonUltrasonicSourceContracts.checks) check("lesson-ultrasonic-source-"+name,true);
   const lessonUltrasonicRaycastContracts = await runScene3DLessonUltrasonicRaycastContracts();
   for (const name of lessonUltrasonicRaycastContracts.checks) check("lesson-ultrasonic-raycast-"+name,true);
+  const lessonLdrSourceContracts = runScene3DLessonLdrSourceContracts(
+    sceneSource, appSource, lessonsSource, simulatorSource, appCssSource);
+  for (const name of lessonLdrSourceContracts.checks) check("lesson-ldr-source-"+name,true);
+  const lessonLdrRaycastContracts = await runScene3DLessonLdrRaycastContracts();
+  for (const name of lessonLdrRaycastContracts.checks) check("lesson-ldr-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);
