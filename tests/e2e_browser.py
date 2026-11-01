@@ -512,6 +512,121 @@ def main() -> None:
                 ([expected_note] if expected_note else [])
         )
 
+    def lesson12_scene_servo_points(page, target_angle: int | None = None,
+                                    radial_scale: float = 1.0):
+        """Project the authored Lesson12 horn tips for genuine browser pointer QA.
+
+        This duplicates only public conceptual geometry and the initial camera
+        transform. The production scene raycaster still owns hit acceptance.
+        An optional target angle projects the same two horn-tip centers after a
+        conceptual rotation. radial_scale keeps that exact bearing while moving
+        farther from the arm center, allowing a genuine captured-pointer radial
+        drag without calling a private scene callback or manufacturing events.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async ({targetAngle,radialScale}) => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson12 3D canvas missing');
+            if(!Number.isFinite(radialScale)||radialScale<=0){
+              throw new Error('Lesson12 radial scale invalid');
+            }
+            const visual=targetAngle===null
+              ? Number(canvas.dataset.lessonServoVisualAngle) : Number(targetAngle);
+            if(!Number.isFinite(visual))throw new Error('Lesson12 servo visual angle missing');
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const center=new T.Vector3(5.15,1.71,.10);
+            const radians=(visual-90)*Math.PI/180;
+            const project=(side,index)=>{
+              const localX=.92*side*radialScale;
+              const point=new T.Vector3(
+                center.x+localX*Math.cos(radians),
+                center.y,
+                center.z-localX*Math.sin(radians)
+              );
+              const projected=point.clone().project(camera);
+              const x=rect.left+(projected.x+1)*rect.width/2;
+              const y=rect.top+(1-projected.y)*rect.height/2;
+              return Object.freeze({
+                side,index,x,y,
+                insideFrustum:projected.z>=-1&&projected.z<=1,
+                insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+                onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+                canvasUncovered:document.elementFromPoint(x,y)===canvas,
+              });
+            };
+            return Object.freeze({
+              angle:visual,
+              center:Object.freeze({x:center.x,y:center.y,z:center.z}),
+              grips:Object.freeze([project(1,2),project(-1,1)]),
+            });
+        }""", {"targetAngle":target_angle,"radialScale":radial_scale})
+
+    def lesson12_servo_acceptance_state(page):
+        """Read native Lesson12 range state plus public servo scene diagnostics."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-angle');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson12 canonical servo UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),
+              min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',
+              output:output?.textContent||'',
+              label:label?.textContent||'',
+              labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonServoMode||'',
+              angle:canvas.dataset.lessonServoAngle||'',
+              visualAngle:canvas.dataset.lessonServoVisualAngle||'',
+              previewAngle:canvas.dataset.lessonServoPreviewAngle||'',
+              gesture:canvas.dataset.lessonServoGesture||'',
+              gripCount:Number(canvas.dataset.lessonServoGripCount||0),
+              physicalVerified:canvas.dataset.lessonServoPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonServoElectricalAuthority||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson12_servo_state_agrees(actual: dict[str, object], expected_angle: int) -> bool:
+        return (
+            0 <= expected_angle <= 180
+            and actual.get("value") == expected_angle
+            and actual.get("min") == "0"
+            and actual.get("max") == "180"
+            and actual.get("step") == "1"
+            and actual.get("control") == "angle"
+            and actual.get("output") == f"{expected_angle} °"
+            and actual.get("labelFor") == "control-angle"
+            and actual.get("labelCount") == 1
+            and "Góc servo" in str(actual.get("label"))
+            and actual.get("mode") == "pointer-drag"
+            and actual.get("angle") == str(expected_angle)
+            and actual.get("previewAngle") == ""
+            and actual.get("gesture") == "none"
+            and actual.get("gripCount") == 3
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("sceneContext") == "ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1015,8 +1130,8 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 447
-                      and "lesson-pot-source-pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-owner" in
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 481
+                      and "lesson-pot-source-pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners" in
                           scene_lifecycle_names
                       and "lesson-pot-source-pointerup-folds-final-pot-delta-before-clearing-and-stops-if-callback-revokes" in
                           scene_lifecycle_names
@@ -7934,6 +8049,630 @@ def main() -> None:
                               "localStorage.getItem('arduino-3d-viet-progress-v1')")==piano_progress_storage)
                 finally:
                     piano_context.close()
+
+                # Lesson12 servo: the native 0..180 range remains the keyboard
+                # authority. The authored horn accepts real browser mouse/touch/
+                # pen drags only as a bounded preview; pointerup may commit the
+                # proposed setpoint through that same host control path.
+                servo_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    servo_page=servo_context.new_page()
+                    capture_console(servo_page)
+                    servo_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(servo_page)
+                    servo_page.locator('.lesson-link[data-lesson="12"]').click()
+                    servo_canvas=servo_page.locator("#sceneMount canvas")
+                    servo_slider=servo_page.locator("#control-angle")
+                    servo_progress=servo_page.locator("#progressText").inner_text()
+                    servo_progress_storage=servo_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    servo_complete_visible=servo_page.locator("#completeButton").is_visible()
+                    servo_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonServoMode==='pointer-drag'
+                          &&canvas.dataset.lessonServoAngle==='90'
+                          &&canvas.dataset.lessonServoVisualAngle==='90'
+                          &&canvas.dataset.lessonServoGripCount==='3';
+                    }""",timeout=5000)
+                    servo_initial=lesson12_servo_acceptance_state(servo_page)
+                    servo_initial_points=lesson12_scene_servo_points(servo_page)
+                    check("post-v16-lesson12-servo-native-range-and-three-scene-grips-ready",
+                          lesson12_servo_state_agrees(servo_initial,90)
+                          and servo_initial["visualAngle"]=="90"
+                          and len(servo_initial_points["grips"])==2
+                          and any(point["insideFrustum"] and point["insideCanvas"]
+                                  and point["onScreen"] and point["canvasUncovered"]
+                                  for point in servo_initial_points["grips"])
+                          and "Tay servo 3D bài 12" in servo_initial["canvasLabel"],
+                          json.dumps({"state":servo_initial,
+                                      "points":servo_initial_points},ensure_ascii=False))
+
+                    # Home/End are native HTML range behavior. They prove the
+                    # 0..180 clamp and keyboard fallback without a canvas key
+                    # shortcut or synthetic DOM input event.
+                    servo_slider.focus()
+                    servo_slider.press("Home")
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='0'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoAngle==='0'
+                    """,timeout=3000)
+                    servo_home=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-native-keyboard-home-clamps-zero",
+                          lesson12_servo_state_agrees(servo_home,0)
+                          and servo_home["focused"] is True
+                          and servo_home["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+                    servo_slider.press("End")
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='180'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoAngle==='180'
+                    """,timeout=3000)
+                    servo_end=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-native-keyboard-end-clamps-180",
+                          lesson12_servo_state_agrees(servo_end,180)
+                          and servo_end["focused"] is True
+                          and servo_end["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+                    servo_page.locator("#resetButton").click()
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='90'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoAngle==='90'
+                    """,timeout=3000)
+
+                    # Genuine Playwright mouse drag. The host value must stay at
+                    # 90 throughout preview and change only after pointerup.
+                    mouse_start_points=lesson12_scene_servo_points(servo_page)
+                    mouse_start=next(point for point in mouse_start_points["grips"]
+                                     if point["insideCanvas"] and point["onScreen"]
+                                     and point["canvasUncovered"])
+                    mouse_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,140)["grips"]
+                        if point["side"]==mouse_start["side"])
+                    servo_page.mouse.move(mouse_start["x"],mouse_start["y"])
+                    servo_page.mouse.down()
+                    servo_mouse_grab=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-mouse-down-is-preview-only",
+                          servo_mouse_grab["gesture"]=="grabbed"
+                          and servo_mouse_grab["previewAngle"]==""
+                          and servo_mouse_grab["value"]==90
+                          and servo_mouse_grab["angle"]=="90")
+                    servo_page.mouse.move(mouse_target["x"],mouse_target["y"],steps=8)
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='dragging'
+                    """,timeout=3000)
+                    servo_mouse_preview=lesson12_servo_acceptance_state(servo_page)
+                    mouse_commit_angle=int(servo_mouse_preview["previewAngle"])
+                    check("post-v16-lesson12-servo-real-mouse-drag-proposes-before-host-commit",
+                          servo_mouse_preview["value"]==90
+                          and servo_mouse_preview["angle"]=="90"
+                          and 90<mouse_commit_angle<=180
+                          and servo_mouse_preview["visualAngle"]==
+                              servo_mouse_preview["previewAngle"]
+                          and servo_page.locator("#progressText").inner_text()==servo_progress,
+                          json.dumps(servo_mouse_preview,ensure_ascii=False))
+                    servo_page.mouse.up()
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle==='';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_mouse_commit=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-mouse-up-commits-through-native-range",
+                          lesson12_servo_state_agrees(servo_mouse_commit,mouse_commit_angle)
+                          and servo_mouse_commit["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+
+                    # Once the accepted non-neutral setpoint runs through the
+                    # simulator, the scene arm must follow that snapshot output.
+                    # Pausing produces the authored neutral 90° output again
+                    # without discarding the learner's accepted native setpoint.
+                    servo_page.locator("#runButton").click()
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoVisualAngle===String(expected)
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoGesture==='none';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_running_snapshot=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-running-snapshot-follows-accepted-non90-setpoint",
+                          mouse_commit_angle!=90
+                          and lesson12_servo_state_agrees(
+                              servo_running_snapshot,mouse_commit_angle)
+                          and servo_running_snapshot["visualAngle"]==
+                              str(mouse_commit_angle))
+                    servo_page.locator("#runButton").click()
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoVisualAngle==='90'
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoGesture==='none';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_stopped_snapshot=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-stopped-output-neutral-keeps-accepted-setpoint",
+                          lesson12_servo_state_agrees(
+                              servo_stopped_snapshot,mouse_commit_angle)
+                          and servo_stopped_snapshot["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+
+                    # P1: while stopped the visual output is neutral 90° but the
+                    # accepted native setpoint remains non-neutral. A genuine
+                    # captured mouse drag directly outward on the same horn
+                    # bearing crosses the tap threshold without angular change.
+                    # Its preview must stay 90° and pointerup must not overwrite
+                    # the stored native setpoint with that neutral visual angle.
+                    radial_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["insideCanvas"] and point["onScreen"]
+                        and point["canvasUncovered"])
+                    radial_target=next(
+                        point for point in lesson12_scene_servo_points(
+                            servo_page,90,1.75)["grips"]
+                        if point["side"]==radial_start["side"])
+                    radial_distance=(
+                        (radial_target["x"]-radial_start["x"])**2
+                        +(radial_target["y"]-radial_start["y"])**2
+                    )**0.5
+                    if radial_distance<=8:
+                        raise AssertionError(
+                            f"Lesson12 radial fixture did not clear drag threshold: {radial_distance}")
+                    servo_page.mouse.move(radial_start["x"],radial_start["y"])
+                    servo_page.mouse.down()
+                    servo_page.mouse.move(radial_target["x"],radial_target["y"],steps=6)
+                    servo_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonServoGesture==='dragging'
+                          &&canvas.dataset.lessonServoPreviewAngle==='90'
+                          &&canvas.dataset.lessonServoVisualAngle==='90';
+                    }""",timeout=3000)
+                    servo_radial_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_page.mouse.up()
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoVisualAngle==='90';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_radial_after=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-stopped-radial-drag-does-not-reset-setpoint-to-neutral",
+                          mouse_commit_angle!=90
+                          and radial_distance>8
+                          and servo_radial_preview["value"]==mouse_commit_angle
+                          and servo_radial_preview["angle"]==str(mouse_commit_angle)
+                          and servo_radial_preview["previewAngle"]=="90"
+                          and servo_radial_preview["visualAngle"]=="90"
+                          and lesson12_servo_state_agrees(
+                              servo_radial_after,mouse_commit_angle)
+                          and servo_radial_after["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress,
+                          json.dumps({
+                              "distance":radial_distance,
+                              "preview":servo_radial_preview,
+                              "after":servo_radial_after,
+                          },ensure_ascii=False))
+
+                    # P1: Run/Pause is also an ownership boundary because the
+                    # simulator changes the arm from stopped-neutral 90° to the
+                    # accepted setpoint and back. Keep a genuine mouse pointer
+                    # held on the canvas while the learner activates the native
+                    # Run button with the keyboard. Both transitions must revoke
+                    # the old 3D proposal before changing the snapshot, and the
+                    # eventual mouseup must have no stale authority to replay.
+                    transition_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["insideCanvas"] and point["onScreen"]
+                        and point["canvasUncovered"])
+                    transition_target=next(
+                        point for point in lesson12_scene_servo_points(
+                            servo_page,135)["grips"]
+                        if point["side"]==transition_start["side"])
+                    servo_page.mouse.move(transition_start["x"],transition_start["y"])
+                    servo_page.mouse.down()
+                    servo_page.mouse.move(
+                        transition_target["x"],transition_target["y"],steps=6)
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoGesture==='dragging'
+                          &&canvas.dataset.lessonServoPreviewAngle!==''
+                          &&canvas.dataset.lessonServoVisualAngle===
+                             canvas.dataset.lessonServoPreviewAngle;
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_transition_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_run_button=servo_page.locator("#runButton")
+                    servo_run_button.focus()
+                    servo_page.keyboard.press("Enter")
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoVisualAngle===String(expected);
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_transition_running=lesson12_servo_acceptance_state(servo_page)
+                    servo_page.keyboard.press("Enter")
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoVisualAngle==='90';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_transition_paused=lesson12_servo_acceptance_state(servo_page)
+                    servo_page.mouse.up()
+                    servo_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle===''
+                          &&canvas.dataset.lessonServoVisualAngle==='90';
+                    }""",arg=mouse_commit_angle,timeout=3000)
+                    servo_transition_after_mouseup=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          mouse_commit_angle!=90
+                          and servo_transition_preview["gesture"]=="dragging"
+                          and servo_transition_preview["previewAngle"]!=""
+                          and servo_transition_preview["value"]==mouse_commit_angle
+                          and lesson12_servo_state_agrees(
+                              servo_transition_running,mouse_commit_angle)
+                          and servo_transition_running["visualAngle"]==
+                              str(mouse_commit_angle)
+                          and lesson12_servo_state_agrees(
+                              servo_transition_paused,mouse_commit_angle)
+                          and servo_transition_paused["visualAngle"]=="90"
+                          and lesson12_servo_state_agrees(
+                              servo_transition_after_mouseup,mouse_commit_angle)
+                          and servo_transition_after_mouseup["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress,
+                          json.dumps({
+                              "preview":servo_transition_preview,
+                              "running":servo_transition_running,
+                              "paused":servo_transition_paused,
+                              "afterMouseup":servo_transition_after_mouseup,
+                          },ensure_ascii=False))
+
+                    # Native keyboard input supersedes a held 3D proposal. The
+                    # stale mouseup after Home must not replay the older angle.
+                    stale_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["side"]==mouse_start["side"])
+                    stale_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,125)["grips"]
+                        if point["side"]==mouse_start["side"])
+                    servo_page.mouse.move(stale_start["x"],stale_start["y"])
+                    servo_page.mouse.down()
+                    servo_page.mouse.move(stale_target["x"],stale_target["y"],steps=6)
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='dragging'
+                    """,timeout=3000)
+                    stale_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_slider.focus()
+                    servo_slider.press("Home")
+                    servo_page.wait_for_function("""() => {
+                        const input=document.querySelector('#control-angle');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value==='0'
+                          &&canvas?.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoAngle==='0';
+                    }""",timeout=3000)
+                    servo_page.mouse.up()
+                    stale_after=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-native-keyboard-revokes-stale-mouse-proposal",
+                          stale_preview["previewAngle"]!=""
+                          and stale_preview["value"]==mouse_commit_angle
+                          and lesson12_servo_state_agrees(stale_after,0)
+                          and stale_after["visualAngle"]=="90")
+                    servo_page.locator("#resetButton").click()
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='90'
+                    """,timeout=3000)
+
+                    servo_input=servo_context.new_cdp_session(servo_page)
+
+                    # Real Chrome touch drag followed by touchCancel clears the
+                    # ghost and retains the last host angle.
+                    touch_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["insideCanvas"] and point["onScreen"]
+                        and point["canvasUncovered"])
+                    touch_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,35)["grips"]
+                        if point["side"]==touch_start["side"])
+                    touch_start_point={
+                        "x":touch_start["x"],"y":touch_start["y"],"id":71,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_move_point={
+                        **touch_start_point,"x":touch_target["x"],"y":touch_target["y"],
+                    }
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start_point],
+                    })
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_move_point],
+                    })
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='dragging'
+                    """,timeout=3000)
+                    servo_touch_cancel_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    servo_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonServoGesture==='none'
+                          &&canvas.dataset.lessonServoPreviewAngle==='';
+                    }""",timeout=3000)
+                    servo_touch_cancel=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-touchcancel-discards-preview",
+                          servo_touch_cancel_preview["gesture"]=="dragging"
+                          and servo_touch_cancel_preview["previewAngle"]!=""
+                          and servo_touch_cancel_preview["value"]==90
+                          and lesson12_servo_state_agrees(servo_touch_cancel,90))
+
+                    # Another real touch moves beyond the conceptual 0° end.
+                    # Scene clamp must preview exactly 0 and pointerup commits 0.
+                    touch_low_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,-50)["grips"]
+                        if point["side"]==touch_start["side"])
+                    touch_low_move={
+                        **touch_start_point,"id":72,
+                        "x":touch_low_target["x"],"y":touch_low_target["y"],
+                    }
+                    touch_low_start={**touch_start_point,"id":72}
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low_start],
+                    })
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoPreviewAngle==='0'
+                    """,timeout=3000)
+                    servo_touch_low_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='0'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='none'
+                    """,timeout=3000)
+                    servo_touch_low=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-touch-clamps-and-commits-zero",
+                          servo_touch_low_preview["value"]==90
+                          and servo_touch_low_preview["previewAngle"]=="0"
+                          and lesson12_servo_state_agrees(servo_touch_low,0))
+
+                    servo_page.locator("#resetButton").click()
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='90'
+                    """,timeout=3000)
+
+                    # Chrome's pointerType=pen path exercises a genuine pen
+                    # PointerEvent sequence and the upper 180° clamp.
+                    pen_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["insideCanvas"] and point["onScreen"]
+                        and point["canvasUncovered"])
+                    pen_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,250)["grips"]
+                        if point["side"]==pen_start["side"])
+                    servo_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_start["x"],"y":pen_start["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    servo_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_start["x"],"y":pen_start["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    servo_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_target["x"],"y":pen_target["y"],
+                        "button":"left","buttons":1,"pointerType":"pen",
+                    })
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoPreviewAngle==='180'
+                    """,timeout=3000)
+                    servo_pen_preview=lesson12_servo_acceptance_state(servo_page)
+                    servo_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_target["x"],"y":pen_target["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#control-angle')?.value==='180'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='none'
+                    """,timeout=3000)
+                    servo_pen_commit=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-pen-clamps-and-commits-180",
+                          servo_pen_preview["value"]==90
+                          and servo_pen_preview["previewAngle"]=="180"
+                          and lesson12_servo_state_agrees(servo_pen_commit,180))
+
+                    # Generic native range styling must retain a 44px operable
+                    # target and focus/label relationship at the 375px viewport.
+                    servo_page.set_viewport_size({"width":375,"height":812})
+                    servo_slider.scroll_into_view_if_needed()
+                    servo_mobile_rect=servo_slider.bounding_box()
+                    servo_slider.focus()
+                    servo_mobile=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          servo_mobile_rect is not None
+                          and servo_mobile_rect["width"]>=44
+                          and servo_mobile_rect["height"]>=44
+                          and servo_mobile["focused"] is True
+                          and servo_mobile["labelCount"]==1
+                          and servo_mobile["labelFor"]=="control-angle"
+                          and "Góc servo" in servo_mobile["label"]
+                          and "Tay servo 3D bài 12" in servo_mobile["canvasLabel"]
+                          and servo_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+
+                    servo_page.set_viewport_size({"width":1280,"height":820})
+                    servo_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # Stage and Lab-edit ownership revoke 3D input and re-arm the
+                    # exact current native angle on return.
+                    lifecycle_angle=int(servo_slider.input_value())
+                    servo_page.locator("#stageTabWiring").click()
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoMode==='off'
+                    """,timeout=3000)
+                    servo_stage_off=servo_canvas.get_attribute("data-lesson-servo-mode")
+                    check("post-v16-lesson12-servo-wiring-stage-revokes-3d-gesture-authority",
+                          servo_stage_off=="off"
+                          and int(servo_slider.input_value())==lifecycle_angle
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+                    servo_page.locator("#stageTab3d").click()
+                    servo_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonServoMode==='pointer-drag'
+                          &&canvas.dataset.lessonServoAngle===String(expected);
+                    }""",arg=lifecycle_angle,timeout=3000)
+                    servo_stage_return=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-return-3d-rearms-current-native-angle",
+                          lesson12_servo_state_agrees(servo_stage_return,lifecycle_angle))
+
+                    servo_page.locator("#labEditToggle").click()
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonServoMode==='off'
+                    """,timeout=5000)
+                    check("post-v16-lesson12-servo-lab-edit-revokes-gesture-authority",
+                          servo_page.locator("#labEditToggle").get_attribute("aria-pressed")=="true"
+                          and servo_canvas.get_attribute("data-lesson-servo-mode")=="off"
+                          and int(servo_slider.input_value())==lifecycle_angle)
+                    servo_page.locator("#labEditToggle").click()
+                    servo_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&canvas?.dataset.lessonServoMode==='pointer-drag'
+                          &&canvas.dataset.lessonServoAngle===String(expected);
+                    }""",arg=lifecycle_angle,timeout=5000)
+                    servo_edit_return=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-exit-lab-edit-rearms-current-native-angle",
+                          lesson12_servo_state_agrees(servo_edit_return,lifecycle_angle))
+
+                    # Lose the real GPU context during an active mouse preview.
+                    # Host angle survives; the transient preview is revoked.
+                    loss_start=next(
+                        point for point in lesson12_scene_servo_points(servo_page)["grips"]
+                        if point["insideCanvas"] and point["onScreen"]
+                        and point["canvasUncovered"])
+                    loss_target=next(
+                        point for point in lesson12_scene_servo_points(servo_page,65)["grips"]
+                        if point["side"]==loss_start["side"])
+                    servo_page.mouse.move(loss_start["x"],loss_start["y"])
+                    servo_page.mouse.down()
+                    servo_page.mouse.move(loss_target["x"],loss_target["y"],steps=6)
+                    servo_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonServoGesture==='dragging'
+                    """,timeout=3000)
+                    servo_pre_loss=lesson12_servo_acceptance_state(servo_page)
+                    servo_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EServoGL=gl;
+                        window.__arduinoE2EServoLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    servo_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EServoGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost';
+                    }""",timeout=10000)
+                    servo_lost=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-webgl-loss-revokes-preview-without-host-write",
+                          servo_pre_loss["gesture"]=="dragging"
+                          and servo_pre_loss["previewAngle"]!=""
+                          and servo_lost["mode"]=="off"
+                          and servo_lost["gesture"]=="none"
+                          and servo_lost["previewAngle"]==""
+                          and servo_lost["value"]==lifecycle_angle
+                          and servo_lost["canvasBusy"]=="true"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+                    servo_page.mouse.up()
+                    servo_page.evaluate("window.__arduinoE2EServoLoseExtension.restoreContext()")
+                    servo_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EServoGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonServoMode==='pointer-drag'
+                          &&canvas.dataset.lessonServoAngle===String(expected)
+                          &&canvas.dataset.lessonServoGesture==='none';
+                    }""",arg=lifecycle_angle,timeout=10000)
+                    servo_restored=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-real-webgl-restore-rearms-without-stale-preview",
+                          lesson12_servo_state_agrees(servo_restored,lifecycle_angle)
+                          and servo_restored["canvasBusy"] is None)
+
+                    # Exact lesson ownership: another lesson has no servo grips or
+                    # angle control; returning to 12 starts from authored 90°.
+                    servo_page.locator('.lesson-link[data-lesson="11"]').click()
+                    check("post-v16-lesson12-servo-lesson-switch-revokes-old-authority",
+                          servo_canvas.get_attribute("data-lesson-servo-mode")=="off"
+                          and servo_canvas.get_attribute("data-lesson-servo-grip-count")=="0"
+                          and servo_page.locator("#control-angle").count()==0
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+                    servo_page.locator('.lesson-link[data-lesson="12"]').click()
+                    servo_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const input=document.querySelector('#control-angle');
+                        return input?.value==='90'
+                          &&canvas?.dataset.lessonServoMode==='pointer-drag'
+                          &&canvas.dataset.lessonServoAngle==='90'
+                          &&canvas.dataset.lessonServoGripCount==='3';
+                    }""",timeout=5000)
+                    servo_return_lesson=lesson12_servo_acceptance_state(servo_page)
+                    check("post-v16-lesson12-servo-return-restores-authored-90-default",
+                          lesson12_servo_state_agrees(servo_return_lesson,90)
+                          and servo_return_lesson["visualAngle"]=="90"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress)
+
+                    # Servo pointer/keyboard interaction remains simulation input
+                    # only: learner netlist/history/completion and persisted
+                    # progress are unchanged.
+                    servo_page.locator("#stageTabWiring").click()
+                    servo_undo=servo_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    servo_redo=servo_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson12-servo-no-electrical-graph-history-or-progress-write",
+                          servo_page.locator("#viewport .wiring-view.is-interactive").count()==1
+                          and servo_page.locator(".wiring-view .wire-connected").count()==0
+                          and servo_page.locator(".wire-activate").get_attribute("aria-pressed")=="false"
+                          and servo_undo.count()==1 and servo_undo.is_disabled()
+                          and servo_redo.count()==1 and servo_redo.is_disabled()
+                          and servo_canvas.get_attribute("data-lesson-servo-mode")=="off"
+                          and servo_page.locator("#progressText").inner_text()==servo_progress
+                          and servo_page.locator("#completeButton").is_visible()==servo_complete_visible
+                          and servo_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==servo_progress_storage)
+                finally:
+                    servo_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

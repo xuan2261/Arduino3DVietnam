@@ -79,6 +79,9 @@ const state = {
   // Seven conceptual Lesson 09 3D key caps may request the same host-owned
   // note selection as the native HTML buttons, never a graph/progress claim.
   scenePianoActuation: null,
+  // A Lesson12 servo-horn gesture previews a bounded setpoint; only this host
+  // can accept it through the existing native angle range/simulator path.
+  sceneServoActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -876,6 +879,7 @@ function closeReadOnlyGuideMode(){
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
   syncSceneLessonPianoActuation();
+  syncSceneLessonServoActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1606,6 +1610,7 @@ function renderStage() {
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
   syncSceneLessonPianoActuation();
+  syncSceneLessonServoActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1649,6 +1654,8 @@ function renderControls(){
       ?"Xoay núm biến trở trên mô hình 3D hoặc dùng thanh trượt A0 (bàn phím hỗ trợ mũi tên/Home/End). Đây chỉ là giá trị đầu vào mô phỏng 0–1023, không phải phép đo điện áp vật lý."
     :lesson.id===9
       ?"Chạm hoặc click một trong bảy phím nốt trên mô hình 3D rồi thả, hoặc dùng các nút nốt HTML bằng bàn phím. Nốt và tần số thuộc mô phỏng JavaScript, không chứng minh phần cứng hay chạy chương trình Arduino C++."
+    :lesson.id===12
+      ?"Kéo tay servo 3D để xem trước góc đặt, thả để áp dụng 0–180° vào thanh trượt HTML; hủy kéo không đổi góc. Bàn phím dùng phím mũi tên/Home/End trên thanh trượt. Khi mô phỏng dừng, góc đặt được lưu nhưng đầu ra servo khái niệm giữ 90°; đây không phải đo góc hay điều khiển servo thật."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1810,43 +1817,56 @@ function tick(now) {
   state.frame=requestAnimationFrame(tick);
 }
 function startPause(){
-  if(state.running) {
-    stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
-  }else {
-    if(state.invalidatedCircuitLessons.has(state.lessonId)){
-      const draft=state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId);
-      const analysis=analyzeCircuit(state.lessonId,draft);
-      if(!analysis.ok||!analysis.functional){
-        log("Mạch vừa kích hoạt đã bị thu hồi do kết nối sai; hãy sửa hoặc chọn dùng mô phỏng mẫu trước khi chạy.");
-        updateSnapshot(true);
-        return;
+  // A Run/Pause transition can change Lesson12's visual servo output from
+  // neutral 90° to the stored setpoint (or vice versa) without any native
+  // angle change. A held radial drag must not survive that geometry change.
+  const rearmServo=state.lessonId===12;
+  if(rearmServo)revokeSceneLessonServoActuation();
+  try{
+    if(state.running) {
+      stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
+    }else {
+      if(state.invalidatedCircuitLessons.has(state.lessonId)){
+        const draft=state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId);
+        const analysis=analyzeCircuit(state.lessonId,draft);
+        if(!analysis.ok||!analysis.functional){
+          log("Mạch vừa kích hoạt đã bị thu hồi do kết nối sai; hãy sửa hoặc chọn dùng mô phỏng mẫu trước khi chạy.");
+          updateSnapshot(true);
+          return;
+        }
+        state.invalidatedCircuitLessons.delete(state.lessonId);
       }
-      state.invalidatedCircuitLessons.delete(state.lessonId);
-    }
-    if(state.activeCircuits.has(state.lessonId)){
-      const analysis=analyzeCircuit(state.lessonId,state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId));
-      if(!analysis.ok||!analysis.functional){
-        log("Không thể chạy mạch tự đấu: hãy sửa kết nối và kiểm tra lại.");
-        updateSnapshot(true);
-        return;
+      if(state.activeCircuits.has(state.lessonId)){
+        const analysis=analyzeCircuit(state.lessonId,state.circuitModels.get(state.lessonId)??createCircuit(state.lessonId));
+        if(!analysis.ok||!analysis.functional){
+          log("Không thể chạy mạch tự đấu: hãy sửa kết nối và kiểm tra lại.");
+          updateSnapshot(true);
+          return;
+        }
       }
+      state.running=true;state.previousTime=0;state.lastLogTime=state.elapsedMs;
+      log(`Bắt đầu bài ${pad(state.lessonId)}: ${currentLesson().title}`);
+      const snap=updateSnapshot(true);log(snap.serial);
+      state.frame=requestAnimationFrame(tick);
     }
-    state.running=true;state.previousTime=0;state.lastLogTime=state.elapsedMs;
-    log(`Bắt đầu bài ${pad(state.lessonId)}: ${currentLesson().title}`);
-    const snap=updateSnapshot(true);log(snap.serial);
-    state.frame=requestAnimationFrame(tick);
+  }finally{
+    // Rebind only the same current/visible/editable Lesson12 scene. The host
+    // guard remains fail-closed on hidden documents and unsupported layouts.
+    if(rearmServo)syncSceneLessonServoActuation();
   }
 }
 function resetSimulation() {
   revokeSceneLessonButtonActuation();
   revokeSceneLessonPotentiometerActuation();
   revokeSceneLessonPianoActuation();
+  revokeSceneLessonServoActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
   syncSceneLessonPianoActuation();
+  syncSceneLessonServoActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
@@ -1854,6 +1874,7 @@ function setLesson(id,replaceHash=true){
   revokeSceneLessonButtonActuation();
   revokeSceneLessonPotentiometerActuation();
   revokeSceneLessonPianoActuation();
+  revokeSceneLessonServoActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -1881,6 +1902,12 @@ function onControlsInput(event){
   const key=target.dataset.control;
   const config=currentLesson().controls.find(c=>c.key===key);
   if(!config)return;
+  if(key==="angle"&&state.lessonId===12&&config.type==="slider"&&
+     event.source!=="scene"){
+    // Native slider input (including an unchanged keyboard selection) wins
+    // over a held 3D preview; stale pointerup must never replay afterwards.
+    revokeSceneLessonServoActuation();
+  }
   const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
@@ -1898,6 +1925,9 @@ function onControlsInput(event){
     // Slider and real 3D knob share the same host-owned value, status, and
     // current-step event recording path. Scene receives only a new view intent.
     syncSceneLessonPotentiometerActuation();
+  }
+  if(key==="angle"&&state.lessonId===12&&config.type==="slider"){
+    syncSceneLessonServoActuation();
   }
 }
 function setButtonPress(pressed){
@@ -2121,6 +2151,77 @@ function syncSceneLessonPianoActuation(){
       revokeSceneLessonPianoActuation();
     }
   }catch{revokeSceneLessonPianoActuation();}
+}
+// The 3D servo horn is only a transient pointer-driven proposal. Keep the
+// existing native range as the single host-owned angle input and let the
+// simulator decide the displayed output (neutral 90 degrees while stopped).
+function revokeSceneLessonServoActuation(){
+  const binding=state.sceneServoActuation;
+  if(binding)binding.active=false;
+  state.sceneServoActuation=null;
+  try{state.scene?.setLessonServoActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonServoActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonServoActuation)return;
+  const config=currentLesson()?.controls?.find(item=>item.key==="angle");
+  const angle=state.controls.angle;
+  const slider=$("control-angle");
+  const supported=state.lessonId===12&&config?.type==="slider"&&
+    config.min===0&&config.max===180&&config.step===1&&
+    Number.isInteger(angle)&&angle>=0&&angle<=180&&
+    slider?.tagName==="INPUT"&&slider.type==="range"&&
+    slider.dataset.control==="angle"&&
+    slider.min==="0"&&slider.max==="180"&&slider.step==="1"&&
+    !slider.disabled&&slider.isConnected;
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonServoActuation();
+    return;
+  }
+  let binding=state.sceneServoActuation;
+  if(!binding||!binding.active||binding.lessonId!==12){
+    binding={active:true,lessonId:12,onAngleChange:null};
+    binding.onAngleChange=(proposed,meta)=>{
+      if(binding!==state.sceneServoActuation||!binding.active||
+         state.lessonId!==12||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<0||proposed>180||
+         !meta||!Object.isFrozen(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        values[field]=descriptor.value;
+      }
+      if(values.lessonId!==12||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         values.phase!=="change"||values.physicalVerified!==false)return false;
+      const native=$("control-angle");
+      if(native!==slider||native?.tagName!=="INPUT"||native.type!=="range"||
+         native.dataset.control!=="angle"||native.min!=="0"||
+         native.max!=="180"||native.step!=="1"||
+         native.disabled||!native.isConnected)return false;
+      // Reuse the real HTML control path: output text, simulator, optional
+      // observation and scene snapshot all reconcile in onControlsInput.
+      native.value=String(proposed);
+      onControlsInput({target:native,type:"change",source:"scene"});
+      return true;
+    };
+    state.sceneServoActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonServoActuation({
+      enabled:true,lessonId:12,angle,onAngleChange:binding.onAngleChange,
+    });
+    if(receipt?.active!==true||receipt?.gripCount!==3||
+       receipt?.physicalVerified!==false||receipt?.electricalAuthority!==false){
+      revokeSceneLessonServoActuation();
+    }
+  }catch{revokeSceneLessonServoActuation();}
 }
 function playNote(hz){
   if(!state.running||!hz)return;
@@ -2448,11 +2549,13 @@ function wireEvents(){
       revokeSceneLessonButtonActuation();
       revokeSceneLessonPotentiometerActuation();
       revokeSceneLessonPianoActuation();
+      revokeSceneLessonServoActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
       syncSceneLessonPianoActuation();
+      syncSceneLessonServoActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -2461,13 +2564,16 @@ function wireEvents(){
     revokeSceneLessonButtonActuation();
     revokeSceneLessonPotentiometerActuation();
     revokeSceneLessonPianoActuation();
+    revokeSceneLessonServoActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
     syncSceneLessonPotentiometerActuation();
     syncSceneLessonPianoActuation();
+    syncSceneLessonServoActuation();
   });
   window.addEventListener("beforeunload",()=>{
+    revokeSceneLessonServoActuation();
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
     state.resistiveUI?.dispose();
@@ -2498,6 +2604,7 @@ async function init(){
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
       syncSceneLessonPianoActuation();
+      syncSceneLessonServoActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -2508,6 +2615,7 @@ async function init(){
       // while remaining on the 3D stage. Re-check its host binding now.
       syncSceneLessonPotentiometerActuation();
       syncSceneLessonPianoActuation();
+      syncSceneLessonServoActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -2531,6 +2639,7 @@ async function init(){
           typeof values.componentId!=="string"||
           values.physicalVerified!==false)return;
       syncSceneBreadboardHoleStudy();
+      syncSceneLessonServoActuation();
     },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
@@ -2633,6 +2742,7 @@ async function init(){
       revokeSceneLessonButtonActuation();
       revokeSceneLessonPotentiometerActuation();
       revokeSceneLessonPianoActuation();
+      revokeSceneLessonServoActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -2653,6 +2763,7 @@ async function init(){
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
       syncSceneLessonPianoActuation();
+      syncSceneLessonServoActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -2667,6 +2778,7 @@ async function init(){
     syncSceneLessonButtonActuation();
     syncSceneLessonPotentiometerActuation();
     syncSceneLessonPianoActuation();
+    syncSceneLessonServoActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

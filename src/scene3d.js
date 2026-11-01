@@ -29,6 +29,7 @@ const LESSON_POT_FALLBACK_RANGE_PX = 180;
 const LESSON_POT_ANGLE_MIN_RADIUS_PX = 10;
 const LESSON_PIANO_LABELS = Object.freeze(NOTES.map(([label])=>label));
 const LESSON_PIANO_SOURCE_ID = "lesson-9-piano-keys";
+const LESSON_SERVO_SOURCE_ID = "lesson-12-servo-horn";
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1005,7 +1006,8 @@ function createModule(scene, kind, shared) {
   const module = new T.Group();
   module.position.set(5.15,.55,.10);
   scene.add(module);
-  const state = { module, led: null, rotor: null, pointer: null, arm: null, pianoKeys: [] };
+  const state = { module, led: null, rotor: null, pointer: null, arm: null,
+    pianoKeys: [],servoHorn:null,servoTips:[] };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1103,7 +1105,16 @@ function createModule(scene, kind, shared) {
       box(module,[1.7,.77,1.1],0x314654,[0,.59,0]);
       cylinder(module,.41,.41,.18,0xf4f0e4,[0,1.05,0]);
       const arm=new T.Group();arm.position.set(0,1.16,0);module.add(arm);
-      box(arm,[2.2,.1,.22],0xe2dfd2,[0,0,0]);state.arm=arm;
+      const horn=box(arm,[2.2,.13,.28],0xe2dfd2,[0,0,0]);
+      const tips=[-0.92,0.92].map((x,index)=>
+        cylinder(arm,.23,.23,.15,0xe2dfd2,[x,0,0],24));
+      [horn,...tips].forEach((mesh,index)=>{
+        mesh.userData={
+          kind:"servo-horn-grip",lessonId:12,sourceId:LESSON_SERVO_SOURCE_ID,
+          gripIndex:index,physicalVerified:false,electricalAuthority:false,
+        };
+      });
+      state.arm=arm;state.servoHorn=horn;state.servoTips=tips;
       break;
     }
     case "plant":
@@ -1161,6 +1172,10 @@ export function mountScene(host, onSelect = () => {}) {
   // One opt-in 3D input surface for the preexisting Lesson 09 note selector.
   // A key is not electrically connected by being drawn or touched.
   let lessonPianoActuation={enabled:false,lessonId:null,note:"",onNoteSelect:null};
+  // Only an optional input surface for the native Lesson12 servo setpoint.
+  // During drag, scene shows a local preview; only pointerup may notify host.
+  let lessonServoActuation={enabled:false,lessonId:null,angle:null,onAngleChange:null};
+  let lastServoSnapshotAngle=90;
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1363,6 +1378,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonPianoActuation.enabled){
       parts.push("Bảy phím đàn 3D của bài 9 chỉ chọn nốt mô phỏng khi chạm rồi thả đúng phím; các nút HTML Đô đến Si là điều khiển bàn phím tương đương. Không xác nhận dây, âm thanh thực tế, AVR hoặc phím vật lý.");
     }
+    if(lessonServoActuation.enabled){
+      parts.push("Tay servo 3D bài 12 cho xem trước góc đặt 0–180 khi kéo; thả chuột/chạm/bút mới ghi vào thanh trượt HTML. Khi mô phỏng dừng, tay trở về góc đầu ra 90 độ; góc đặt vẫn được giữ trong HTML. Không xác minh servo vật lý, nguồn, điện áp, mô-men hoặc AVR.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1494,6 +1512,14 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonPianoKeyCount="0";
   canvas.dataset.lessonPianoPhysicalVerified="false";
   canvas.dataset.lessonPianoElectricalAuthority="false";
+  canvas.dataset.lessonServoMode="off";
+  canvas.dataset.lessonServoAngle="";
+  canvas.dataset.lessonServoVisualAngle="";
+  canvas.dataset.lessonServoPreviewAngle="";
+  canvas.dataset.lessonServoGesture="none";
+  canvas.dataset.lessonServoGripCount="0";
+  canvas.dataset.lessonServoPhysicalVerified="false";
+  canvas.dataset.lessonServoElectricalAuthority="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2743,6 +2769,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
+    resetLessonServoActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3262,6 +3289,193 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonServoVisual(){
+    const gesture=drag?.kind==="lesson-servo-actuator"?drag:null;
+    const preview=gesture&&moved?gesture.previewAngle:null;
+    // The visual arm follows the simulator's *actual* output when idle.
+    // A stopped simulation deliberately returns 90°, even if its input
+    // setpoint has changed. A held pointer only previews another angle.
+    const visualAngle=preview??lastServoSnapshotAngle;
+    if(activeModule?.arm&&currentLessonId===12){
+      activeModule.arm.rotation.y=(visualAngle-90)*Math.PI/180;
+    }
+    canvas.dataset.lessonServoMode=lessonServoActuation.enabled?"pointer-drag":"off";
+    canvas.dataset.lessonServoAngle=lessonServoActuation.enabled?String(lessonServoActuation.angle):"";
+    canvas.dataset.lessonServoVisualAngle=activeModule?.arm&&currentLessonId===12
+      ? String(visualAngle):"";
+    canvas.dataset.lessonServoPreviewAngle=preview===null?"":String(preview);
+    canvas.dataset.lessonServoGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonServoGripCount=String(
+      (activeModule?.servoHorn?1:0)+(activeModule?.servoTips?.length??0));
+    canvas.dataset.lessonServoPhysicalVerified="false";
+    canvas.dataset.lessonServoElectricalAuthority="false";
+  }
+  function currentLessonServoActuator(){
+    if(!lessonServoActuation.enabled||disposed||contextLost||
+       currentLessonId!==12||lessonServoActuation.lessonId!==12||
+       labEdit.enabled||activeLabLayout||
+       typeof lessonServoActuation.onAngleChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const arm=activeModule?.arm;
+    const horn=activeModule?.servoHorn;
+    const tips=activeModule?.servoTips;
+    const grips=[horn,...(Array.isArray(tips)?tips:[])];
+    if(!arm?.isGroup||grips.length!==3||!grips.every((mesh,index)=>
+       mesh?.isMesh===true&&mesh.parent===arm&&
+       mesh.userData?.kind==="servo-horn-grip"&&
+       mesh.userData.sourceId===LESSON_SERVO_SOURCE_ID&&
+       mesh.userData.lessonId===12&&mesh.userData.gripIndex===index&&
+       mesh.userData.physicalVerified===false&&
+       mesh.userData.electricalAuthority===false))return null;
+    return {arm,horn,grips,sourceId:LESSON_SERVO_SOURCE_ID,
+      angle:lessonServoActuation.angle,onAngleChange:lessonServoActuation.onAngleChange};
+  }
+  function lessonServoStatus(ok=true){
+    return Object.freeze({
+      ok,enabled:lessonServoActuation.enabled,
+      active:currentLessonServoActuator()!==null,
+      lessonId:lessonServoActuation.lessonId,
+      angle:lessonServoActuation.enabled?lessonServoActuation.angle:null,
+      previewAngle:drag?.kind==="lesson-servo-actuator"&&moved?drag.previewAngle:null,
+      gripCount:(activeModule?.servoHorn?1:0)+(activeModule?.servoTips?.length??0),
+      mode:lessonServoActuation.enabled?"pointer-drag":"off",
+      physicalVerified:false,electricalAuthority:false,
+    });
+  }
+  function cancelLessonServoGesture(redraw=false){
+    if(drag?.kind!=="lesson-servo-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonServoVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonServoActuation(redraw=false){
+    cancelLessonServoGesture(false);
+    lessonServoActuation={enabled:false,lessonId:null,angle:null,onAngleChange:null};
+    syncLessonServoVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonServoStatus(true);
+  }
+  function setLessonServoActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({
+      ok:false,enabled:false,active:false,lessonId:null,angle:null,
+      previewAngle:null,gripCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,
+    });
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson servo options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonServoActuation(true);
+    const required=["enabled","lessonId","angle","onAngleChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const d=Object.getOwnPropertyDescriptor(options,key);
+         return !d||!("value" in d);
+       })){
+      throw new RangeError("Servo enabled phải có đúng enabled/lessonId/angle/onAngleChange");
+    }
+    if(options.lessonId!==12||currentLessonId!==12){
+      throw new RangeError("Tay servo chỉ được điều khiển trong bài 12");
+    }
+    if(!Number.isInteger(options.angle)||options.angle<0||options.angle>180){
+      throw new RangeError("Góc servo phải là số nguyên 0–180");
+    }
+    if(typeof options.onAngleChange!=="function"){
+      throw new TypeError("onAngleChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false){
+      throw new RangeError("Tay servo không khả dụng trong context/edit/layout hiện tại");
+    }
+    // Revalidate semantic mesh identities against *this* current lesson.
+    // No raycast on generic geometry or a visual reference creates authority.
+    const grips=[activeModule?.servoHorn,...(activeModule?.servoTips??[])];
+    if(!activeModule?.arm?.isGroup||grips.length!==3||
+       grips.some((mesh,index)=>mesh?.isMesh!==true||
+         mesh.parent!==activeModule.arm||
+         mesh.userData?.kind!=="servo-horn-grip"||
+         mesh.userData.sourceId!==LESSON_SERVO_SOURCE_ID||
+         mesh.userData.lessonId!==12||mesh.userData.gripIndex!==index)){
+      throw new RangeError("Không có ba điểm cầm tay servo canonical trong scene");
+    }
+    const same=lessonServoActuation.enabled&&lessonServoActuation.lessonId===12;
+    if(!same){
+      resetLessonServoActuation(false);
+    }else if(drag?.kind==="lesson-servo-actuator"&&
+      (options.angle!==lessonServoActuation.angle||
+       options.onAngleChange!==lessonServoActuation.onAngleChange)){
+      // Native slider input or a replaced host callback owns the newer intent.
+      cancelLessonServoGesture(false);
+    }
+    lessonServoActuation={
+      enabled:true,lessonId:12,angle:options.angle,onAngleChange:options.onAngleChange,
+    };
+    syncLessonServoVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonServoStatus(true);
+  }
+  function lessonServoHit(event){
+    const current=currentLessonServoActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObjects(current.grips,false)[0]??null;
+    if(!hit||!current.grips.includes(hit.object))return null;
+    // The two-sided horn needs an exact side identity to avoid mapping the
+    // negative end onto the positive end's 180° angular solution.
+    const local=current.arm.worldToLocal(hit.point.clone());
+    if(Math.abs(local.x)<.15)return null;
+    return {...current,hit,pointerType,side:Math.sign(local.x)};
+  }
+  function lessonServoPointerBearing(event,side,arm){
+    if(!arm||!(side===1||side===-1))return null;
+    const ray=pointerRay(event);
+    if(!ray)return null;
+    scene.updateMatrixWorld(true);
+    const center=arm.getWorldPosition(new T.Vector3());
+    const plane=new T.Plane(new T.Vector3(0,1,0),-center.y);
+    const point=ray.intersectPlane(plane,new T.Vector3());
+    if(!point)return null;
+    const dx=(point.x-center.x)*side,dz=(point.z-center.z)*side;
+    if(Math.hypot(dx,dz)<.18)return null;
+    return Math.atan2(-dz,dx)*180/Math.PI;
+  }
+  function updateLessonServoDrag(event){
+    if(drag?.kind!=="lesson-servo-actuator"||!moved)return false;
+    const current=currentLessonServoActuator();
+    if(!current||current.arm!==drag.sourceArm||
+       current.sourceId!==drag.sourceId||
+       current.angle!==drag.startHostAngle||
+       current.onAngleChange!==drag.onAngleChange){
+      cancelLessonServoGesture(true);
+      return false;
+    }
+    const bearing=lessonServoPointerBearing(event,drag.side,drag.sourceArm);
+    if(bearing===null)return false;
+    const delta=((bearing-drag.startBearing+540)%360)-180;
+    drag.previewAngle=Math.max(0,Math.min(180,Math.round(drag.startVisualAngle+delta)));
+    syncLessonServoVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonServoAngle(angle,pointerType,callback){
+    if(!Number.isInteger(angle)||angle<0||angle>180||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(angle,Object.freeze({
+        lessonId:12,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -3277,8 +3491,8 @@ export function mountScene(host, onSelect = () => {}) {
         ? String(activeModule.rotor.rotation.y) : "";
   }
   function syncSceneOwnedTouchAction(){
-    canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled)?"none":"";
-    if(lessonPianoActuation.enabled)canvas.style.touchAction="none";
+    canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled||
+      lessonPianoActuation.enabled||lessonServoActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -3499,6 +3713,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonButtonActuation(false);
     if(nextEditEnabled)resetLessonPotentiometerActuation(false);
     if(nextEditEnabled)resetLessonPianoActuation(false);
+    if(nextEditEnabled)resetLessonServoActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -4105,6 +4320,26 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const servoHit=lessonServoHit(event);
+    if(servoHit){
+      const bearing=lessonServoPointerBearing(event,servoHit.side,servoHit.arm);
+      if(bearing!==null){
+        drag=pointerDragBase(event,{
+          kind:"lesson-servo-actuator",lessonId:12,
+          sourceId:servoHit.sourceId,sourceObject:servoHit.hit.object,
+          sourceArm:servoHit.arm,side:servoHit.side,
+          startHostAngle:servoHit.angle,
+          startVisualAngle:lastServoSnapshotAngle,
+          startBearing:bearing,previewAngle:lastServoSnapshotAngle,
+          onAngleChange:servoHit.onAngleChange,
+        });
+        try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+        event.preventDefault();
+        syncLessonServoVisual();
+        invalidate();
+        return;
+      }
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -4242,6 +4477,9 @@ export function mountScene(host, onSelect = () => {}) {
       event.preventDefault();
     }else if(drag.kind==="lesson-piano-key"){
       event.preventDefault();
+    }else if(drag.kind==="lesson-servo-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonServoDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -4310,6 +4548,16 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-servo-actuator"){
+      const deltaX=event.clientX-drag.startClientX;
+      const deltaY=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(deltaX,deltaY)>drag.tapThreshold)moved=true;
+      if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonServoDrag(event);
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
     if(select&&drag.kind==="lesson-potentiometer-actuator"){
       const totalDx=event.clientX-drag.startClientX;
       const totalDy=event.clientY-drag.startClientY;
@@ -4386,6 +4634,26 @@ export function mountScene(host, onSelect = () => {}) {
       syncLessonPianoVisual();
       if(exactRelease){
         emitLessonPianoNote(finished.note,finished.pointerType,finished.onNoteSelect);
+      }
+      invalidate();
+      return;
+    }
+    if(finished.kind==="lesson-servo-actuator"){
+      const current=currentLessonServoActuator();
+      const stillCurrent=Boolean(current&&current.arm===finished.sourceArm&&
+        current.grips.includes(finished.sourceObject)&&
+        current.sourceId===finished.sourceId&&
+        current.angle===finished.startHostAngle&&
+        current.onAngleChange===finished.onAngleChange&&
+        finished.lessonId===12);
+      syncLessonServoVisual(); // Always clear local ghost before host notification.
+      if(select&&moved&&stillCurrent&&
+         Number.isInteger(finished.previewAngle)&&
+         // While stopped, a different stored setpoint may coexist with the
+         // neutral 90-degree visual. A no-op radial drag must not reset it.
+         finished.previewAngle!==finished.startVisualAngle&&
+         finished.previewAngle!==finished.startHostAngle){
+        emitLessonServoAngle(finished.previewAngle,finished.pointerType,finished.onAngleChange);
       }
       invalidate();
       return;
@@ -4508,6 +4776,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(document.hidden){
       cancelLessonPotentiometerGesture(false);
       cancelLessonPianoGesture(false);
+      cancelLessonServoGesture(false);
       return;
     }
     invalidate();
@@ -4575,6 +4844,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
+    resetLessonServoActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -4632,6 +4902,8 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
+    resetLessonServoActuation(false);
+    lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
     clearWiringLayer(false);
@@ -4641,6 +4913,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonButtonCapVisualDataset();
     syncLessonPotentiometerVisualDataset();
     syncLessonPianoVisual();
+    syncLessonServoVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -4693,6 +4966,10 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function update(snapshot){
     if(disposed)return;
+    if(snapshot.kind==="servo"&&Number.isInteger(snapshot.angle)&&
+       snapshot.angle>=0&&snapshot.angle<=180){
+      lastServoSnapshotAngle=snapshot.angle;
+    }
     if(board){
       board.led.material.emissiveIntensity=snapshot.led ? 3.6 : .06;
       board.led.material.color.set(snapshot.led ? 0xc1ffdf : 0x446c5c);
@@ -4716,6 +4993,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonButtonCapVisualDataset();
     syncLessonPotentiometerVisualDataset();
     syncLessonPianoVisual();
+    syncLessonServoVisual();
     invalidate();
   }
   function control(action){
@@ -4733,7 +5011,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -4741,6 +5019,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
+    resetLessonServoActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

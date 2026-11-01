@@ -79,8 +79,8 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
     /const sameSemantic=lessonPotentiometerActuation\.enabled&&lessonPotentiometerActuation\.lessonId===4/.test(apiSource) &&
     /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
     !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
-  check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-owner",
-    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\)\?"none":""/.test(apiSource) &&
+  check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners",
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\)\?"none":""/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
   check("exact-knob-hit-is-nonrecursive-and-current-only",
@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -514,7 +514,7 @@ export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
     /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
     /b\.type="button"/.test(renderControlsSource));
   check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -571,6 +571,302 @@ export async function runScene3DLessonPianoRaycastContracts() {
   check("buzzer-region-ray-does-not-select-a-piano-key",
     firstHitAt(new T.Vector3(5.15, 1.338, -.42)) === null);
   for (const item of keys) item.geometry.dispose();
+  material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonServoSourceContracts(sceneSource, appSource, lessonsSource) {
+  if (typeof sceneSource !== "string" || !sceneSource) {
+    throw new TypeError("scene3d source text is required");
+  }
+  if (typeof appSource !== "string" || !appSource) {
+    throw new TypeError("app source text is required");
+  }
+  if (typeof lessonsSource !== "string" || !lessonsSource) {
+    throw new TypeError("lessons source text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson12 servo source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonServoVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const touchActionStart = sceneSource.indexOf("function syncSceneOwnedTouchAction");
+  const touchActionEnd = sceneSource.indexOf("function lessonPotentiometerActuationStatus", touchActionStart);
+  const touchActionSource = sceneSource.slice(touchActionStart, touchActionEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const onKeyStart = sceneSource.indexOf("const onKey=", visibilityEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=", onKeyStart);
+  const onKeySource = sceneSource.slice(onKeyStart, contextLostStart);
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const controlsInputStart = appSource.indexOf("function onControlsInput(event)");
+  const controlsInputEnd = appSource.indexOf("function setButtonPress", controlsInputStart);
+  const controlsInputSource = appSource.slice(controlsInputStart, controlsInputEnd);
+  const startPauseStart = appSource.indexOf("function startPause()");
+  const startPauseEnd = appSource.indexOf("function resetSimulation", startPauseStart);
+  const startPauseSource = appSource.slice(startPauseStart, startPauseEnd);
+  const appServoStart = appSource.indexOf("function revokeSceneLessonServoActuation");
+  const appServoEnd = appSource.indexOf("function playNote", appServoStart);
+  const appServoSource = appSource.slice(appServoStart, appServoEnd);
+
+  check("lesson12-creates-one-arm-and-three-exact-tagged-nonauthoritative-grips",
+    /case "servo": \{[\s\S]*const arm=new T\.Group\(\);arm\.position\.set\(0,1\.16,0\);module\.add\(arm\)[\s\S]*const horn=box\(arm,\[2\.2,\.13,\.28\][\s\S]*const tips=\[-0?\.92,0?\.92\]\.map\([\s\S]*\[horn,\.\.\.tips\]\.forEach\(\(mesh,index\)=>\{[\s\S]*kind:"servo-horn-grip",lessonId:12,sourceId:LESSON_SERVO_SOURCE_ID,[\s\S]*gripIndex:index,physicalVerified:false,electricalAuthority:false[\s\S]*state\.arm=arm;state\.servoHorn=horn;state\.servoTips=tips/.test(moduleSource));
+  check("public-api-has-exact-enabled-shape-and-idempotent-safe-off",
+    /function setLessonServoActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonServoActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","angle","onAngleChange"\]/.test(apiSource));
+  check("enabled-path-is-exactly-lesson12-integer-zero-to-180-and-function-callback",
+    /options\.lessonId!==12\|\|currentLessonId!==12/.test(apiSource) &&
+    /!Number\.isInteger\(options\.angle\)\|\|options\.angle<0\|\|options\.angle>180/.test(apiSource) &&
+    /typeof options\.onAngleChange!=="function"/.test(apiSource));
+  check("enabled-path-fails-closed-on-context-layout-edit-hidden-or-noncanonical-three-grips",
+    /if\(contextLost\|\|labEdit\.enabled\|\|activeLabLayout\|\|[\s\S]*activeModule\?\.module\?\.visible===false\)/.test(apiSource) &&
+    /grips\.length!==3/.test(apiSource) &&
+    /mesh\.parent!==activeModule\.arm/.test(apiSource) &&
+    /mesh\.userData\?\.kind!=="servo-horn-grip"/.test(apiSource) &&
+    /mesh\.userData\.sourceId!==LESSON_SERVO_SOURCE_ID/.test(apiSource) &&
+    /mesh\.userData\.lessonId!==12\|\|mesh\.userData\.gripIndex!==index/.test(apiSource));
+  check("receipt-is-frozen-and-explicitly-nonauthoritative-with-preview-and-grip-count",
+    /function lessonServoStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonServoActuator\(\)!==null,[\s\S]*previewAngle:[\s\S]*gripCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false/.test(apiSource));
+  check("callback-meta-is-frozen-pointer-change-only-physical-unverified-and-errors-contained",
+    /callback\(angle,Object\.freeze\(\{[\s\S]*lessonId:12,source:"pointer",pointerType,phase:"change",[\s\S]*physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("scene-servo-api-never-mutates-host-controls-electrical-graph-progress-or-avr",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|setWiring\(|complete|mastery|progress|avr/i.test(apiSource));
+  check("hit-test-raycasts-only-current-three-grips-nonrecursive-and-rejects-center-dead-zone",
+    /function lessonServoHit\(event\)/.test(apiSource) &&
+    /const current=currentLessonServoActuator\(\)/.test(apiSource) &&
+    /raycaster\.intersectObjects\(current\.grips,false\)/.test(apiSource) &&
+    /!current\.grips\.includes\(hit\.object\)/.test(apiSource) &&
+    /current\.arm\.worldToLocal\(hit\.point\.clone\(\)\)/.test(apiSource) &&
+    /if\(Math\.abs\(local\.x\)<\.15\)return null/.test(apiSource));
+  const servoDownStart = downSource.indexOf("const servoHit=lessonServoHit(event)");
+  const servoDownEnd = downSource.indexOf("if(labEdit.enabled&&activeLabLayout)", servoDownStart);
+  const servoDownSource = downSource.slice(servoDownStart, servoDownEnd);
+  check("pointerdown-servo-priority-precedes-lab-and-captures-stable-host-snapshot-source-and-callback-without-emitting",
+    servoDownStart >= 0 && servoDownEnd > servoDownStart &&
+    downSource.indexOf("const pianoHit=lessonPianoKeyHit(event)") < servoDownStart &&
+    /kind:"lesson-servo-actuator",lessonId:12/.test(servoDownSource) &&
+    /sourceId:servoHit\.sourceId,sourceObject:servoHit\.hit\.object/.test(servoDownSource) &&
+    /sourceArm:servoHit\.arm,side:servoHit\.side/.test(servoDownSource) &&
+    /startHostAngle:servoHit\.angle/.test(servoDownSource) &&
+    /startVisualAngle:lastServoSnapshotAngle/.test(servoDownSource) &&
+    /onAngleChange:servoHit\.onAngleChange/.test(servoDownSource) &&
+    !/emitLessonServoAngle/.test(servoDownSource));
+  const servoMoveStart = moveSource.indexOf('drag.kind==="lesson-servo-actuator"');
+  const servoMoveEnd = moveSource.indexOf('}else if(drag.kind==="lab-component")', servoMoveStart);
+  const servoMoveSource = moveSource.slice(servoMoveStart, servoMoveEnd);
+  check("pointermove-owns-servo-gesture-without-camera-layout-or-host-callback",
+    servoMoveStart >= 0 && servoMoveEnd > servoMoveStart &&
+    /event\.preventDefault\(\)/.test(servoMoveSource) &&
+    /if\(moved\)updateLessonServoDrag\(event\)/.test(servoMoveSource) &&
+    !/theta|phi|setLabVisualTransform|emitLessonServoAngle/.test(servoMoveSource));
+  check("preview-bearing-is-side-aware-horizontal-plane-and-bounded-integer-zero-to-180",
+    /function lessonServoPointerBearing\(event,side,arm\)/.test(apiSource) &&
+    /new T\.Plane\(new T\.Vector3\(0,1,0\),-center\.y\)/.test(apiSource) &&
+    /const dx=\(point\.x-center\.x\)\*side,dz=\(point\.z-center\.z\)\*side/.test(apiSource) &&
+    /const delta=\(\(bearing-drag\.startBearing\+540\)%360\)-180/.test(apiSource) &&
+    /drag\.previewAngle=Math\.max\(0,Math\.min\(180,Math\.round\(drag\.startVisualAngle\+delta\)\)\)/.test(apiSource));
+  check("host-angle-or-callback-resync-cancels-active-servo-preview-before-rebinding",
+    /else if\(drag\?\.kind==="lesson-servo-actuator"&&[\s\S]*options\.angle!==lessonServoActuation\.angle[\s\S]*options\.onAngleChange!==lessonServoActuation\.onAngleChange[\s\S]*cancelLessonServoGesture\(false\)/.test(apiSource));
+  check("pointerup-folds-final-servo-release-position-before-clearing-owned-drag",
+    /if\(select&&drag\.kind==="lesson-servo-actuator"\)\{[\s\S]*Math\.hypot\(deltaX,deltaY\)>drag\.tapThreshold[\s\S]*event\.clientX!==drag\.x\|\|event\.clientY!==drag\.y[\s\S]*const original=drag;[\s\S]*updateLessonServoDrag\(event\)[\s\S]*if\(drag!==original\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonServoDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("pointerup-change-requires-moved-current-binding-and-a-new-bounded-preview",
+    /finished\.kind==="lesson-servo-actuator"/.test(finishSource) &&
+    /current\.arm===finished\.sourceArm/.test(finishSource) &&
+    /current\.grips\.includes\(finished\.sourceObject\)/.test(finishSource) &&
+    /current\.angle===finished\.startHostAngle/.test(finishSource) &&
+    /current\.onAngleChange===finished\.onAngleChange/.test(finishSource) &&
+    /if\(select&&moved&&stillCurrent&&[\s\S]*Number\.isInteger\(finished\.previewAngle\)[\s\S]*finished\.previewAngle!==finished\.startVisualAngle&&[\s\S]*finished\.previewAngle!==finished\.startHostAngle\)[\s\S]*emitLessonServoAngle\(finished\.previewAngle,finished\.pointerType,finished\.onAngleChange\)/.test(finishSource));
+  check("pointercancel-and-lostcapture-share-nonchange-finish-path",
+    /const up=event=>finishPointer\(event,true\)/.test(sceneSource) &&
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("hidden-document-cancels-servo-preview-without-host-change",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonServoGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonServoAngle/.test(visibilitySource));
+  check("layout-edit-lesson-context-loss-and-dispose-reset-servo-actuation",
+    /resetLessonServoActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonServoActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonServoActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonServoActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonServoActuation\(false\)/.test(publicSource));
+  check("scene-owned-touch-action-covers-servo-pointer-drag",
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\)\?"none":""/.test(touchActionSource));
+  check("servo-visual-is-transient-preview-over-latest-simulator-snapshot-with-explicit-diagnostics",
+    /const gesture=drag\?\.kind==="lesson-servo-actuator"\?drag:null/.test(apiSource) &&
+    /const preview=gesture&&moved\?gesture\.previewAngle:null/.test(apiSource) &&
+    /const visualAngle=preview\?\?lastServoSnapshotAngle/.test(apiSource) &&
+    /activeModule\.arm\.rotation\.y=\(visualAngle-90\)\*Math\.PI\/180/.test(apiSource) &&
+    /dataset\.lessonServoAngle=/.test(apiSource) &&
+    /dataset\.lessonServoPreviewAngle=/.test(apiSource) &&
+    /dataset\.lessonServoVisualAngle=/.test(apiSource) &&
+    /dataset\.lessonServoPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonServoElectricalAuthority="false"/.test(apiSource));
+  check("update-accepts-only-bounded-integer-servo-snapshot-angle-before-resolving-preview",
+    /if\(snapshot\.kind==="servo"&&Number\.isInteger\(snapshot\.angle\)&&[\s\S]*snapshot\.angle>=0&&snapshot\.angle<=180\)\{[\s\S]*lastServoSnapshotAngle=snapshot\.angle/.test(updateSource) &&
+    /syncLessonServoVisual\(\)/.test(updateSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-servo-actuation",
+    !/lessonServo|servo-horn-grip|setLessonServoActuation/.test(onKeySource));
+  check("public-controller-exports-servo-api-after-existing-button-potentiometer-and-piano-apis",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
+  check("lesson12-native-range-is-authored-zero-to-180-step-one-default-90-and-rendered-as-keyboard-capable-range",
+    /id: 12,[\s\S]*controls: \[slider\("angle", "Góc servo", 0, 180, 90, "°"\)\]/.test(lessonsSource) &&
+    /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
+    /input\.type="range";input\.id=`control-\$\{config\.key\}`;input\.dataset\.control=config\.key/.test(renderControlsSource) &&
+    /Object\.assign\(input,\{min:config\.min,max:config\.max,step:config\.step,value:state\.controls\[config\.key\]\}\)/.test(renderControlsSource));
+  check("host-revoke-retires-binding-and-safe-offs-scene-without-changing-angle",
+    /function revokeSceneLessonServoActuation\(\)\{[\s\S]*const binding=state\.sceneServoActuation;[\s\S]*if\(binding\)binding\.active=false;[\s\S]*state\.sceneServoActuation=null;[\s\S]*setLessonServoActuation\?\.\(\{enabled:false\}\)/.test(appServoSource) &&
+    !/state\.controls\.angle\s*=/.test(appServoSource.slice(0, appServoSource.indexOf("function syncSceneLessonServoActuation"))));
+  check("host-sync-requires-exact-current-connected-enabled-lesson12-native-range-and-valid-stage",
+    /function syncSceneLessonServoActuation\(\)/.test(appServoSource) &&
+    /if\(!scene\?\.setLessonServoActuation\)return/.test(appServoSource) &&
+    /find\(item=>item\.key==="angle"\)/.test(appServoSource) &&
+    /const angle=state\.controls\.angle/.test(appServoSource) &&
+    /const slider=\$\("control-angle"\)/.test(appServoSource) &&
+    /state\.lessonId===12&&config\?\.type==="slider"&&[\s\S]*config\.min===0&&config\.max===180&&config\.step===1/.test(appServoSource) &&
+    /Number\.isInteger\(angle\)&&angle>=0&&angle<=180/.test(appServoSource) &&
+    /slider\?\.tagName==="INPUT"&&slider\.type==="range"&&[\s\S]*slider\.dataset\.control==="angle"&&[\s\S]*slider\.min==="0"&&slider\.max==="180"&&slider\.step==="1"&&[\s\S]*!slider\.disabled&&slider\.isConnected/.test(appServoSource) &&
+    /if\(!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\)/.test(appServoSource));
+  check("host-scene-callback-requires-current-binding-bounded-angle-and-exact-frozen-five-field-meta",
+    /binding\.onAngleChange=\(proposed,meta\)=>\{[\s\S]*binding!==state\.sceneServoActuation\|\|!binding\.active\|\|[\s\S]*state\.lessonId!==12\|\|state\.stageTab!=="3d"\|\|document\.hidden\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\|\|[\s\S]*!Number\.isInteger\(proposed\)\|\|proposed<0\|\|proposed>180/.test(appServoSource) &&
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|[\s\S]*Object\.getPrototypeOf\(meta\)!==Object\.prototype\|\|[\s\S]*Reflect\.ownKeys\(meta\)\.length!==5/.test(appServoSource) &&
+    /const fields=\["lessonId","source","pointerType","phase","physicalVerified"\]/.test(appServoSource) &&
+    /values\.lessonId!==12\|\|values\.source!=="pointer"\|\|[\s\S]*!\["mouse","touch","pen"\]\.includes\(values\.pointerType\)\|\|[\s\S]*values\.phase!=="change"\|\|values\.physicalVerified!==false/.test(appServoSource));
+  check("accepted-scene-change-reuses-native-change-path-and-requires-nonauthoritative-three-grip-receipt",
+    /const native=\$\("control-angle"\)/.test(appServoSource) &&
+    /native!==slider\|\|native\?\.tagName!=="INPUT"\|\|native\.type!=="range"\|\|[\s\S]*native\.dataset\.control!=="angle"\|\|native\.min!=="0"\|\|[\s\S]*native\.max!=="180"\|\|native\.step!=="1"\|\|[\s\S]*native\.disabled\|\|!native\.isConnected/.test(appServoSource) &&
+    /native\.value=String\(proposed\);[\s\S]*onControlsInput\(\{target:native,type:"change",source:"scene"\}\);[\s\S]*return true/.test(appServoSource) &&
+    /scene\.setLessonServoActuation\(\{[\s\S]*enabled:true,lessonId:12,angle,onAngleChange:binding\.onAngleChange,[\s\S]*\}\)/.test(appServoSource) &&
+    /receipt\?\.active!==true\|\|receipt\?\.gripCount!==3\|\|[\s\S]*receipt\?\.physicalVerified!==false\|\|receipt\?\.electricalAuthority!==false/.test(appServoSource));
+  check("native-input-stage-visibility-focus-edit-and-webgl-lifecycle-revoke-or-resync-servo-binding",
+    /if\(key==="angle"&&state\.lessonId===12&&config\.type==="slider"&&[\s\S]*event\.source!=="scene"\)[\s\S]*revokeSceneLessonServoActuation\(\)/.test(controlsInputSource) &&
+    /if\(key==="angle"&&state\.lessonId===12&&config\.type==="slider"\)[\s\S]*syncSceneLessonServoActuation\(\)/.test(controlsInputSource) &&
+    /function renderStage\(\)[\s\S]*syncSceneLessonServoActuation\(\)/.test(appSource) &&
+    /document\.addEventListener\("visibilitychange",\(\)=>\{[\s\S]*if\(document\.hidden\)[\s\S]*revokeSceneLessonServoActuation\(\)[\s\S]*else\{[\s\S]*syncSceneLessonServoActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("blur",\(\)=>\{[\s\S]*revokeSceneLessonServoActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("focus",\(\)=>\{[\s\S]*syncSceneLessonServoActuation\(\)/.test(appSource) &&
+    /onEditModeChange\(\)\{[\s\S]*syncSceneLessonServoActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonServoActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonServoActuation\(\)/.test(appSource));
+  check("start-pause-revokes-stale-servo-preview-before-run-state-change-and-finally-rearms-after-all-snapshot-paths",
+    startPauseStart >= 0 && startPauseEnd > startPauseStart &&
+    (startPauseSource.match(/revokeSceneLessonServoActuation\(\)/g)?.length ?? 0) === 1 &&
+    (startPauseSource.match(/updateSnapshot\(true\)/g)?.length ?? 0) === 4 &&
+    (startPauseSource.match(/syncSceneLessonServoActuation\(\)/g)?.length ?? 0) === 1 &&
+    /const rearmServo=state\.lessonId===12;[\s\S]*if\(rearmServo\)revokeSceneLessonServoActuation\(\);[\s\S]*try\{/.test(startPauseSource) &&
+    startPauseSource.indexOf("if(rearmServo)revokeSceneLessonServoActuation()") < startPauseSource.indexOf("try{") &&
+    /if\(state\.running\) \{[\s\S]*stopClock\(\);[\s\S]*updateSnapshot\(true\)/.test(startPauseSource) &&
+    /if\(state\.invalidatedCircuitLessons\.has\(state\.lessonId\)\)[\s\S]*if\(!analysis\.ok\|\|!analysis\.functional\)\{[\s\S]*updateSnapshot\(true\);[\s\S]*return;/.test(startPauseSource) &&
+    /if\(state\.activeCircuits\.has\(state\.lessonId\)\)[\s\S]*if\(!analysis\.ok\|\|!analysis\.functional\)\{[\s\S]*updateSnapshot\(true\);[\s\S]*return;/.test(startPauseSource) &&
+    /state\.running=true;[\s\S]*const snap=updateSnapshot\(true\);log\(snap\.serial\)/.test(startPauseSource) &&
+    startPauseSource.lastIndexOf("updateSnapshot(true)") < startPauseSource.indexOf("}finally{") &&
+    /\}finally\{[\s\S]*if\(rearmServo\)syncSceneLessonServoActuation\(\);[\s\S]*\}\s*\}/.test(startPauseSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonServoRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson12 servo raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const material = new T.MeshBasicMaterial();
+  const arm = new T.Group();
+  arm.position.set(5.15, 1.71, .10);
+  const horn = new T.Mesh(new T.BoxGeometry(2.2, .13, .28), material);
+  arm.add(horn);
+  const tips = [-.92, .92].map((x, index) => {
+    const mesh = new T.Mesh(new T.CylinderGeometry(.23, .23, .15, 24), material);
+    mesh.position.set(x, 0, 0);
+    mesh.userData = {
+      kind: "servo-horn-grip", lessonId: 12, sourceId: "lesson-12-servo-horn",
+      gripIndex: index + 1, physicalVerified: false, electricalAuthority: false,
+    };
+    arm.add(mesh);
+    return mesh;
+  });
+  horn.userData = {
+    kind: "servo-horn-grip", lessonId: 12, sourceId: "lesson-12-servo-horn",
+    gripIndex: 0, physicalVerified: false, electricalAuthority: false,
+  };
+  arm.updateMatrixWorld(true);
+
+  const grips = [horn, ...tips];
+  const raycaster = new T.Raycaster();
+  const firstHitAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObjects(grips, false)[0]?.object ?? null;
+  };
+  check("three-exact-nonrecursive-tagged-grips-form-the-only-raycast-set",
+    grips.length === 3 && grips.every((mesh, index) =>
+      mesh.isMesh === true && mesh.children.length === 0 && mesh.parent === arm &&
+      mesh.userData.kind === "servo-horn-grip" && mesh.userData.lessonId === 12 &&
+      mesh.userData.sourceId === "lesson-12-servo-horn" &&
+      mesh.userData.gripIndex === index && mesh.userData.physicalVerified === false &&
+      mesh.userData.electricalAuthority === false));
+  check("default-view-left-tip-center-hits-left-tip",
+    firstHitAt(new T.Vector3(4.23, 1.71, .10)) === tips[0]);
+  check("default-view-right-tip-center-hits-right-tip",
+    firstHitAt(new T.Vector3(6.07, 1.71, .10)) === tips[1]);
+  check("default-view-off-center-horn-region-hits-central-horn",
+    firstHitAt(new T.Vector3(5.75, 1.71, .10)) === horn);
+  check("servo-body-region-does-not-hit-any-horn-grip",
+    firstHitAt(new T.Vector3(5.15, .95, .10)) === null);
+
+  for (const mesh of grips) mesh.geometry.dispose();
   material.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -959,6 +1255,7 @@ export async function runScene3DContracts() {
 
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
   const appSource = await fetch(new URL("../src/app.js", import.meta.url)).then(response => response.text());
+  const lessonsSource = await fetch(new URL("../src/lessons.js", import.meta.url)).then(response => response.text());
   const lessonPotSourceContracts = runScene3DLessonPotentiometerSourceContracts(sceneSource);
   for (const name of lessonPotSourceContracts.checks) check("lesson-pot-source-"+name,true);
   const lessonPotRaycastContracts = await runScene3DLessonPotentiometerRaycastContracts();
@@ -971,6 +1268,10 @@ export async function runScene3DContracts() {
   for (const name of lessonPianoSourceContracts.checks) check("lesson-piano-source-"+name,true);
   const lessonPianoRaycastContracts = await runScene3DLessonPianoRaycastContracts();
   for (const name of lessonPianoRaycastContracts.checks) check("lesson-piano-raycast-"+name,true);
+  const lessonServoSourceContracts = runScene3DLessonServoSourceContracts(sceneSource, appSource, lessonsSource);
+  for (const name of lessonServoSourceContracts.checks) check("lesson-servo-source-"+name,true);
+  const lessonServoRaycastContracts = await runScene3DLessonServoRaycastContracts();
+  for (const name of lessonServoRaycastContracts.checks) check("lesson-servo-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);
