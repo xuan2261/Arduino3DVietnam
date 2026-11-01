@@ -277,8 +277,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .control-field select:focus-visible { outline-offset: 1px; }
 .press-control { background: #fef0e8; border: 1px solid #efcbb7; color: #9c453c; border-radius: 8px; min-height: 42px; padding: 10px 18px; font-weight: 800; font-size: 12px; user-select: none; touch-action: manipulation; }
 .press-control:active, .press-control.is-pressed { background: #c65d4f; color: white; }
-.note-button { border-radius: 6px; height: 40px; min-width: 34px; border: 1px solid #c8dcd3; background: #f7fbf9; color: #34665c; font-size: 11px; font-weight: 800; }
+.note-button { border-radius: 6px; min-height: 44px; min-width: 44px; padding: 8px 10px; border: 1px solid #c8dcd3; background: #f7fbf9; color: #34665c; font-size: 11px; font-weight: 800; }
 .note-button[aria-pressed="true"],.note-button:active { background: #136a61; color: white; }
+.note-button:focus-visible { outline: 3px solid #0b8b7b; outline-offset: 2px; }
 .note-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
 .sim-actions { border-top: 1px solid var(--line); padding: 14px 22px; display: flex; align-items: center; gap: 9px; }
 .button-run { background: var(--teal); color: white; border-color: var(--teal); }

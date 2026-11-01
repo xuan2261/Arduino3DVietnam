@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -376,6 +376,202 @@ export async function runScene3DLessonButtonActuationRaycastContracts() {
     item.geometry.dispose();
     item.material.dispose();
   }
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
+  if (typeof sceneSource !== "string" || !sceneSource) {
+    throw new TypeError("scene3d source text is required");
+  }
+  if (typeof appSource !== "string" || !appSource) {
+    throw new TypeError("app source text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson09 piano source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonPianoVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=");
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const appPianoStart = appSource.indexOf("function revokeSceneLessonPianoActuation");
+  const appPianoEnd = appSource.indexOf("function playNote", appPianoStart);
+  const appPianoSource = appSource.slice(appPianoStart, appPianoEnd);
+
+  check("lesson9-creates-seven-ordered-tagged-note-key-meshes",
+    /case "piano"[\s\S]*for\(let index=0;index<LESSON_PIANO_LABELS\.length;index\+=1\)[\s\S]*const key=box\(module,\[\.53,\.17,\.68\],[\s\S]*\[-1\.89\+index\*\.63,\.51,1\.11\]\)[\s\S]*kind:"piano-note-key",lessonId:9,sourceId:LESSON_PIANO_SOURCE_ID,[\s\S]*note,index,physicalVerified:false,electricalAuthority:false,[\s\S]*state\.pianoKeys\.push\(key\)/.test(moduleSource));
+  check("public-api-has-exact-enabled-shape-and-idempotent-safe-off",
+    /function setLessonPianoActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonPianoActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","note","onNoteSelect"\]/.test(apiSource));
+  check("enabled-path-is-exactly-lesson9-valid-note-and-function-callback",
+    /options\.lessonId!==9\|\|currentLessonId!==9/.test(apiSource) &&
+    /options\.note!==""&&!LESSON_PIANO_LABELS\.includes\(options\.note\)/.test(apiSource) &&
+    /typeof options\.onNoteSelect!=="function"/.test(apiSource));
+  check("enabled-path-fails-closed-on-context-layout-edit-hidden-or-noncanonical-keys",
+    /if\(contextLost\|\|labEdit\.enabled\|\|activeLabLayout\|\|[\s\S]*activeModule\?\.module\?\.visible===false\)/.test(apiSource) &&
+    /keys\.length!==LESSON_PIANO_LABELS\.length/.test(apiSource) &&
+    /key\.userData\?\.kind!=="piano-note-key"/.test(apiSource) &&
+    /key\.userData\?\.sourceId!==LESSON_PIANO_SOURCE_ID/.test(apiSource));
+  check("receipt-is-frozen-and-explicitly-nonauthoritative",
+    /function lessonPianoStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonPianoKeys\(\)!==null,[\s\S]*keyCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false/.test(apiSource));
+  check("selection-callback-meta-is-frozen-pointer-only-and-errors-contained",
+    /callback\(note,Object\.freeze\(\{[\s\S]*lessonId:9,source:"pointer",pointerType,physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("scene-piano-api-never-mutates-host-controls-electrical-graph-progress-or-avr",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|setWiring\(|complete|mastery|progress|avr/i.test(apiSource));
+  check("hit-test-raycasts-only-current-seven-key-list-nonrecursive",
+    /function lessonPianoKeyHit\(event\)/.test(apiSource) &&
+    /const keys=currentLessonPianoKeys\(\)/.test(apiSource) &&
+    /raycaster\.intersectObjects\(keys,false\)/.test(apiSource) &&
+    /!keys\.includes\(hit\.object\)/.test(apiSource));
+  check("pointerdown-captures-stable-key-note-callback-and-host-note-without-selection",
+    /const pianoHit=lessonPianoKeyHit\(event\)/.test(downSource) &&
+    /kind:"lesson-piano-key",lessonId:9/.test(downSource) &&
+    /sourceObject:pianoHit\.key/.test(downSource) &&
+    /note:pianoHit\.note,onNoteSelect:pianoHit\.onNoteSelect/.test(downSource) &&
+    /startHostNote:lessonPianoActuation\.note/.test(downSource) &&
+    !/emitLessonPianoNote/.test(downSource));
+  check("pointermove-owns-piano-gesture-without-camera-layout-or-selection-callback",
+    /drag\.kind==="lesson-piano-key"[\s\S]*event\.preventDefault\(\)/.test(moveSource) &&
+    !/lesson-piano-key[^\n]*(?:theta|phi|zoom|setLabVisualTransform|emitLessonPianoNote)/.test(moveSource));
+  check("pointerup-selection-requires-unmoved-current-source-and-same-key-release-hit",
+    /finished\.kind==="lesson-piano-key"/.test(finishSource) &&
+    /lessonPianoActuation\.note===finished\.startHostNote/.test(finishSource) &&
+    /lessonPianoActuation\.onNoteSelect===finished\.onNoteSelect/.test(finishSource) &&
+    /if\(select&&!moved&&stillCurrent&&pointerRay\(event\)\)/.test(finishSource) &&
+    /const releaseHit=raycaster\.intersectObjects\(keys,false\)\[0\]\?\?null/.test(finishSource) &&
+    /exactRelease=releaseHit\?\.object===finished\.sourceObject/.test(finishSource) &&
+    /if\(exactRelease\)[\s\S]*emitLessonPianoNote\(finished\.note,finished\.pointerType,finished\.onNoteSelect\)/.test(finishSource));
+  check("pointercancel-and-lostcapture-share-nonselect-finish-path",
+    /const up=event=>finishPointer\(event,true\)/.test(sceneSource) &&
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("off-target-or-different-key-release-cannot-emit-note",
+    /exactRelease=releaseHit\?\.object===finished\.sourceObject/.test(finishSource) &&
+    /if\(exactRelease\)\{[\s\S]*emitLessonPianoNote/.test(finishSource) &&
+    !/else\s*\{?\s*emitLessonPianoNote/.test(finishSource));
+  check("hidden-document-cancels-piano-gesture-without-selection-event",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonPianoGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonPianoNote/.test(visibilitySource));
+  check("edit-lesson-context-loss-and-dispose-reset-piano-actuation",
+    /if\(nextEditEnabled\)resetLessonPianoActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonPianoActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonPianoActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonPianoActuation\(false\)/.test(publicSource));
+  check("native-html-fallback-renders-the-same-seven-button-note-controls",
+    /config\.type==="piano"/.test(renderControlsSource) &&
+    /for\(const \[title\] of NOTES\)/.test(renderControlsSource) &&
+    /el\("button","note-button",title\);b\.type="button";b\.dataset\.note=title/.test(renderControlsSource) &&
+    /aria-pressed/.test(renderControlsSource) &&
+    /Bạn vẫn có thể sử dụng sơ đồ kết nối, bài học, điều khiển và bài kiểm tra/.test(appSource));
+  check("native-html-note-selection-revokes-inflight-3d-and-retains-host-authority",
+    /function choosePianoNote\(note,source="native"\)/.test(appPianoSource) &&
+    /if\(source==="native"\)revokeSceneLessonPianoActuation\(\)/.test(appPianoSource) &&
+    /state\.controls\.note=note/.test(appPianoSource) &&
+    /recordPracticeAction\("change-control"\)/.test(appPianoSource) &&
+    /button\.setAttribute\("aria-pressed",String\(button\.dataset\.note===note\)\)/.test(appPianoSource));
+  check("host-scene-callback-requires-exact-frozen-four-field-meta",
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|Object\.getPrototypeOf\(meta\)!==Object\.prototype/.test(appPianoSource) &&
+    /Reflect\.ownKeys\(meta\)\.length!==4/.test(appPianoSource) &&
+    /const fields=\["lessonId","source","pointerType","physicalVerified"\]/.test(appPianoSource) &&
+    /values\.lessonId!==9\|\|values\.source!=="pointer"/.test(appPianoSource) &&
+    /values\.physicalVerified!==false/.test(appPianoSource));
+  check("host-stage-edit-visibility-and-webgl-lifecycle-revoke-or-resync-piano",
+    /!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)/.test(appPianoSource) &&
+    /document\.addEventListener\("visibilitychange",[\s\S]*revokeSceneLessonPianoActuation\(\)[\s\S]*syncSceneLessonPianoActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonPianoActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonPianoActuation\(\)/.test(appSource));
+  check("native-note-click-path-remains-keyboard-capable-button-fallback",
+    /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
+    /b\.type="button"/.test(renderControlsSource));
+  check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent/.test(publicSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonPianoRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson09 piano raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  const material = new T.MeshBasicMaterial();
+  const keyCenter = index => new T.Vector3(5.15 - 1.89 + index * .63, 1.06, 1.21);
+  const keys = Array.from({ length: 7 }, (_, index) => {
+    const geometry = new T.BoxGeometry(.53, .17, .68);
+    const mesh = new T.Mesh(geometry, material);
+    mesh.position.copy(keyCenter(index));
+    mesh.userData = { kind: "piano-note-key", lessonId: 9, index };
+    mesh.updateMatrixWorld(true);
+    return { mesh, geometry };
+  });
+  const meshes = keys.map(item => item.mesh);
+  const raycaster = new T.Raycaster();
+  const firstHitAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObjects(meshes, false)[0]?.object ?? null;
+  };
+  check("default-view-rays-hit-all-seven-exact-key-centers",
+    keys.every((item, index) => firstHitAt(keyCenter(index)) === item.mesh));
+  check("positive-hits-are-bounded-to-the-seven-nonrecursive-key-meshes",
+    meshes.length === 7 && meshes.every(mesh => mesh.children.length === 0) &&
+    keys.every((item, index) => {
+      const hit = firstHitAt(keyCenter(index));
+      return meshes.includes(hit) && hit?.userData?.kind === "piano-note-key";
+    }));
+  check("rays-outside-left-and-right-key-bank-miss",
+    firstHitAt(new T.Vector3(2.55, 1.06, 1.21)) === null &&
+    firstHitAt(new T.Vector3(7.75, 1.06, 1.21)) === null);
+  check("buzzer-region-ray-does-not-select-a-piano-key",
+    firstHitAt(new T.Vector3(5.15, 1.338, -.42)) === null);
+  for (const item of keys) item.geometry.dispose();
+  material.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
 
@@ -762,6 +958,7 @@ export async function runScene3DContracts() {
   };
 
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
+  const appSource = await fetch(new URL("../src/app.js", import.meta.url)).then(response => response.text());
   const lessonPotSourceContracts = runScene3DLessonPotentiometerSourceContracts(sceneSource);
   for (const name of lessonPotSourceContracts.checks) check("lesson-pot-source-"+name,true);
   const lessonPotRaycastContracts = await runScene3DLessonPotentiometerRaycastContracts();
@@ -770,6 +967,10 @@ export async function runScene3DContracts() {
   for (const name of lessonButtonSourceContracts.checks) check("lesson-button-source-"+name,true);
   const lessonButtonRaycastContracts = await runScene3DLessonButtonActuationRaycastContracts();
   for (const name of lessonButtonRaycastContracts.checks) check("lesson-button-raycast-"+name,true);
+  const lessonPianoSourceContracts = runScene3DLessonPianoSourceContracts(sceneSource, appSource);
+  for (const name of lessonPianoSourceContracts.checks) check("lesson-piano-source-"+name,true);
+  const lessonPianoRaycastContracts = await runScene3DLessonPianoRaycastContracts();
+  for (const name of lessonPianoRaycastContracts.checks) check("lesson-piano-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);

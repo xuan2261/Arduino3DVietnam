@@ -2,6 +2,7 @@
 // Mã hiển thị không quyết định hành vi điện tử; trạng thái đến từ simulator.js.
 import * as T from "../assets/vendor/three.module.min.js";
 import { labTerminalAnchor, validateLabLayout } from "./lab-layout.js";
+import { NOTES } from "./lessons.js";
 
 const palette = {
   board: 0x176b7a, solder: 0x166070, dark: 0x172f38, metal: 0xc4cfcd,
@@ -26,6 +27,8 @@ const LAB_COMMITTED_WIRE_REPAIR_POINTS = 4;
 const LESSON_POT_GESTURE_SWEEP = Math.PI * 1.7;
 const LESSON_POT_FALLBACK_RANGE_PX = 180;
 const LESSON_POT_ANGLE_MIN_RADIUS_PX = 10;
+const LESSON_PIANO_LABELS = Object.freeze(NOTES.map(([label])=>label));
+const LESSON_PIANO_SOURCE_ID = "lesson-9-piano-keys";
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1002,7 +1005,7 @@ function createModule(scene, kind, shared) {
   const module = new T.Group();
   module.position.set(5.15,.55,.10);
   scene.add(module);
-  const state = { module, led: null, rotor: null, pointer: null, arm: null };
+  const state = { module, led: null, rotor: null, pointer: null, arm: null, pianoKeys: [] };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1063,11 +1066,30 @@ function createModule(scene, kind, shared) {
       led(.22);state.led.position.set(1.28,.35,.6);
       break;
     case "buzzer":
-    case "piano":
       cylinder(module,.78,.78,.58,0x202c31,[0,.48,0],42);
       cylinder(module,.43,.43,.03,0x11191c,[0,.788,0],42);
       canvasLabel(module,"BUZZER",0,.81,0,1.1,39,"#d2e4df");
       break;
+    case "piano": {
+      // Seven distinct raycastable teaching keys, not a CAD layout of D2–D8
+      // nor evidence that real physical keys or buzzer wiring are connected.
+      cylinder(module,.78,.78,.58,0x202c31,[0,.48,-.52],42);
+      cylinder(module,.43,.43,.03,0x11191c,[0,.788,-.52],42);
+      canvasLabel(module,"BUZZER",0,.81,-.52,1.1,39,"#d2e4df");
+      box(module,[4.54,.21,.95],0x233f48,[0,.26,1.11]);
+      for(let index=0;index<LESSON_PIANO_LABELS.length;index+=1){
+        const note=LESSON_PIANO_LABELS[index];
+        const key=box(module,[.53,.17,.68],0xf4f5ec,[-1.89+index*.63,.51,1.11]);
+        key.userData={
+          kind:"piano-note-key",lessonId:9,sourceId:LESSON_PIANO_SOURCE_ID,
+          note,index,physicalVerified:false,electricalAuthority:false,
+        };
+        state.pianoKeys.push(key);
+        // Human-readable marks are secondary to native HTML note buttons.
+        canvasLabel(module,note,-1.89+index*.63,.62,1.11,.50,28,"#263f42");
+      }
+      break;
+    }
     case "motor":
     case "stepper": {
       const m = cylinder(module,.67,.67,2.2,0x829597,[0,.73,0],30,Math.PI/2);
@@ -1136,6 +1158,9 @@ export function mountScene(host, onSelect = () => {}) {
   let lessonButtonActuationPressed=false,lessonButtonActuationPointerId=null;
   let lessonButtonActuationPointerType=null,lessonButtonActuationSourceId=null;
   let lessonPotentiometerActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
+  // One opt-in 3D input surface for the preexisting Lesson 09 note selector.
+  // A key is not electrically connected by being drawn or touched.
+  let lessonPianoActuation={enabled:false,lessonId:null,note:"",onNoteSelect:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1335,6 +1360,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonPotentiometerActuation.enabled){
       parts.push("Núm biến trở 3D của bài 4 gửi giá trị mô phỏng khái niệm khi kéo pointer; thanh trượt HTML vẫn là điều khiển bàn phím tương đương và không biểu diễn góc quay hay điện áp vật lý được xác minh.");
     }
+    if(lessonPianoActuation.enabled){
+      parts.push("Bảy phím đàn 3D của bài 9 chỉ chọn nốt mô phỏng khi chạm rồi thả đúng phím; các nút HTML Đô đến Si là điều khiển bàn phím tương đương. Không xác nhận dây, âm thanh thực tế, AVR hoặc phím vật lý.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1459,6 +1487,13 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonPotPhysicalVerified="false";
   canvas.dataset.lessonPotElectricalAuthority="false";
   canvas.dataset.lessonPotVisualRotationY="";
+  canvas.dataset.lessonPianoMode="off";
+  canvas.dataset.lessonPianoNote="";
+  canvas.dataset.lessonPianoGesture="none";
+  canvas.dataset.lessonPianoPressedKey="";
+  canvas.dataset.lessonPianoKeyCount="0";
+  canvas.dataset.lessonPianoPhysicalVerified="false";
+  canvas.dataset.lessonPianoElectricalAuthority="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2707,6 +2742,7 @@ export function mountScene(host, onSelect = () => {}) {
     }
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
+    resetLessonPianoActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3084,6 +3120,148 @@ export function mountScene(host, onSelect = () => {}) {
     const hit=raycaster.intersectObject(current.pointer,false)[0]||null;
     return hit?.object===current.pointer?{...current,pointerType,hit}:null;
   }
+  function syncLessonPianoVisual(){
+    const pressed=drag?.kind==="lesson-piano-key" ? drag.sourceObject : null;
+    const keys=activeModule?.pianoKeys??[];
+    for(const key of keys){
+      const selected=lessonPianoActuation.enabled&&
+        lessonPianoActuation.note===key.userData.note;
+      const down=pressed===key;
+      key.position.y=down?0.44:selected?0.48:0.51;
+      key.material.color.set(down?0xffd577:selected?0x5ac2aa:0xf4f5ec);
+    }
+    canvas.dataset.lessonPianoMode=lessonPianoActuation.enabled?"pointer-tap":"off";
+    canvas.dataset.lessonPianoNote=lessonPianoActuation.enabled?lessonPianoActuation.note:"";
+    canvas.dataset.lessonPianoGesture=pressed?"pressed":"none";
+    canvas.dataset.lessonPianoPressedKey=pressed?.userData?.note??"";
+    canvas.dataset.lessonPianoKeyCount=String(keys.length);
+    canvas.dataset.lessonPianoPhysicalVerified="false";
+    canvas.dataset.lessonPianoElectricalAuthority="false";
+  }
+  function lessonPianoStatus(ok=true){
+    return Object.freeze({
+      ok,enabled:lessonPianoActuation.enabled,
+      active:currentLessonPianoKeys()!==null,
+      lessonId:lessonPianoActuation.lessonId,
+      note:lessonPianoActuation.enabled?lessonPianoActuation.note:"",
+      keyCount:activeModule?.pianoKeys?.length??0,
+      mode:lessonPianoActuation.enabled?"pointer-tap":"off",
+      physicalVerified:false,electricalAuthority:false,
+    });
+  }
+  function cancelLessonPianoGesture(redraw=false){
+    if(drag?.kind!=="lesson-piano-key")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonPianoVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonPianoActuation(redraw=false){
+    cancelLessonPianoGesture(false);
+    lessonPianoActuation={enabled:false,lessonId:null,note:"",onNoteSelect:null};
+    syncLessonPianoVisual();
+    refreshCanvasAccessibility();
+    syncSceneOwnedTouchAction();
+    if(redraw)invalidate();
+    return lessonPianoStatus(true);
+  }
+  function currentLessonPianoKeys(){
+    if(!lessonPianoActuation.enabled||disposed||contextLost||
+       currentLessonId!==9||lessonPianoActuation.lessonId!==9||
+       labEdit.enabled||activeLabLayout||
+       typeof lessonPianoActuation.onNoteSelect!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const keys=activeModule?.pianoKeys;
+    if(!Array.isArray(keys)||keys.length!==LESSON_PIANO_LABELS.length||
+       !keys.every((key,index)=>key?.isMesh===true&&
+         key.userData?.kind==="piano-note-key"&&
+         key.userData.sourceId===LESSON_PIANO_SOURCE_ID&&
+         key.userData.lessonId===9&&
+         key.userData.note===LESSON_PIANO_LABELS[index]&&
+         key.userData.index===index))return null;
+    return keys;
+  }
+  function setLessonPianoActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({
+      ok:false,enabled:false,active:false,lessonId:null,note:"",
+      keyCount:0,mode:"off",physicalVerified:false,electricalAuthority:false,
+    });
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson piano actuation options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonPianoActuation(true);
+    const required=["enabled","lessonId","note","onNoteSelect"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const d=Object.getOwnPropertyDescriptor(options,key);
+         return !d||!("value" in d);
+       })){
+      throw new RangeError("Lesson piano actuation enabled thiếu field hoặc có field ngoài hợp đồng");
+    }
+    if(options.lessonId!==9||currentLessonId!==9)throw new RangeError("Lesson piano actuation chỉ thuộc bài 09");
+    if(typeof options.note!=="string"||
+       (options.note!==""&&!LESSON_PIANO_LABELS.includes(options.note))){
+      throw new RangeError("Nốt đàn piano phải là rỗng hoặc một trong bảy nhãn chuẩn");
+    }
+    if(typeof options.onNoteSelect!=="function")throw new TypeError("onNoteSelect phải là function");
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false){
+      throw new RangeError("Phím đàn 3D không hoạt động trong context/layout/editor hiện tại");
+    }
+    // Check mesh identity before enabling. A text label or reference wire
+    // must never become a semantic input source.
+    const keys=activeModule?.pianoKeys;
+    if(!Array.isArray(keys)||keys.length!==LESSON_PIANO_LABELS.length||
+       keys.some((key,index)=>key?.isMesh!==true||
+         key.userData?.kind!=="piano-note-key"||
+         key.userData?.lessonId!==9||
+         key.userData?.sourceId!==LESSON_PIANO_SOURCE_ID||
+         key.userData?.note!==LESSON_PIANO_LABELS[index])){
+      throw new RangeError("Không có đúng bảy phím đàn 3D của bài 09");
+    }
+    if(!lessonPianoActuation.enabled||lessonPianoActuation.lessonId!==9){
+      resetLessonPianoActuation(false);
+      lessonPianoActuation={enabled:true,lessonId:9,note:options.note,onNoteSelect:options.onNoteSelect};
+    }else{
+      // New host note may invalidate an in-flight gesture; never let an old
+      // pointer override a selection made by a native HTML button.
+      if(drag?.kind==="lesson-piano-key"&&
+         options.note!==lessonPianoActuation.note)cancelLessonPianoGesture(false);
+      lessonPianoActuation={
+        ...lessonPianoActuation,note:options.note,onNoteSelect:options.onNoteSelect,
+      };
+    }
+    syncLessonPianoVisual();
+    refreshCanvasAccessibility();
+    syncSceneOwnedTouchAction();
+    invalidate();
+    return lessonPianoStatus(true);
+  }
+  function lessonPianoKeyHit(event){
+    const keys=currentLessonPianoKeys();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!keys||!pointerType||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObjects(keys,false)[0]??null;
+    if(!hit||!keys.includes(hit.object))return null;
+    return {
+      lessonId:9,key:hit.object,note:hit.object.userData.note,
+      pointerType,onNoteSelect:lessonPianoActuation.onNoteSelect,
+    };
+  }
+  function emitLessonPianoNote(note,pointerType,callback){
+    if(!LESSON_PIANO_LABELS.includes(note)||!lessonButtonPointerType(pointerType)||
+       typeof callback!=="function")return false;
+    try{
+      return callback(note,Object.freeze({
+        lessonId:9,source:"pointer",pointerType,physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -3100,6 +3278,7 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function syncSceneOwnedTouchAction(){
     canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled)?"none":"";
+    if(lessonPianoActuation.enabled)canvas.style.touchAction="none";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -3319,6 +3498,7 @@ export function mountScene(host, onSelect = () => {}) {
     };
     if(nextEditEnabled)resetLessonButtonActuation(false);
     if(nextEditEnabled)resetLessonPotentiometerActuation(false);
+    if(nextEditEnabled)resetLessonPianoActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -3911,6 +4091,20 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const pianoHit=lessonPianoKeyHit(event);
+    if(pianoHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-piano-key",lessonId:9,
+        sourceId:LESSON_PIANO_SOURCE_ID,sourceObject:pianoHit.key,
+        note:pianoHit.note,onNoteSelect:pianoHit.onNoteSelect,
+        startHostNote:lessonPianoActuation.note,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonPianoVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -4046,6 +4240,8 @@ export function mountScene(host, onSelect = () => {}) {
       if(moved)updateLessonPotentiometerDrag(event);
     }else if(drag.kind==="lesson-button-actuator"){
       event.preventDefault();
+    }else if(drag.kind==="lesson-piano-key"){
+      event.preventDefault();
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -4173,6 +4369,27 @@ export function mountScene(host, onSelect = () => {}) {
       releaseLessonButtonPress(sourceStillCurrent);
       return;
     }
+    if(finished.kind==="lesson-piano-key"){
+      const keys=currentLessonPianoKeys();
+      const stillCurrent=Boolean(
+        keys&&keys.includes(finished.sourceObject)&&
+        finished.lessonId===9&&finished.sourceId===LESSON_PIANO_SOURCE_ID&&
+        lessonPianoActuation.note===finished.startHostNote&&
+        lessonPianoActuation.onNoteSelect===finished.onNoteSelect
+      );
+      let exactRelease=false;
+      if(select&&!moved&&stillCurrent&&pointerRay(event)){
+        scene.updateMatrixWorld(true);
+        const releaseHit=raycaster.intersectObjects(keys,false)[0]??null;
+        exactRelease=releaseHit?.object===finished.sourceObject;
+      }
+      syncLessonPianoVisual();
+      if(exactRelease){
+        emitLessonPianoNote(finished.note,finished.pointerType,finished.onNoteSelect);
+      }
+      invalidate();
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -4290,6 +4507,7 @@ export function mountScene(host, onSelect = () => {}) {
   const onVisibility=()=>{
     if(document.hidden){
       cancelLessonPotentiometerGesture(false);
+      cancelLessonPianoGesture(false);
       return;
     }
     invalidate();
@@ -4356,6 +4574,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.setAttribute("aria-busy","true");
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
+    resetLessonPianoActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -4412,6 +4631,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(disposed)return;
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
+    resetLessonPianoActuation(false);
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
     clearWiringLayer(false);
@@ -4420,6 +4640,7 @@ export function mountScene(host, onSelect = () => {}) {
       ({2:"led",3:"button",4:"potentiometer",5:"rgb",6:"ldr",7:"ultrasonic",8:"buzzer",9:"piano",10:"motor",11:"temperature",12:"servo",13:"stepper",14:"plant",15:"force",16:"project"})[lesson.id] || "led",sharedMaterials);
     syncLessonButtonCapVisualDataset();
     syncLessonPotentiometerVisualDataset();
+    syncLessonPianoVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -4494,6 +4715,7 @@ export function mountScene(host, onSelect = () => {}) {
     }
     syncLessonButtonCapVisualDataset();
     syncLessonPotentiometerVisualDataset();
+    syncLessonPianoVisual();
     invalidate();
   }
   function control(action){
@@ -4511,13 +4733,14 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
     if(raf){cancelAnimationFrame(raf);raf=0;}
     resetLessonButtonActuation(false);
     resetLessonPotentiometerActuation(false);
+    resetLessonPianoActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

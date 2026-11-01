@@ -76,6 +76,9 @@ const state = {
   // A held conceptual 3D potentiometer knob only proposes the same bounded
   // lesson-04 analog input already owned by the native range control.
   scenePotentiometerActuation: null,
+  // Seven conceptual Lesson 09 3D key caps may request the same host-owned
+  // note selection as the native HTML buttons, never a graph/progress claim.
+  scenePianoActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -872,6 +875,7 @@ function closeReadOnlyGuideMode(){
   // button (3/16), not the guide or any old pointer/graph state.
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
+  syncSceneLessonPianoActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1601,6 +1605,7 @@ function renderStage() {
   syncSceneBreadboardHoleStudy();
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
+  syncSceneLessonPianoActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1642,6 +1647,8 @@ function renderControls(){
     ?"Nhấn và giữ nút ngay trên mô hình 3D hoặc nút điều khiển HTML; nếu dùng bàn phím ở nút HTML, giữ phím Space. Đây chỉ là đầu vào mô phỏng."
     :lesson.id===4
       ?"Xoay núm biến trở trên mô hình 3D hoặc dùng thanh trượt A0 (bàn phím hỗ trợ mũi tên/Home/End). Đây chỉ là giá trị đầu vào mô phỏng 0–1023, không phải phép đo điện áp vật lý."
+    :lesson.id===9
+      ?"Chạm hoặc click một trong bảy phím nốt trên mô hình 3D rồi thả, hoặc dùng các nút nốt HTML bằng bàn phím. Nốt và tần số thuộc mô phỏng JavaScript, không chứng minh phần cứng hay chạy chương trình Arduino C++."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1833,17 +1840,20 @@ function startPause(){
 function resetSimulation() {
   revokeSceneLessonButtonActuation();
   revokeSceneLessonPotentiometerActuation();
+  revokeSceneLessonPianoActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
   syncSceneLessonButtonActuation();
   syncSceneLessonPotentiometerActuation();
+  syncSceneLessonPianoActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
   if(!lesson)return;
   revokeSceneLessonButtonActuation();
   revokeSceneLessonPotentiometerActuation();
+  revokeSceneLessonPianoActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -2027,6 +2037,90 @@ function syncSceneLessonPotentiometerActuation(){
       revokeSceneLessonPotentiometerActuation();
     }
   }catch{revokeSceneLessonPotentiometerActuation();}
+}
+function revokeSceneLessonPianoActuation(){
+  const binding=state.scenePianoActuation;
+  if(binding)binding.active=false;
+  state.scenePianoActuation=null;
+  // Retire any pending pointer key without clearing the learner's chosen note.
+  try{state.scene?.setLessonPianoActuation?.({enabled:false});}catch{}
+}
+function choosePianoNote(note,source="native"){
+  if(state.lessonId!==9||!NOTES.some(([name])=>name===note))return false;
+  const exp=$("experimentControls");
+  const buttons=[...exp.querySelectorAll("[data-note]")];
+  if(buttons.length!==NOTES.length||
+     !NOTES.every(([label],index)=>{
+       const button=buttons[index];
+       return button?.tagName==="BUTTON"&&button.type==="button"&&
+         button.dataset.note===label&&!button.disabled&&button.isConnected;
+     }))return false;
+  if(source!=="native"&&source!=="scene")return false;
+  // A native HTML selection supersedes an in-flight 3D gesture even if the
+  // note label stays identical. An older pointerup cannot replay that action.
+  if(source==="native")revokeSceneLessonPianoActuation();
+  state.controls.note=note;
+  recordPracticeAction("change-control");
+  for(const button of buttons){
+    button.setAttribute("aria-pressed",String(button.dataset.note===note));
+  }
+  const snap=updateSnapshot(true);
+  if(state.running){log(snap.serial);playNote(snap.toneHz);}
+  syncSceneLessonPianoActuation();
+  return true;
+}
+function syncSceneLessonPianoActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonPianoActuation)return;
+  const native=$("experimentControls")?.querySelectorAll("[data-note]");
+  const note=state.controls.note;
+  const supported=state.lessonId===9&&
+    currentLesson().controls.some(config=>config.type==="piano"&&config.key==="note")&&
+    typeof note==="string"&&(note===""||NOTES.some(([label])=>label===note))&&
+    native?.length===NOTES.length&&
+    NOTES.every(([label],index)=>{
+      const button=native[index];
+      return button?.tagName==="BUTTON"&&button.type==="button"&&
+        button.dataset.note===label&&!button.disabled&&button.isConnected;
+    });
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonPianoActuation();
+    return;
+  }
+  let binding=state.scenePianoActuation;
+  if(!binding||!binding.active||binding.lessonId!==9){
+    binding={active:true,lessonId:9,onNoteSelect:null};
+    binding.onNoteSelect=(selected,meta)=>{
+      if(binding!==state.scenePianoActuation||!binding.active||
+         state.lessonId!==9||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         typeof selected!=="string"||!NOTES.some(([label])=>label===selected)||
+         !meta||!Object.isFrozen(meta)||Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==4)return false;
+      const fields=["lessonId","source","pointerType","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        values[field]=descriptor.value;
+      }
+      if(values.lessonId!==9||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         values.physicalVerified!==false)return false;
+      return choosePianoNote(selected,"scene");
+    };
+    state.scenePianoActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonPianoActuation({
+      enabled:true,lessonId:9,note,onNoteSelect:binding.onNoteSelect,
+    });
+    if(receipt?.active!==true||receipt?.keyCount!==NOTES.length||
+       receipt?.physicalVerified!==false||receipt?.electricalAuthority!==false){
+      revokeSceneLessonPianoActuation();
+    }
+  }catch{revokeSceneLessonPianoActuation();}
 }
 function playNote(hz){
   if(!state.running||!hz)return;
@@ -2255,11 +2349,7 @@ function wireEvents(){
   exp.addEventListener("click",event=>{
     const note=event.target.closest("[data-note]");
     if(!note)return;
-    state.controls.note=note.dataset.note;
-    recordPracticeAction("change-control");
-    for(const b of exp.querySelectorAll("[data-note]")) b.setAttribute("aria-pressed",String(b.dataset.note===state.controls.note));
-    const snap=updateSnapshot(true);
-    if(state.running){log(snap.serial);playNote(snap.toneHz);}
+    choosePianoNote(note.dataset.note);
   });
   $("runButton").addEventListener("click",()=>{
     const wasRunning=state.running;
@@ -2357,10 +2447,12 @@ function wireEvents(){
     if(document.hidden){
       revokeSceneLessonButtonActuation();
       revokeSceneLessonPotentiometerActuation();
+      revokeSceneLessonPianoActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
+      syncSceneLessonPianoActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -2368,10 +2460,12 @@ function wireEvents(){
   window.addEventListener("blur",()=>{
     revokeSceneLessonButtonActuation();
     revokeSceneLessonPotentiometerActuation();
+    revokeSceneLessonPianoActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
     syncSceneLessonPotentiometerActuation();
+    syncSceneLessonPianoActuation();
   });
   window.addEventListener("beforeunload",()=>{
     state.labExplorerUI?.dispose();
@@ -2403,6 +2497,7 @@ async function init(){
       syncSceneBreadboardHoleStudy();
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
+      syncSceneLessonPianoActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -2412,6 +2507,7 @@ async function init(){
       // A changed Lab layout can invalidate the lesson-04 knob target even
       // while remaining on the 3D stage. Re-check its host binding now.
       syncSceneLessonPotentiometerActuation();
+      syncSceneLessonPianoActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -2536,6 +2632,7 @@ async function init(){
       syncSceneBreadboardHoleStudy();
       revokeSceneLessonButtonActuation();
       revokeSceneLessonPotentiometerActuation();
+      revokeSceneLessonPianoActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -2555,6 +2652,7 @@ async function init(){
          canvas.dataset.sceneContext!=="ready")return;
       syncSceneLessonButtonActuation();
       syncSceneLessonPotentiometerActuation();
+      syncSceneLessonPianoActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -2568,6 +2666,7 @@ async function init(){
     syncSceneBreadboardHoleStudy();
     syncSceneLessonButtonActuation();
     syncSceneLessonPotentiometerActuation();
+    syncSceneLessonPianoActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

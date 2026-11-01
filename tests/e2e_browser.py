@@ -423,6 +423,95 @@ def main() -> None:
             and abs(float(rotation) - float(actual["expectedRotation"])) < 1e-8
         )
 
+    def lesson09_scene_key_pixels(page):
+        """Project Lesson09 key centers for genuine browser pointer input.
+
+        The calculation duplicates only public conceptual scene geometry and
+        the initial camera transform. It never dispatches an event or calls an
+        application callback; the production raycaster remains the hit-test
+        authority for every mouse/touch/pen assertion below.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async () => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            const buttons=[...document.querySelectorAll('#experimentControls [data-note]')];
+            if(!canvas||buttons.length!==7)throw new Error('Lesson09 piano surface missing');
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const selected=canvas.dataset.lessonPianoNote||'';
+            const pressed=canvas.dataset.lessonPianoPressedKey||'';
+            return Object.freeze(buttons.map((button,index)=>{
+              const note=button.dataset.note||'';
+              const localY=pressed===note ? .44 : selected===note ? .48 : .51;
+              const point=new T.Vector3(5.15-1.89+index*.63,.55+localY,.10+1.11);
+              const projected=point.project(camera);
+              const x=rect.left+(projected.x+1)*rect.width/2;
+              const y=rect.top+(1-projected.y)*rect.height/2;
+              return Object.freeze({
+                note,index,x,y,
+                insideFrustum:projected.z>=-1&&projected.z<=1,
+                insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+                onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+                canvasUncovered:document.elementFromPoint(x,y)===canvas,
+              });
+            }));
+        }""")
+
+    def lesson09_piano_acceptance_state(page):
+        """Read the native piano controls and public scene diagnostics only."""
+        return page.evaluate("""() => {
+            const canvas=document.querySelector('#sceneMount canvas');
+            const group=document.querySelector('#experimentControls .note-buttons');
+            const buttons=[...document.querySelectorAll('#experimentControls [data-note]')];
+            if(!canvas||!group)throw new Error('Lesson09 canonical piano UI/scene missing');
+            return Object.freeze({
+              mode:canvas.dataset.lessonPianoMode||'',
+              note:canvas.dataset.lessonPianoNote||'',
+              gesture:canvas.dataset.lessonPianoGesture||'',
+              pressedKey:canvas.dataset.lessonPianoPressedKey||'',
+              keyCount:Number(canvas.dataset.lessonPianoKeyCount||0),
+              physicalVerified:canvas.dataset.lessonPianoPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonPianoElectricalAuthority||'',
+              groupRole:group.getAttribute('role')||'',
+              groupLabel:group.getAttribute('aria-label')||'',
+              buttons:Object.freeze(buttons.map(button=>Object.freeze({
+                note:button.dataset.note||'',tag:button.tagName,type:button.type,
+                pressed:button.getAttribute('aria-pressed')||'',disabled:button.disabled,
+              }))),
+            });
+        }""")
+
+    def lesson09_piano_state_agrees(actual: dict[str, object], expected_note: str) -> bool:
+        labels = ["Đô", "Rê", "Mi", "Fa", "Sol", "La", "Si"]
+        buttons = actual.get("buttons")
+        return (
+            actual.get("mode") == "pointer-tap"
+            and actual.get("note") == expected_note
+            and actual.get("gesture") == "none"
+            and actual.get("pressedKey") == ""
+            and actual.get("keyCount") == 7
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("groupRole") == "group"
+            and actual.get("groupLabel") == "Chọn nốt nhạc"
+            and isinstance(buttons, list)
+            and [button.get("note") for button in buttons] == labels
+            and all(button.get("tag") == "BUTTON" and button.get("type") == "button"
+                    and button.get("disabled") is False for button in buttons)
+            and [button.get("note") for button in buttons if button.get("pressed") == "true"] ==
+                ([expected_note] if expected_note else [])
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -926,7 +1015,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 422
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 447
                       and "lesson-pot-source-pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-owner" in
                           scene_lifecycle_names
                       and "lesson-pot-source-pointerup-folds-final-pot-delta-before-clearing-and-stops-if-callback-revokes" in
@@ -956,6 +1045,12 @@ def main() -> None:
                       and "lesson-button-pen-lostcapture-emits-true-false-exactly-once" in
                           scene_lifecycle_names
                       and "lesson-button-context-loss-releases-false-once-and-disables" in
+                          scene_lifecycle_names
+                      and "lesson-piano-source-pointercancel-and-lostcapture-share-nonselect-finish-path" in
+                          scene_lifecycle_names
+                      and "lesson-piano-source-scene-piano-api-never-mutates-host-controls-electrical-graph-progress-or-avr" in
+                          scene_lifecycle_names
+                      and "lesson-piano-raycast-default-view-rays-hit-all-seven-exact-key-centers" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
@@ -7428,6 +7523,417 @@ def main() -> None:
                           and pot_page.locator("#progressText").inner_text()==pot_progress)
                 finally:
                     pot_context.close()
+
+                # Lesson09 piano: seven tagged conceptual 3D keys are a second
+                # pointer surface for the existing ordered native note buttons.
+                # Every positive 3D path below uses genuine browser input at an
+                # independently projected mesh center. Read-only evaluate calls
+                # inspect public geometry/datasets only; they never invoke the
+                # host note-selection callback or manufacture pointer events.
+                piano_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    piano_page=piano_context.new_page()
+                    capture_console(piano_page)
+                    piano_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(piano_page)
+                    piano_page.locator('.lesson-link[data-lesson="9"]').click()
+                    piano_canvas=piano_page.locator("#sceneMount canvas")
+                    piano_progress=piano_page.locator("#progressText").inner_text()
+                    piano_progress_storage=piano_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    piano_complete_visible=piano_page.locator("#completeButton").is_visible()
+                    piano_initial=lesson09_piano_acceptance_state(piano_page)
+                    piano_initial_pixels=lesson09_scene_key_pixels(piano_page)
+                    check("post-v16-lesson09-piano-seven-tagged-3d-keys-and-native-buttons-ready",
+                          lesson09_piano_state_agrees(piano_initial,"")
+                          and len(piano_initial_pixels)==7
+                          and [item["note"] for item in piano_initial_pixels]==
+                              ["Đô","Rê","Mi","Fa","Sol","La","Si"]
+                          and all(item["insideFrustum"] and item["insideCanvas"]
+                                  and item["onScreen"] and item["canvasUncovered"]
+                                  for item in piano_initial_pixels),
+                          json.dumps({"state":piano_initial,
+                                      "pixels":piano_initial_pixels},ensure_ascii=False))
+
+                    # Native HTML remains the keyboard-accessible authority. Its
+                    # exact host selection must converge onto the public scene
+                    # dataset without requiring a canvas keyboard shortcut.
+                    native_do=piano_page.locator('#experimentControls [data-note="Đô"]')
+                    native_do.focus()
+                    native_do.press("Enter")
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoNote==='Đô'
+                    """,timeout=3000)
+                    piano_native_do=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-native-keyboard-note-converges-to-scene",
+                          lesson09_piano_state_agrees(piano_native_do,"Đô")
+                          and piano_page.evaluate(
+                              "document.activeElement?.dataset.note==='Đô'") is True
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # Regression for same-note supersession: while the selected
+                    # 3D key owns a real mouse pointer, a native Enter on that
+                    # same HTML note revokes the older gesture. Its later mouseup
+                    # cannot replay stale scene authority.
+                    do_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Đô"]
+                    piano_page.mouse.move(do_pixel["x"],do_pixel["y"])
+                    piano_page.mouse.down()
+                    piano_same_held=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-mouse-down-on-selected-key-is-only-held-intent",
+                          piano_same_held["gesture"]=="pressed"
+                          and piano_same_held["pressedKey"]=="Đô"
+                          and piano_same_held["note"]=="Đô"
+                          and [button["note"] for button in piano_same_held["buttons"]
+                               if button["pressed"]=="true"]==["Đô"])
+                    native_do.focus()
+                    native_do.press("Enter")
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoGesture==='none'
+                    """,timeout=3000)
+                    piano_page.mouse.up()
+                    piano_same_native=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-native-same-note-revokes-inflight-3d-mouse",
+                          lesson09_piano_state_agrees(piano_same_native,"Đô")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # Genuine mouse pointer tap on a different tagged mesh.
+                    re_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Rê"]
+                    piano_page.mouse.move(re_pixel["x"],re_pixel["y"])
+                    piano_page.mouse.down()
+                    piano_mouse_down=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-mouse-down-presses-exact-re-key-without-selection",
+                          re_pixel["insideFrustum"] and re_pixel["insideCanvas"]
+                          and re_pixel["onScreen"] and re_pixel["canvasUncovered"]
+                          and piano_mouse_down["gesture"]=="pressed"
+                          and piano_mouse_down["pressedKey"]=="Rê"
+                          and piano_mouse_down["note"]=="Đô")
+                    piano_page.mouse.up()
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoNote==='Rê'
+                    """,timeout=3000)
+                    piano_mouse_up=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-mouse-tap-selects-re-through-native-host-state",
+                          lesson09_piano_state_agrees(piano_mouse_up,"Rê")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # Chrome DevTools emits an actual pen PointerEvent sequence;
+                    # release on the exact same 3D key must select only that note.
+                    piano_input=piano_context.new_cdp_session(piano_page)
+                    mi_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Mi"]
+                    piano_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":mi_pixel["x"],"y":mi_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    piano_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":mi_pixel["x"],"y":mi_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    piano_pen_down=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-pen-down-presses-mi-without-host-write",
+                          mi_pixel["insideFrustum"] and mi_pixel["insideCanvas"]
+                          and mi_pixel["canvasUncovered"]
+                          and piano_pen_down["gesture"]=="pressed"
+                          and piano_pen_down["pressedKey"]=="Mi"
+                          and piano_pen_down["note"]=="Rê")
+                    piano_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":mi_pixel["x"],"y":mi_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoNote==='Mi'
+                    """,timeout=3000)
+                    piano_pen_up=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-pen-tap-selects-mi-and-releases",
+                          lesson09_piano_state_agrees(piano_pen_up,"Mi")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # At the narrow learner viewport, all native note controls
+                    # retain WCAG-sized targets. Then an actual Chrome touch tap
+                    # still hits the small 3D key through the production raycast.
+                    piano_page.set_viewport_size({"width":375,"height":812})
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        if(innerWidth!==375||!canvas||canvas.clientWidth<=0||canvas.clientHeight<=0)return false;
+                        const ratioX=canvas.width/canvas.clientWidth;
+                        const ratioY=canvas.height/canvas.clientHeight;
+                        return ratioX>=.9&&ratioX<=1.75&&Math.abs(ratioX-ratioY)<.05;
+                    }""",timeout=5000)
+                    piano_page.locator("#experimentControls .note-buttons").scroll_into_view_if_needed()
+                    mobile_notes=piano_page.evaluate("""() =>
+                        [...document.querySelectorAll('#experimentControls [data-note]')].map(button=>{
+                          const rect=button.getBoundingClientRect();
+                          return {note:button.dataset.note||'',width:rect.width,height:rect.height};
+                        })
+                    """)
+                    check("post-v16-lesson09-piano-mobile-375-native-seven-note-targets-44px-no-overflow",
+                          [item["note"] for item in mobile_notes]==
+                              ["Đô","Rê","Mi","Fa","Sol","La","Si"]
+                          and all(item["width"]>=44 and item["height"]>=44
+                                  for item in mobile_notes)
+                          and piano_page.evaluate(
+                              "document.documentElement.scrollWidth<=innerWidth") is True,
+                          json.dumps(mobile_notes,ensure_ascii=False))
+
+                    fa_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Fa"]
+                    fa_touch={
+                        "x":fa_pixel["x"],"y":fa_pixel["y"],"id":61,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    piano_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[fa_touch],
+                    })
+                    piano_touch_down=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-mobile-375-real-touch-down-hits-fa-key",
+                          fa_pixel["insideFrustum"] and fa_pixel["insideCanvas"]
+                          and fa_pixel["onScreen"] and fa_pixel["canvasUncovered"]
+                          and piano_touch_down["gesture"]=="pressed"
+                          and piano_touch_down["pressedKey"]=="Fa"
+                          and piano_touch_down["note"]=="Mi")
+                    piano_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoNote==='Fa'
+                    """,timeout=3000)
+                    piano_touch_up=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-mobile-375-real-touch-tap-selects-fa",
+                          lesson09_piano_state_agrees(piano_touch_up,"Fa")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # A genuine Chrome touchCancel must clear the visual press
+                    # and leave the last host note untouched.
+                    sol_cancel_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Sol"]
+                    sol_cancel_touch={
+                        "x":sol_cancel_pixel["x"],"y":sol_cancel_pixel["y"],"id":62,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    piano_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[sol_cancel_touch],
+                    })
+                    piano_cancel_down=lesson09_piano_acceptance_state(piano_page)
+                    piano_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoGesture==='none'
+                    """,timeout=3000)
+                    piano_cancelled=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-touchcancel-clears-press-without-note-replay",
+                          piano_cancel_down["gesture"]=="pressed"
+                          and piano_cancel_down["pressedKey"]=="Sol"
+                          and piano_cancel_down["note"]=="Fa"
+                          and lesson09_piano_state_agrees(piano_cancelled,"Fa"))
+
+                    # Moving a captured mouse from one real key to a different
+                    # key crosses the tap threshold. Releasing there is a dropoff,
+                    # never an implicit second-key selection.
+                    piano_page.set_viewport_size({"width":1280,"height":820})
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.clientWidth>0&&innerWidth===1280
+                    """,timeout=5000)
+                    drop_pixels={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}
+                    la_pixel=drop_pixels["La"]
+                    si_pixel=drop_pixels["Si"]
+                    piano_page.mouse.move(la_pixel["x"],la_pixel["y"])
+                    piano_page.mouse.down()
+                    piano_page.mouse.move(si_pixel["x"],si_pixel["y"],steps=5)
+                    piano_drop_mid=lesson09_piano_acceptance_state(piano_page)
+                    piano_page.mouse.up()
+                    piano_drop_after=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-mouse-dropoff-does-not-select-release-key",
+                          piano_drop_mid["gesture"]=="pressed"
+                          and piano_drop_mid["pressedKey"]=="La"
+                          and piano_drop_mid["note"]=="Fa"
+                          and lesson09_piano_state_agrees(piano_drop_after,"Fa"))
+
+                    # Releasing the browser's real pointer capture produces the
+                    # native lostpointercapture event; no synthetic event is
+                    # dispatched. That event must cancel the held note gesture.
+                    si_capture={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Si"]
+                    piano_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EPianoPointerId=null;
+                        window.__arduinoE2EPianoGotCaptureId=null;
+                        window.__arduinoE2EPianoLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EPianoPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EPianoGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EPianoLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    piano_page.mouse.move(si_capture["x"],si_capture["y"])
+                    piano_page.mouse.down()
+                    # Chrome initially has only *pending* pointer capture.
+                    # Process a genuine sub-threshold move to obtain native
+                    # gotpointercapture before requesting release; otherwise
+                    # releasePointerCapture can clear pending capture without
+                    # ever dispatching lostpointercapture.
+                    piano_page.mouse.move(si_capture["x"]+.3,si_capture["y"]+.3)
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EPianoPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          && window.__arduinoE2EPianoGotCaptureId===id;
+                    }""",timeout=3000)
+                    piano_lost_down=lesson09_piano_acceptance_state(piano_page)
+                    piano_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EPianoPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson09 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    # The pending lost-capture transition is processed on the
+                    # next genuine pointer event. Do not synthesize events or
+                    # accept a cleared visual state without the native event.
+                    piano_page.mouse.move(si_capture["x"]+.6,si_capture["y"]+.6)
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonPianoGesture==='none'
+                          && window.__arduinoE2EPianoLostCaptureId===
+                             window.__arduinoE2EPianoPointerId;
+                    }
+                    """,timeout=3000)
+                    piano_page.mouse.up()
+                    piano_lost_after=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-native-lostcapture-cancels-without-selection",
+                          piano_lost_down["gesture"]=="pressed"
+                          and piano_lost_down["pressedKey"]=="Si"
+                          and piano_lost_down["note"]=="Fa"
+                          and lesson09_piano_state_agrees(piano_lost_after,"Fa"))
+
+                    # Leaving the 3D stage revokes scene authority while the
+                    # native host selection survives. Returning to 3D re-arms
+                    # exactly that host note with no replayed gesture.
+                    piano_page.locator("#stageTabWiring").click()
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoMode==='off'
+                    """,timeout=3000)
+                    piano_stage_off=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-wiring-stage-revokes-3d-input-keeps-native-note",
+                          piano_stage_off["mode"]=="off"
+                          and piano_stage_off["gesture"]=="none"
+                          and piano_stage_off["pressedKey"]==""
+                          and [button["note"] for button in piano_stage_off["buttons"]
+                               if button["pressed"]=="true"]==["Fa"]
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+                    piano_page.locator("#stageTab3d").click()
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonPianoMode==='pointer-tap'
+                          &&canvas.dataset.lessonPianoNote==='Fa';
+                    }""",timeout=3000)
+                    piano_stage_return=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-return-to-3d-rearms-current-native-note",
+                          lesson09_piano_state_agrees(piano_stage_return,"Fa"))
+
+                    # Lose the real WebGL context while another genuine mouse
+                    # key is held. Loss revokes the gesture and scene binding but
+                    # preserves host state; real restoration re-arms current L09.
+                    loss_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Rê"]
+                    piano_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    piano_page.mouse.down()
+                    piano_pre_loss=lesson09_piano_acceptance_state(piano_page)
+                    piano_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EPianoGL=gl;
+                        window.__arduinoE2EPianoLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EPianoGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost';
+                    }""",timeout=10000)
+                    piano_lost_context=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-webgl-loss-revokes-held-key-without-host-write",
+                          piano_pre_loss["gesture"]=="pressed"
+                          and piano_pre_loss["pressedKey"]=="Rê"
+                          and piano_pre_loss["note"]=="Fa"
+                          and piano_lost_context["mode"]=="off"
+                          and piano_lost_context["gesture"]=="none"
+                          and [button["note"] for button in piano_lost_context["buttons"]
+                               if button["pressed"]=="true"]==["Fa"]
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+                    piano_page.mouse.up()
+                    piano_page.wait_for_timeout(500)
+                    piano_page.evaluate("window.__arduinoE2EPianoLoseExtension.restoreContext()")
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EPianoGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonPianoMode==='pointer-tap'
+                          &&canvas.dataset.lessonPianoNote==='Fa';
+                    }""",timeout=10000)
+                    piano_restored=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-webgl-restore-rearms-fa-without-stale-press",
+                          lesson09_piano_state_agrees(piano_restored,"Fa"))
+
+                    # A second actual mouse key after GPU restoration proves the
+                    # restored input path is live rather than dataset-only.
+                    sol_pixel={item["note"]:item for item in lesson09_scene_key_pixels(piano_page)}["Sol"]
+                    piano_page.mouse.move(sol_pixel["x"],sol_pixel["y"])
+                    piano_page.mouse.down()
+                    piano_page.mouse.up()
+                    piano_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonPianoNote==='Sol'
+                    """,timeout=3000)
+                    piano_post_restore=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-real-mouse-tap-after-webgl-restore-selects-sol",
+                          lesson09_piano_state_agrees(piano_post_restore,"Sol")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # Lesson ownership is exact: another lesson removes both the
+                    # seven native buttons and the scene key set. Returning to 9
+                    # starts from the authored empty-note default, not stale Sol.
+                    piano_page.locator('.lesson-link[data-lesson="8"]').click()
+                    check("post-v16-lesson09-piano-lesson-switch-revokes-old-key-authority",
+                          piano_canvas.get_attribute("data-lesson-piano-mode")=="off"
+                          and piano_canvas.get_attribute("data-lesson-piano-key-count")=="0"
+                          and piano_page.locator("#experimentControls [data-note]").count()==0
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+                    piano_page.locator('.lesson-link[data-lesson="9"]').click()
+                    piano_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonPianoMode==='pointer-tap'
+                          &&canvas.dataset.lessonPianoKeyCount==='7';
+                    }""",timeout=3000)
+                    piano_return_lesson=lesson09_piano_acceptance_state(piano_page)
+                    check("post-v16-lesson09-piano-return-to-lesson9-restores-authored-empty-default",
+                          lesson09_piano_state_agrees(piano_return_lesson,"")
+                          and piano_page.locator("#progressText").inner_text()==piano_progress)
+
+                    # All piano input is simulation-only. Inspect the canonical
+                    # learner wiring surface last: no edge/history/completion or
+                    # persisted progress was created by any pointer/keyboard path.
+                    piano_page.locator("#stageTabWiring").click()
+                    piano_undo=piano_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    piano_redo=piano_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson09-piano-no-electrical-graph-or-progress-write",
+                          piano_page.locator("#viewport .wiring-view.is-interactive").count()==1
+                          and piano_page.locator(".wiring-view .wire-connected").count()==0
+                          and piano_page.locator(".wire-activate").get_attribute("aria-pressed")=="false"
+                          and piano_undo.count()==1 and piano_undo.is_disabled()
+                          and piano_redo.count()==1 and piano_redo.is_disabled()
+                          and piano_canvas.get_attribute("data-lesson-piano-mode")=="off"
+                          and piano_page.locator("#progressText").inner_text()==piano_progress
+                          and piano_page.locator("#completeButton").is_visible()==piano_complete_visible
+                          and piano_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==piano_progress_storage)
+                finally:
+                    piano_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

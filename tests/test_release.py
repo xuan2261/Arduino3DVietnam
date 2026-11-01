@@ -1030,9 +1030,8 @@ class ReleaseContractTests(unittest.TestCase):
     def test_lesson04_potentiometer_doc_release_is_exact_and_offline(self):
         expected = ["docs/THREE_D_LESSON04_POTENTIOMETER.md"]
         self.assertEqual(build_site.LESSON04_POTENTIOMETER_RELEASE_FILES, expected)
-        self.assertEqual(build_site.FILES[148:], expected)
-        self.assertEqual(len(build_site.FILES), 149)
-        self.assertEqual(len(set(build_site.FILES)), 149)
+        self.assertEqual(build_site.FILES[148:149], expected)
+        self.assertEqual(len(build_site.FILES[:149]), 149)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1057,6 +1056,44 @@ class ReleaseContractTests(unittest.TestCase):
                 (output / expected[0]).read_bytes(),
                 (fixture_root / expected[0]).read_bytes(),
                 "Lesson 04 potentiometer documentation bytes changed during packaging",
+            )
+            output_files = {
+                path.relative_to(output).as_posix()
+                for path in output.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
+    def test_lesson09_piano_doc_release_is_exact_and_offline(self):
+        expected = ["docs/THREE_D_LESSON09_PIANO.md"]
+        self.assertEqual(build_site.LESSON09_PIANO_RELEASE_FILES, expected)
+        self.assertEqual(build_site.FILES[149:], expected)
+        self.assertEqual(len(build_site.FILES), 150)
+        self.assertEqual(len(set(build_site.FILES)), 150)
+
+        source = build_site._release_source(expected[0])
+        self.assertTrue(source.is_file())
+        self.assertFalse(source.is_symlink())
+        self.assertGreater(source.stat().st_size, 100)
+        self.assertEqual(
+            build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
+            "Lesson 09 piano documentation must be precached in release order",
+        )
+
+        with tempfile.TemporaryDirectory(prefix="arduino3d-lesson09-piano-release-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                output = build_site.build()
+            self.assertEqual(
+                (output / expected[0]).read_bytes(),
+                (fixture_root / expected[0]).read_bytes(),
+                "Lesson 09 piano documentation bytes changed during packaging",
             )
             output_files = {
                 path.relative_to(output).as_posix()
