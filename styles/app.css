@@ -279,6 +279,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 /* Lesson 15 FSR conceptual ADC press also retains a full keyboard target. */
 .control-field input#control-force[type=range] { min-height: 44px; height: 44px; }
 .control-field input#control-force[type=range]:focus-visible { outline: 3px solid #0b8b7b; outline-offset: 2px; }
+/* Lesson 07 3D obstacle sliding is optional; native range remains keyboard-accessible. */
+.control-field input#control-distance[type=range] { min-height: 44px; height: 44px; }
+.control-field input#control-distance[type=range]:focus-visible { outline: 3px solid #0b8b7b; outline-offset: 2px; }
 .control-field select { background: white; color: var(--ink); border: 1px solid #d4e1db; border-radius: 7px; font-size: 11px; padding: 8px; max-width: 155px; }
 .control-field select:focus-visible { outline-offset: 1px; }
 .press-control { background: #fef0e8; border: 1px solid #efcbb7; color: #9c453c; border-radius: 8px; min-height: 42px; padding: 10px 18px; font-weight: 800; font-size: 12px; user-select: none; touch-action: manipulation; }

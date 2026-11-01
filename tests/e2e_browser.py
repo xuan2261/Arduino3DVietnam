@@ -725,6 +725,106 @@ def main() -> None:
             and actual.get("sceneContext") == "ready"
         )
 
+    def lesson07_scene_ultrasonic_pixel(page, distance_cm: int | None = None):
+        """Project the authored Lesson07 conceptual obstacle center.
+
+        Only the published obstacle transform and initial camera are duplicated
+        here. Production Three.js raycasting remains the authority for whether a
+        genuine browser pointer owns the tagged target.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedDistance => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson07 3D canvas missing');
+            const current=canvas.dataset.lessonUltrasonicPreviewDistance!==''?
+              Number(canvas.dataset.lessonUltrasonicPreviewDistance):
+              Number(canvas.dataset.lessonUltrasonicDistance);
+            const distance=requestedDistance===null?current:Number(requestedDistance);
+            if(!Number.isInteger(distance)||distance<2||distance>400){
+              throw new Error('Lesson07 conceptual distance missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const localX=1.65+((distance-2)/398)*2.4;
+            const point=new T.Vector3(5.15+localX,.55+.68,.10+.10);
+            const projected=point.project(camera);
+            const x=rect.left+(projected.x+1)*rect.width/2;
+            const y=rect.top+(1-projected.y)*rect.height/2;
+            return Object.freeze({
+              distance,x,y,
+              insideFrustum:projected.z>=-1&&projected.z<=1,
+              insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+              onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""", distance_cm)
+
+    def lesson07_ultrasonic_acceptance_state(page):
+        """Read native Lesson07 range and public ultrasonic scene diagnostics."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-distance');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson07 canonical ultrasonic UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),
+              min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',
+              output:output?.textContent||'',
+              label:label?.textContent||'',
+              labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonUltrasonicMode||'',
+              sceneDistance:canvas.dataset.lessonUltrasonicDistance||'',
+              previewDistance:canvas.dataset.lessonUltrasonicPreviewDistance||'',
+              gesture:canvas.dataset.lessonUltrasonicGesture||'',
+              targetCount:Number(canvas.dataset.lessonUltrasonicTargetCount||0),
+              physicalVerified:canvas.dataset.lessonUltrasonicPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonUltrasonicElectricalAuthority||'',
+              measuredEcho:canvas.dataset.lessonUltrasonicMeasuredEcho||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson07_ultrasonic_state_agrees(actual: dict[str, object], expected_distance: int) -> bool:
+        return (
+            2 <= expected_distance <= 400
+            and actual.get("value") == expected_distance
+            and actual.get("min") == "2"
+            and actual.get("max") == "400"
+            and actual.get("step") == "1"
+            and actual.get("control") == "distance"
+            and actual.get("output") == f"{expected_distance} cm"
+            and actual.get("labelFor") == "control-distance"
+            and actual.get("labelCount") == 1
+            and "Khoảng cách" in str(actual.get("label"))
+            and actual.get("mode") == "pointer-slide"
+            and actual.get("sceneDistance") == str(expected_distance)
+            and actual.get("previewDistance") == ""
+            and actual.get("gesture") == "none"
+            and actual.get("targetCount") == 1
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("measuredEcho") == "false"
+            and actual.get("sceneContext") == "ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1228,7 +1328,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 516
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 553
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -9399,6 +9499,717 @@ def main() -> None:
                               "localStorage.getItem('arduino-3d-viet-progress-v1')")==fsr_progress_storage)
                 finally:
                     fsr_context.close()
+
+                # Lesson07 HC-SR04: one tagged conceptual obstacle is an
+                # optional 3D pointer surface for the existing native 2..400 cm
+                # range. The scene may preview a slider-like position, but only
+                # successful release may request the host-owned range change.
+                ultrasonic_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    ultrasonic_page=ultrasonic_context.new_page()
+                    capture_console(ultrasonic_page)
+                    ultrasonic_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(ultrasonic_page)
+                    ultrasonic_page.locator('.lesson-link[data-lesson="7"]').click()
+                    ultrasonic_canvas=ultrasonic_page.locator("#sceneMount canvas")
+                    ultrasonic_slider=ultrasonic_page.locator("#control-distance")
+                    ultrasonic_progress=ultrasonic_page.locator("#progressText").inner_text()
+                    ultrasonic_progress_storage=ultrasonic_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    ultrasonic_complete_visible=ultrasonic_page.locator(
+                        "#completeButton").is_visible()
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-distance')?.value==='70'
+                          &&canvas?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&canvas.dataset.lessonUltrasonicDistance==='70'
+                          &&canvas.dataset.lessonUltrasonicTargetCount==='1';
+                    }""",timeout=5000)
+                    ultrasonic_initial=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_initial_pixel=lesson07_scene_ultrasonic_pixel(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-native-range-and-tagged-obstacle-ready",
+                          lesson07_ultrasonic_state_agrees(ultrasonic_initial,70)
+                          and ultrasonic_initial_pixel["insideFrustum"]
+                          and ultrasonic_initial_pixel["insideCanvas"]
+                          and ultrasonic_initial_pixel["onScreen"]
+                          and ultrasonic_initial_pixel["canvasUncovered"]
+                          and "không phải cm đo thực" in
+                              ultrasonic_initial["canvasLabel"].lower(),
+                          json.dumps({"state":ultrasonic_initial,
+                                      "pixel":ultrasonic_initial_pixel},
+                                     ensure_ascii=False))
+
+                    # Native HTML remains the keyboard-accessible authority for
+                    # the complete authored 2..400 cm interval.
+                    ultrasonic_slider.focus()
+                    ultrasonic_slider.press("Home")
+                    ultrasonic_home=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_slider.press("End")
+                    ultrasonic_end=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-native-keyboard-home-end-cover-2-400",
+                          lesson07_ultrasonic_state_agrees(ultrasonic_home,2)
+                          and ultrasonic_home["focused"] is True
+                          and lesson07_ultrasonic_state_agrees(ultrasonic_end,400)
+                          and ultrasonic_end["focused"] is True
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+                    ultrasonic_page.locator("#resetButton").click()
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#control-distance')?.value==='70'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicDistance==='70'
+                    """,timeout=3000)
+
+                    # A genuine mouse tap owns the exact tagged target but never
+                    # crosses the drag threshold, so release cannot commit.
+                    tap_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    ultrasonic_page.mouse.move(tap_pixel["x"],tap_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_tap_pressed=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_tap_after=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-mouse-tap-does-not-commit",
+                          ultrasonic_tap_pressed["gesture"]=="grabbed"
+                          and ultrasonic_tap_pressed["previewDistance"]==""
+                          and ultrasonic_tap_pressed["value"]==70
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_tap_after,70))
+
+                    # Genuine Playwright mouse drag RIGHT: 40 CSS px = +80 cm.
+                    # Host/native range remains 70 during preview; pointerup alone
+                    # commits the bounded 150 cm proposal.
+                    mouse_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    ultrasonic_page.mouse.move(mouse_pixel["x"],mouse_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_mouse_grab=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-mouse-down-grabs-without-preview-or-host-write",
+                          ultrasonic_mouse_grab["gesture"]=="grabbed"
+                          and ultrasonic_mouse_grab["previewDistance"]==""
+                          and ultrasonic_mouse_grab["value"]==70
+                          and ultrasonic_mouse_grab["sceneDistance"]=="70")
+                    ultrasonic_page.mouse.move(
+                        mouse_pixel["x"]+40,mouse_pixel["y"],steps=8)
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonUltrasonicGesture==='dragging'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='150';
+                    }""",timeout=3000)
+                    ultrasonic_mouse_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-mouse-drag-right-is-preview-only",
+                          ultrasonic_mouse_preview["value"]==70
+                          and ultrasonic_mouse_preview["sceneDistance"]=="70"
+                          and ultrasonic_mouse_preview["previewDistance"]=="150"
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-distance');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonUltrasonicDistance===String(expected)
+                          &&canvas.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='';
+                    }""",arg=150,timeout=3000)
+                    ultrasonic_mouse_commit=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_commit_pixel=lesson07_scene_ultrasonic_pixel(
+                        ultrasonic_page,150)
+                    check("post-v16-lesson07-ultrasonic-real-mouse-release-commits-through-native-range",
+                          lesson07_ultrasonic_state_agrees(
+                              ultrasonic_mouse_commit,150)
+                          and ultrasonic_commit_pixel["insideCanvas"]
+                          and ultrasonic_commit_pixel["canvasUncovered"]
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+
+                    # A real value-changing native key action supersedes a held
+                    # scene proposal. Home establishes 2; End then changes 2→400
+                    # while the mouse remains down. Late mouseup cannot replay.
+                    ultrasonic_slider.focus()
+                    ultrasonic_slider.press("Home")
+                    ultrasonic_page.wait_for_function(
+                        "() => document.querySelector('#control-distance')?.value==='2'",
+                        timeout=3000)
+                    supersede_pixel=lesson07_scene_ultrasonic_pixel(
+                        ultrasonic_page)
+                    ultrasonic_page.mouse.move(
+                        supersede_pixel["x"],supersede_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        supersede_pixel["x"]+20,supersede_pixel["y"],steps=5)
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='42'
+                    """,timeout=3000)
+                    ultrasonic_supersede_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_slider.focus()
+                    ultrasonic_slider.press("End")
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-distance')?.value==='400'
+                          &&canvas?.dataset.lessonUltrasonicDistance==='400'
+                          &&canvas.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='';
+                    }""",timeout=3000)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_supersede_after=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-native-value-change-revokes-stale-mouse",
+                          ultrasonic_supersede_preview["value"]==2
+                          and ultrasonic_supersede_preview["previewDistance"]=="42"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_supersede_after,400))
+                    ultrasonic_page.locator("#resetButton").click()
+                    ultrasonic_page.wait_for_function(
+                        "() => document.querySelector('#control-distance')?.value==='70'",
+                        timeout=3000)
+
+                    ultrasonic_input=ultrasonic_context.new_cdp_session(
+                        ultrasonic_page)
+
+                    # Chrome touch input: a real rightward preview followed by
+                    # touchCancel must discard the proposal without host commit.
+                    touch_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    touch_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":91,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_cancel_move={
+                        **touch_start,
+                        "x":touch_pixel["x"]+30,"y":touch_pixel["y"],
+                    }
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_cancel_move],
+                    })
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='130'
+                    """,timeout=3000)
+                    ultrasonic_touch_cancel_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='';
+                    }""",timeout=3000)
+                    ultrasonic_touch_cancel=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-touchcancel-discards-preview-without-commit",
+                          ultrasonic_touch_cancel_preview["value"]==70
+                          and ultrasonic_touch_cancel_preview[
+                              "previewDistance"]=="130"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_touch_cancel,70))
+
+                    # A second real touch drag LEFT crosses the lower bound.
+                    # Pointer capture makes the drag independent of re-hit-testing.
+                    touch_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    touch_low_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":92,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={
+                        **touch_low_start,
+                        "x":touch_pixel["x"]-40,"y":touch_pixel["y"],
+                    }
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low_start],
+                    })
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='2'
+                    """,timeout=3000)
+                    ultrasonic_touch_low_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#control-distance')?.value==='2'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicGesture==='none'
+                    """,timeout=3000)
+                    ultrasonic_touch_low=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-touch-drag-left-clamps-and-commits-two",
+                          ultrasonic_touch_low_preview["value"]==70
+                          and ultrasonic_touch_low_preview[
+                              "previewDistance"]=="2"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_touch_low,2))
+
+                    ultrasonic_page.locator("#resetButton").click()
+                    ultrasonic_page.wait_for_function(
+                        "() => document.querySelector('#control-distance')?.value==='70'",
+                        timeout=3000)
+
+                    # Chrome's native pen PointerEvent path covers the upper clamp.
+                    pen_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    if pen_pixel["x"]+180>1272:
+                        raise AssertionError(
+                            "Lesson07 obstacle lacks 180px rightward pen room")
+                    ultrasonic_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    ultrasonic_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    ultrasonic_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"]+180,"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"pointerType":"pen",
+                    })
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='400'
+                    """,timeout=3000)
+                    ultrasonic_pen_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"]+180,"y":pen_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#control-distance')?.value==='400'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicGesture==='none'
+                    """,timeout=3000)
+                    ultrasonic_pen_commit=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-pen-drag-right-clamps-and-commits-400",
+                          ultrasonic_pen_preview["value"]==70
+                          and ultrasonic_pen_preview["previewDistance"]=="400"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_pen_commit,400))
+
+                    ultrasonic_page.locator("#resetButton").click()
+                    ultrasonic_page.wait_for_function(
+                        "() => document.querySelector('#control-distance')?.value==='70'",
+                        timeout=3000)
+
+                    # Native lostpointercapture is a cancel path; release the real
+                    # browser capture and flush the native event with another move.
+                    ultrasonic_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EUltrasonicPointerId=null;
+                        window.__arduinoE2EUltrasonicGotCaptureId=null;
+                        window.__arduinoE2EUltrasonicLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EUltrasonicPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EUltrasonicGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EUltrasonicLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    ultrasonic_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        lost_pixel["x"]+20,lost_pixel["y"],steps=4)
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EUltrasonicPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2EUltrasonicGotCaptureId===id
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='110';
+                    }""",timeout=3000)
+                    ultrasonic_lost_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EUltrasonicPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson07 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    ultrasonic_page.mouse.move(
+                        lost_pixel["x"]+20.5,lost_pixel["y"]+.5)
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance===''
+                          &&window.__arduinoE2EUltrasonicLostCaptureId===
+                             window.__arduinoE2EUltrasonicPointerId;
+                    }""",timeout=3000)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_lost_after=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-native-lostcapture-discards-preview-without-commit",
+                          ultrasonic_lost_preview["value"]==70
+                          and ultrasonic_lost_preview["previewDistance"]=="110"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_lost_after,70))
+
+                    # Run/Pause via the real HTML button is another host ownership
+                    # boundary. Keep the mouse physically down until both native
+                    # keyboard activations complete, then prove late mouseup inert.
+                    run_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    ultrasonic_page.mouse.move(run_pixel["x"],run_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        run_pixel["x"]+20,run_pixel["y"],steps=5)
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='110'
+                    """,timeout=3000)
+                    ultrasonic_run_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_run_button=ultrasonic_page.locator("#runButton")
+                    ultrasonic_run_button.focus()
+                    ultrasonic_page.keyboard.press("Enter")
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-distance')?.value==='70'
+                          &&canvas?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&canvas.dataset.lessonUltrasonicDistance==='70'
+                          &&canvas.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='';
+                    }""",timeout=3000)
+                    ultrasonic_running=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.keyboard.press("Enter")
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-distance')?.value==='70'
+                          &&canvas?.dataset.lessonUltrasonicDistance==='70'
+                          &&canvas.dataset.lessonUltrasonicGesture==='none'
+                          &&canvas.dataset.lessonUltrasonicPreviewDistance==='';
+                    }""",timeout=3000)
+                    ultrasonic_paused=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_after_late_up=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          ultrasonic_run_preview["value"]==70
+                          and ultrasonic_run_preview["previewDistance"]=="110"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_running,70)
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_paused,70)
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_after_late_up,70)
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+
+                    # Use a real tab switch, but do not invent a hidden lifecycle
+                    # on headless builds that keep both tabs visible. If Chrome
+                    # actually reports hidden, assert revoke/rearm; otherwise use
+                    # native keyboard Reset solely to retire this held gesture.
+                    visibility_peer=ultrasonic_context.new_page()
+                    visibility_peer.goto("about:blank")
+                    ultrasonic_page.bring_to_front()
+                    ultrasonic_page.wait_for_function(
+                        "() => document.hidden===false",timeout=3000)
+                    visibility_pixel=lesson07_scene_ultrasonic_pixel(
+                        ultrasonic_page)
+                    ultrasonic_page.mouse.move(
+                        visibility_pixel["x"],visibility_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        visibility_pixel["x"]+20,visibility_pixel["y"],steps=4)
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='110'
+                    """,timeout=3000)
+                    ultrasonic_visibility_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    visibility_peer.bring_to_front()
+                    ultrasonic_actual_hidden=ultrasonic_page.evaluate(
+                        "document.hidden===true")
+                    if ultrasonic_actual_hidden:
+                        ultrasonic_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='off'
+                        """,polling=100,timeout=5000)
+                    ultrasonic_switch_state=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.bring_to_front()
+                    if (not ultrasonic_actual_hidden and
+                            ultrasonic_switch_state["gesture"]!="none"):
+                        ultrasonic_page.locator("#resetButton").focus()
+                        ultrasonic_page.keyboard.press("Enter")
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.hidden===false
+                          &&document.querySelector('#control-distance')?.value==='70'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance===''
+                    """,timeout=5000)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_visibility_after=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    visibility_peer.close()
+                    check("post-v16-lesson07-ultrasonic-real-tab-switch-respects-visibility-capability-and-cancels-safely",
+                          ultrasonic_visibility_preview["value"]==70
+                          and ultrasonic_visibility_preview[
+                              "previewDistance"]=="110"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_visibility_after,70)
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress,
+                          json.dumps({
+                              "browserSignaledHidden":ultrasonic_actual_hidden,
+                              "backgroundMode":ultrasonic_switch_state["mode"],
+                              "backgroundGesture":
+                                ultrasonic_switch_state["gesture"],
+                              "fallback":(
+                                "native-visibilitychange"
+                                if ultrasonic_actual_hidden
+                                else "native-keyboard-reset"
+                                if ultrasonic_switch_state["gesture"]!="none"
+                                else "native-blur-focus"
+                              ),
+                          },ensure_ascii=False))
+
+                    # Real WebGL loss revokes a held target drag and never turns
+                    # the conceptual target into a measured Echo claim.
+                    loss_pixel=lesson07_scene_ultrasonic_pixel(ultrasonic_page)
+                    ultrasonic_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        loss_pixel["x"]+20,loss_pixel["y"],steps=4)
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='110'
+                    """,timeout=3000)
+                    ultrasonic_pre_loss=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EUltrasonicGL=gl;
+                        window.__arduinoE2EUltrasonicLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EUltrasonicGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonUltrasonicMode==='off'
+                          &&canvas.dataset.lessonUltrasonicGesture==='none';
+                    }""",timeout=10000)
+                    ultrasonic_lost_context=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-webgl-loss-revokes-preview-without-host-write",
+                          ultrasonic_pre_loss["value"]==70
+                          and ultrasonic_pre_loss["previewDistance"]=="110"
+                          and ultrasonic_lost_context["mode"]=="off"
+                          and ultrasonic_lost_context["gesture"]=="none"
+                          and ultrasonic_lost_context["previewDistance"]==""
+                          and ultrasonic_lost_context["value"]==70
+                          and ultrasonic_lost_context["measuredEcho"]=="false"
+                          and ultrasonic_lost_context["canvasBusy"]=="true")
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_page.evaluate(
+                        "window.__arduinoE2EUltrasonicLoseExtension.restoreContext()")
+                    ultrasonic_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EUltrasonicGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&canvas.dataset.lessonUltrasonicDistance===String(expected)
+                          &&canvas.dataset.lessonUltrasonicGesture==='none';
+                    }""",arg=70,timeout=10000)
+                    ultrasonic_restored=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-webgl-restore-rearms-current-distance-only",
+                          lesson07_ultrasonic_state_agrees(
+                              ultrasonic_restored,70)
+                          and ultrasonic_restored["canvasBusy"] is None)
+
+                    # Stage ownership: wiring view revokes 3D pointer authority;
+                    # return to 3D re-arms only the exact current native distance.
+                    ultrasonic_page.locator("#stageTabWiring").click()
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='off'
+                    """,timeout=3000)
+                    check("post-v16-lesson07-ultrasonic-wiring-stage-revokes-scene-authority",
+                          ultrasonic_canvas.get_attribute(
+                              "data-lesson-ultrasonic-mode")=="off"
+                          and int(ultrasonic_slider.input_value())==70)
+                    ultrasonic_page.locator("#stageTab3d").click()
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicDistance==='70'
+                    """,timeout=3000)
+                    check("post-v16-lesson07-ultrasonic-return-3d-rearms-current-native-distance",
+                          lesson07_ultrasonic_state_agrees(
+                              lesson07_ultrasonic_acceptance_state(
+                                  ultrasonic_page),70))
+
+                    # Lab edit mounts the conceptual electrical layout and must
+                    # revoke the unrelated lesson input target until edit exits.
+                    ultrasonic_page.locator("#labEditToggle").click()
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='off'
+                    """,timeout=5000)
+                    check("post-v16-lesson07-ultrasonic-lab-edit-revokes-scene-authority",
+                          ultrasonic_page.locator("#labEditToggle").get_attribute(
+                              "aria-pressed")=="true"
+                          and int(ultrasonic_slider.input_value())==70)
+                    ultrasonic_page.locator("#labEditToggle").click()
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicDistance==='70'
+                    """,timeout=5000)
+                    check("post-v16-lesson07-ultrasonic-exit-lab-edit-rearms-current-native-distance",
+                          lesson07_ultrasonic_state_agrees(
+                              lesson07_ultrasonic_acceptance_state(
+                                  ultrasonic_page),70))
+
+                    # Lesson ownership is exact: switching away removes the target
+                    # and native distance range; returning restores authored 70 cm.
+                    ultrasonic_page.locator(
+                        '.lesson-link[data-lesson="6"]').click()
+                    check("post-v16-lesson07-ultrasonic-lesson-switch-revokes-old-target-authority",
+                          ultrasonic_canvas.get_attribute(
+                              "data-lesson-ultrasonic-mode")=="off"
+                          and ultrasonic_canvas.get_attribute(
+                              "data-lesson-ultrasonic-target-count")=="0"
+                          and ultrasonic_page.locator(
+                              "#control-distance").count()==0
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+                    ultrasonic_page.locator(
+                        '.lesson-link[data-lesson="7"]').click()
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-distance')?.value==='70'
+                          &&canvas?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&canvas.dataset.lessonUltrasonicDistance==='70'
+                          &&canvas.dataset.lessonUltrasonicTargetCount==='1';
+                    }""",timeout=5000)
+                    ultrasonic_return_lesson=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-return-restores-authored-70-default",
+                          lesson07_ultrasonic_state_agrees(
+                              ultrasonic_return_lesson,70)
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress)
+
+                    # Native range retains a WCAG-sized keyboard target on 375px.
+                    ultrasonic_page.set_viewport_size(
+                        {"width":375,"height":812})
+                    ultrasonic_slider=ultrasonic_page.locator(
+                        "#control-distance")
+                    ultrasonic_slider.scroll_into_view_if_needed()
+                    ultrasonic_mobile_rect=ultrasonic_slider.bounding_box()
+                    ultrasonic_slider.focus()
+                    ultrasonic_mobile=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          ultrasonic_mobile_rect is not None
+                          and ultrasonic_mobile_rect["width"]>=44
+                          and ultrasonic_mobile_rect["height"]>=44
+                          and ultrasonic_mobile["focused"] is True
+                          and ultrasonic_mobile["labelCount"]==1
+                          and ultrasonic_mobile["labelFor"]=="control-distance"
+                          and "Khoảng cách" in ultrasonic_mobile["label"]
+                          and ultrasonic_mobile["measuredEcho"]=="false"
+                          and ultrasonic_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+                    ultrasonic_page.set_viewport_size(
+                        {"width":1280,"height":820})
+                    ultrasonic_page.wait_for_function(
+                        "() => innerWidth===1280",timeout=3000)
+
+                    # Actual browser reload exercises beforeunload -> scene dispose
+                    # while a real target drag is held. Reloaded Lesson07 must have
+                    # only authored 70 cm state; the old late mouseup is inert.
+                    dispose_pixel=lesson07_scene_ultrasonic_pixel(
+                        ultrasonic_page)
+                    ultrasonic_page.mouse.move(
+                        dispose_pixel["x"],dispose_pixel["y"])
+                    ultrasonic_page.mouse.down()
+                    ultrasonic_page.mouse.move(
+                        dispose_pixel["x"]+20,dispose_pixel["y"],steps=4)
+                    ultrasonic_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonUltrasonicPreviewDistance==='110'
+                    """,timeout=3000)
+                    ultrasonic_dispose_preview=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    ultrasonic_page.reload(
+                        wait_until="domcontentloaded",timeout=20000)
+                    ready(ultrasonic_page)
+                    ultrasonic_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-distance')?.value==='70'
+                          &&canvas?.dataset.lessonUltrasonicMode==='pointer-slide'
+                          &&canvas.dataset.lessonUltrasonicDistance==='70'
+                          &&canvas.dataset.lessonUltrasonicGesture==='none';
+                    }""",timeout=5000)
+                    ultrasonic_page.mouse.up()
+                    ultrasonic_after_dispose=lesson07_ultrasonic_acceptance_state(
+                        ultrasonic_page)
+                    check("post-v16-lesson07-ultrasonic-real-reload-disposes-held-gesture-without-stale-replay",
+                          ultrasonic_dispose_preview["value"]==70
+                          and ultrasonic_dispose_preview[
+                              "previewDistance"]=="110"
+                          and lesson07_ultrasonic_state_agrees(
+                              ultrasonic_after_dispose,70)
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress
+                          and ultrasonic_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              ultrasonic_progress_storage)
+
+                    # Pointer/keyboard/lifecycle interaction is simulation input
+                    # only: no learner electrical edge/history, mastery, persisted
+                    # progress, AVR compile evidence, or measured Echo claim.
+                    ultrasonic_page.locator("#stageTabWiring").click()
+                    ultrasonic_undo=ultrasonic_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    ultrasonic_redo=ultrasonic_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson07-ultrasonic-no-electrical-graph-history-progress-mastery-or-physical-echo-write",
+                          ultrasonic_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and ultrasonic_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and ultrasonic_page.locator(
+                              ".wire-activate").get_attribute(
+                                  "aria-pressed")=="false"
+                          and ultrasonic_undo.count()==1
+                          and ultrasonic_undo.is_disabled()
+                          and ultrasonic_redo.count()==1
+                          and ultrasonic_redo.is_disabled()
+                          and ultrasonic_canvas.get_attribute(
+                              "data-lesson-ultrasonic-mode")=="off"
+                          and ultrasonic_canvas.get_attribute(
+                              "data-lesson-ultrasonic-measured-echo")=="false"
+                          and ultrasonic_page.locator(
+                              "#progressText").inner_text()==ultrasonic_progress
+                          and ultrasonic_page.locator(
+                              "#completeButton").is_visible()==
+                              ultrasonic_complete_visible
+                          and ultrasonic_page.locator("#avrMetrics").is_hidden()
+                          and ultrasonic_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              ultrasonic_progress_storage)
+                finally:
+                    ultrasonic_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

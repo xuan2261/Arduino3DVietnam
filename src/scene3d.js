@@ -33,6 +33,9 @@ const LESSON_SERVO_SOURCE_ID = "lesson-12-servo-horn";
 const LESSON_FSR_SOURCE_ID = "lesson-15-fsr-pad";
 const LESSON_FSR_TAP_STEP = 96; // Purely conceptual ADC increment, not newtons.
 const LESSON_FSR_DRAG_ADC_PER_PX = 5;
+const LESSON_ULTRASONIC_SOURCE_ID = "lesson-7-ultrasonic-obstacle";
+const LESSON_ULTRASONIC_DRAG_CM_PER_PX = 2;
+const LESSON_ULTRASONIC_VISUAL_SPAN = 2.4; // Conceptual display units, NOT centimeters.
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1010,7 +1013,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1070,14 +1073,25 @@ function createModule(scene, kind, shared) {
       led(.26);state.led.position.set(1.35,.43,0);
       break;
     }
-    case "ultrasonic":
+    case "ultrasonic": {
       box(module,[2.45,.14,.96],0x24909a,[0,.41,0]);
       for(const x of [-.72,.72]) {
         cylinder(module,.48,.48,.24,metallicMat,[x,.56,0],32);
         cylinder(module,.32,.32,.02,0x697e83,[x,.695,0],32);
       }
+      // A movable *conceptual* obstacle supplies one explicit Lesson07 input
+      // surface. Its display position is NOT a measured HC-SR04 path length.
+      const obstacle=box(module,[.64,.86,.40],0xd8ad80,
+        [1.65+((70-2)/398)*LESSON_ULTRASONIC_VISUAL_SPAN,.68,.10]);
+      obstacle.userData={
+        kind:"ultrasonic-obstacle-target",lessonId:7,
+        sourceId:LESSON_ULTRASONIC_SOURCE_ID,
+        physicalVerified:false,electricalAuthority:false,measuredEcho:false,
+      };
+      state.ultrasonicObstacle=obstacle;
       led(.22);state.led.position.set(1.28,.35,.6);
       break;
+    }
     case "buzzer":
       cylinder(module,.78,.78,.58,0x202c31,[0,.48,0],42);
       cylinder(module,.43,.43,.03,0x11191c,[0,.788,0],42);
@@ -1189,6 +1203,9 @@ export function mountScene(host, onSelect = () => {}) {
   let lastServoSnapshotAngle=90;
   // Host-owned Lesson15 ADC input: the scene only previews a press/squeeze.
   let lessonFsrActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
+  // A separate, transient 3D handle for the native Lesson07 distance range.
+  // No 3D position becomes a sonar measurement or electrical graph edge.
+  let lessonUltrasonicActuation={enabled:false,lessonId:null,distance:null,onDistanceChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1397,6 +1414,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonFsrActuation.enabled){
       parts.push("Đĩa FSR 3D bài 15: nhấn để xem trước tăng 96 điểm ADC khái niệm, kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel, thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML. Hủy nhấn không đổi giá trị. Có thể dùng bàn phím trên thanh trượt. Đây không phải lực newton, cảm biến đo thực tế, điện áp, dây hoặc AVR.");
     }
+    if(lessonUltrasonicActuation.enabled){
+      parts.push("Vật cản 3D khái niệm bài 7: kéo sang phải để tăng hoặc sang trái để giảm khoảng cách đặt 2–400 cm, hai đơn vị khoảng cách giả lập cho mỗi pixel; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML. Có thể dùng bàn phím trên thanh trượt. Vị trí hình học không phải cm đo thực, xung Echo vật lý, kết nối điện hay AVR.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1544,6 +1564,14 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonFsrPhysicalVerified="false";
   canvas.dataset.lessonFsrElectricalAuthority="false";
   canvas.dataset.lessonFsrCalibratedForce="false";
+  canvas.dataset.lessonUltrasonicMode="off";
+  canvas.dataset.lessonUltrasonicDistance="";
+  canvas.dataset.lessonUltrasonicPreviewDistance="";
+  canvas.dataset.lessonUltrasonicGesture="none";
+  canvas.dataset.lessonUltrasonicTargetCount="0";
+  canvas.dataset.lessonUltrasonicPhysicalVerified="false";
+  canvas.dataset.lessonUltrasonicElectricalAuthority="false";
+  canvas.dataset.lessonUltrasonicMeasuredEcho="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2795,6 +2823,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
+    resetLessonUltrasonicActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3653,6 +3682,156 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonUltrasonicVisual(){
+    const gesture=drag?.kind==="lesson-ultrasonic-actuator"?drag:null;
+    const preview=gesture&&moved?gesture.previewDistance:null;
+    const visualDistance=preview??lessonUltrasonicActuation.distance??70;
+    if(activeModule?.ultrasonicObstacle&&currentLessonId===7){
+      // An instructional slider in 3D, not a scaled physical centimeter axis.
+      activeModule.ultrasonicObstacle.position.x=
+        1.65+((visualDistance-2)/398)*LESSON_ULTRASONIC_VISUAL_SPAN;
+    }
+    canvas.dataset.lessonUltrasonicMode=lessonUltrasonicActuation.enabled?"pointer-slide":"off";
+    canvas.dataset.lessonUltrasonicDistance=lessonUltrasonicActuation.enabled
+      ?String(lessonUltrasonicActuation.distance):"";
+    canvas.dataset.lessonUltrasonicPreviewDistance=preview===null?"":String(preview);
+    canvas.dataset.lessonUltrasonicGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonUltrasonicTargetCount=activeModule?.ultrasonicObstacle?"1":"0";
+    canvas.dataset.lessonUltrasonicPhysicalVerified="false";
+    canvas.dataset.lessonUltrasonicElectricalAuthority="false";
+    canvas.dataset.lessonUltrasonicMeasuredEcho="false";
+  }
+  function currentLessonUltrasonicActuator(){
+    if(!lessonUltrasonicActuation.enabled||disposed||contextLost||
+       currentLessonId!==7||lessonUltrasonicActuation.lessonId!==7||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonUltrasonicActuation.distance)||
+       lessonUltrasonicActuation.distance<2||lessonUltrasonicActuation.distance>400||
+       typeof lessonUltrasonicActuation.onDistanceChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const obstacle=activeModule?.ultrasonicObstacle;
+    if(obstacle?.isMesh!==true||obstacle.parent!==activeModule.module||
+       obstacle.userData?.kind!=="ultrasonic-obstacle-target"||
+       obstacle.userData.sourceId!==LESSON_ULTRASONIC_SOURCE_ID||
+       obstacle.userData.lessonId!==7||
+       obstacle.userData.physicalVerified!==false||
+       obstacle.userData.electricalAuthority!==false||
+       obstacle.userData.measuredEcho!==false)return null;
+    return {obstacle,lessonId:7,sourceId:LESSON_ULTRASONIC_SOURCE_ID,
+      distance:lessonUltrasonicActuation.distance,
+      onDistanceChange:lessonUltrasonicActuation.onDistanceChange};
+  }
+  function lessonUltrasonicStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonUltrasonicActuation.enabled,
+      active:currentLessonUltrasonicActuator()!==null,
+      lessonId:lessonUltrasonicActuation.lessonId,
+      distance:lessonUltrasonicActuation.enabled?lessonUltrasonicActuation.distance:null,
+      previewDistance:drag?.kind==="lesson-ultrasonic-actuator"&&moved
+        ?drag.previewDistance:null,
+      targetCount:activeModule?.ultrasonicObstacle?1:0,
+      mode:lessonUltrasonicActuation.enabled?"pointer-slide":"off",
+      physicalVerified:false,electricalAuthority:false,measuredEcho:false});
+  }
+  function cancelLessonUltrasonicGesture(redraw=false){
+    if(drag?.kind!=="lesson-ultrasonic-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonUltrasonicVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonUltrasonicActuation(redraw=false){
+    cancelLessonUltrasonicGesture(false);
+    lessonUltrasonicActuation={enabled:false,lessonId:null,distance:null,onDistanceChange:null};
+    syncLessonUltrasonicVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonUltrasonicStatus(true);
+  }
+  function setLessonUltrasonicActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,distance:null,previewDistance:null,targetCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,measuredEcho:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson ultrasonic options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonUltrasonicActuation(true);
+    const required=["enabled","lessonId","distance","onDistanceChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const d=Object.getOwnPropertyDescriptor(options,key);
+         return !d||!("value" in d);
+       }))throw new RangeError("Ultrasonic enabled phải có đúng enabled/lessonId/distance/onDistanceChange");
+    if(options.lessonId!==7||currentLessonId!==7){
+      throw new RangeError("Vật cản siêu âm 3D chỉ được điều khiển trong bài 7");
+    }
+    if(!Number.isInteger(options.distance)||options.distance<2||options.distance>400){
+      throw new RangeError("Khoảng cách siêu âm giả lập phải là số nguyên 2–400");
+    }
+    if(typeof options.onDistanceChange!=="function"){
+      throw new TypeError("onDistanceChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.ultrasonicObstacle?.userData?.sourceId!==LESSON_ULTRASONIC_SOURCE_ID){
+      throw new RangeError("Vật cản không khả dụng trong scene/edit/layout hiện tại");
+    }
+    const same=lessonUltrasonicActuation.enabled&&lessonUltrasonicActuation.lessonId===7;
+    if(!same){
+      resetLessonUltrasonicActuation(false);
+    }else if(drag?.kind==="lesson-ultrasonic-actuator"&&
+      (options.distance!==lessonUltrasonicActuation.distance||
+       options.onDistanceChange!==lessonUltrasonicActuation.onDistanceChange)){
+      cancelLessonUltrasonicGesture(false);
+    }
+    lessonUltrasonicActuation={enabled:true,lessonId:7,distance:options.distance,
+      onDistanceChange:options.onDistanceChange};
+    syncLessonUltrasonicVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonUltrasonicStatus(true);
+  }
+  function lessonUltrasonicHit(event){
+    const current=currentLessonUltrasonicActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||
+       (pointerType==="mouse"&&event.button!==0)||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.obstacle,false)[0]??null;
+    return hit?.object===current.obstacle?{...current,pointerType}:null;
+  }
+  function updateLessonUltrasonicDrag(event){
+    if(drag?.kind!=="lesson-ultrasonic-actuator"||!moved)return false;
+    const current=currentLessonUltrasonicActuator();
+    if(!current||current.obstacle!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.distance!==drag.startHostDistance||
+       current.onDistanceChange!==drag.onDistanceChange){
+      cancelLessonUltrasonicGesture(true);
+      return false;
+    }
+    const deltaX=event.clientX-drag.startClientX;
+    drag.previewDistance=Math.max(2,Math.min(400,
+      Math.round(drag.startHostDistance+deltaX*LESSON_ULTRASONIC_DRAG_CM_PER_PX)));
+    syncLessonUltrasonicVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonUltrasonicDistance(distance,pointerType,callback){
+    if(!Number.isInteger(distance)||distance<2||distance>400||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(distance,Object.freeze({
+        lessonId:7,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -3670,7 +3849,7 @@ export function mountScene(host, onSelect = () => {}) {
   function syncSceneOwnedTouchAction(){
     canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled||
       lessonPianoActuation.enabled||lessonServoActuation.enabled||
-      lessonFsrActuation.enabled)?"none":"";
+      lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -3893,6 +4072,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonPianoActuation(false);
     if(nextEditEnabled)resetLessonServoActuation(false);
     if(nextEditEnabled)resetLessonFsrActuation(false);
+    if(nextEditEnabled)resetLessonUltrasonicActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -4534,6 +4714,21 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const ultrasonicHit=lessonUltrasonicHit(event);
+    if(ultrasonicHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-ultrasonic-actuator",lessonId:7,
+        sourceId:ultrasonicHit.sourceId,sourceObject:ultrasonicHit.obstacle,
+        startHostDistance:ultrasonicHit.distance,
+        previewDistance:ultrasonicHit.distance,
+        onDistanceChange:ultrasonicHit.onDistanceChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonUltrasonicVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -4677,6 +4872,9 @@ export function mountScene(host, onSelect = () => {}) {
     }else if(drag.kind==="lesson-fsr-actuator"){
       event.preventDefault();
       updateLessonFsrDrag(event);
+    }else if(drag.kind==="lesson-ultrasonic-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonUltrasonicDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -4745,6 +4943,16 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-ultrasonic-actuator"){
+      const deltaX=event.clientX-drag.startClientX;
+      const deltaY=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(deltaX,deltaY)>drag.tapThreshold)moved=true;
+      if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonUltrasonicDrag(event);
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
     if(select&&drag.kind==="lesson-fsr-actuator"&&
        (event.clientX!==drag.x||event.clientY!==drag.y)){
       const original=drag;
@@ -4878,6 +5086,24 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    if(finished.kind==="lesson-ultrasonic-actuator"){
+      const current=currentLessonUltrasonicActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===7&&
+        current.obstacle===finished.sourceObject&&
+        current.sourceId===finished.sourceId&&
+        current.distance===finished.startHostDistance&&
+        current.onDistanceChange===finished.onDistanceChange);
+      syncLessonUltrasonicVisual(); // Clear local preview before asking host.
+      if(select&&moved&&stillCurrent&&
+         Number.isInteger(finished.previewDistance)&&
+         finished.previewDistance>=2&&finished.previewDistance<=400&&
+         finished.previewDistance!==finished.startHostDistance){
+        emitLessonUltrasonicDistance(
+          finished.previewDistance,finished.pointerType,finished.onDistanceChange);
+      }
+      invalidate();
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -4998,6 +5224,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonPianoGesture(false);
       cancelLessonServoGesture(false);
       cancelLessonFsrGesture(false);
+      cancelLessonUltrasonicGesture(false);
       return;
     }
     invalidate();
@@ -5067,6 +5294,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
+    resetLessonUltrasonicActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -5126,6 +5354,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
+    resetLessonUltrasonicActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -5138,6 +5367,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonPianoVisual();
     syncLessonServoVisual();
     syncLessonFsrVisual();
+    syncLessonUltrasonicVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -5219,6 +5449,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonPianoVisual();
     syncLessonServoVisual();
     syncLessonFsrVisual();
+    syncLessonUltrasonicVisual();
     invalidate();
   }
   function control(action){
@@ -5236,7 +5467,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -5246,6 +5477,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
     resetLessonFsrActuation(false);
+    resetLessonUltrasonicActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

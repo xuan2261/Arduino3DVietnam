@@ -80,7 +80,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
     /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
     !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
   check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners",
-    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(apiSource) &&
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
   check("exact-knob-hit-is-nonrecursive-and-current-only",
@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -514,7 +514,7 @@ export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
     /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
     /b\.type="button"/.test(renderControlsSource));
   check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -726,7 +726,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
     /resetLessonServoActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonServoActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-servo-pointer-drag",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("servo-visual-is-transient-preview-over-latest-simulator-snapshot-with-explicit-diagnostics",
     /const gesture=drag\?\.kind==="lesson-servo-actuator"\?drag:null/.test(apiSource) &&
     /const preview=gesture&&moved\?gesture\.previewAngle:null/.test(apiSource) &&
@@ -743,7 +743,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
   check("canvas-keyboard-path-is-not-hijacked-by-servo-actuation",
     !/lessonServo|servo-horn-grip|setLessonServoActuation/.test(onKeySource));
   check("public-controller-exports-servo-api-after-existing-button-potentiometer-and-piano-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
   check("lesson12-native-range-is-authored-zero-to-180-step-one-default-90-and-rendered-as-keyboard-capable-range",
     /id: 12,[\s\S]*controls: \[slider\("angle", "Góc servo", 0, 180, 90, "°"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1018,7 +1018,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
     /resetLessonFsrActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonFsrActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-fsr-pointer-press-and-squeeze",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-plus96-five-per-pixel-keyboard-fallback-and-no-newton-electrical-claim",
     /Đĩa FSR 3D bài 15:[\s\S]*tăng 96 điểm ADC khái niệm,[\s\S]*kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel,[\s\S]*thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML[\s\S]*Có thể dùng bàn phím trên thanh trượt[\s\S]*không phải lực newton/.test(sceneSource));
   check("fsr-diagnostics-expose-host-value-preview-gesture-single-pad-and-no-authority",
@@ -1033,7 +1033,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
   check("canvas-keyboard-path-is-not-hijacked-by-fsr-actuation",
     !/lessonFsr|fsr-press-pad|setLessonFsrActuation/.test(onKeySource));
   check("public-controller-exports-fsr-api-after-existing-button-potentiometer-piano-and-servo-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
   check("lesson15-native-range-is-authored-zero-to-1023-step-one-default300-adc-and-rendered-as-keyboard-capable-range",
     /id: 15,[\s\S]*controls: \[slider\("force", "Chỉ số FSR", 0, 1023, 300, "ADC"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1146,6 +1146,307 @@ export async function runScene3DLessonFsrRaycastContracts() {
     firstHitAt(new T.Vector3(6.20, 1.00, .10))===null);
 
   pad.geometry.dispose();
+  material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonUltrasonicSourceContracts(sceneSource, appSource, lessonsSource, simulatorSource, appCssSource) {
+  for (const [name, value] of Object.entries({sceneSource, appSource, lessonsSource, simulatorSource, appCssSource})) {
+    if (typeof value !== "string" || !value) throw new TypeError(name + " text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson07 ultrasonic source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonUltrasonicVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const touchActionStart = sceneSource.indexOf("function syncSceneOwnedTouchAction");
+  const touchActionEnd = sceneSource.indexOf("function lessonPotentiometerActuationStatus", touchActionStart);
+  const touchActionSource = sceneSource.slice(touchActionStart, touchActionEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const onKeyStart = sceneSource.indexOf("const onKey=", visibilityEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=", onKeyStart);
+  const onKeySource = sceneSource.slice(onKeyStart, contextLostStart);
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control(action)", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const controlsInputStart = appSource.indexOf("function onControlsInput(event)");
+  const controlsInputEnd = appSource.indexOf("function setButtonPress", controlsInputStart);
+  const controlsInputSource = appSource.slice(controlsInputStart, controlsInputEnd);
+  const startPauseStart = appSource.indexOf("function startPause()");
+  const startPauseEnd = appSource.indexOf("function resetSimulation", startPauseStart);
+  const startPauseSource = appSource.slice(startPauseStart, startPauseEnd);
+  const appUltrasonicStart = appSource.indexOf("function revokeSceneLessonUltrasonicActuation");
+  const appUltrasonicEnd = appSource.indexOf("function playNote", appUltrasonicStart);
+  const appUltrasonicSource = appSource.slice(appUltrasonicStart, appUltrasonicEnd);
+  const simulatorUltrasonicStart = simulatorSource.indexOf("case 7:");
+  const simulatorUltrasonicEnd = simulatorSource.indexOf("case 8:", simulatorUltrasonicStart);
+  const simulatorUltrasonicSource = simulatorSource.slice(simulatorUltrasonicStart, simulatorUltrasonicEnd);
+
+  check("lesson07-creates-one-exact-tagged-nonauthoritative-conceptual-obstacle",
+    /const LESSON_ULTRASONIC_SOURCE_ID = "lesson-7-ultrasonic-obstacle";/.test(sceneSource) &&
+    /ultrasonicObstacle:null/.test(moduleSource) &&
+    /case "ultrasonic":/.test(moduleSource) &&
+    /const obstacle=box\(module,\[\.64,\.86,\.40\],0xd8ad80,[\s\S]*\[1\.65\+\(\(70-2\)\/398\)\*LESSON_ULTRASONIC_VISUAL_SPAN,\.68,\.10\]\)/.test(moduleSource) &&
+    /obstacle\.userData=\{[\s\S]*kind:"ultrasonic-obstacle-target",lessonId:7,[\s\S]*sourceId:LESSON_ULTRASONIC_SOURCE_ID,[\s\S]*physicalVerified:false,electricalAuthority:false,measuredEcho:false/.test(moduleSource) &&
+    /state\.ultrasonicObstacle=obstacle/.test(moduleSource));
+  check("ultrasonic-conceptual-drag-and-visual-span-constants-are-exact",
+    /const LESSON_ULTRASONIC_DRAG_CM_PER_PX = 2;/.test(sceneSource) &&
+    /const LESSON_ULTRASONIC_VISUAL_SPAN = 2\.4; \/\/ Conceptual display units, NOT centimeters\./.test(sceneSource));
+  check("ultrasonic-visual-position-is-authored-display-mapping-not-a-physical-centimeter-axis",
+    /const visualDistance=preview\?\?lessonUltrasonicActuation\.distance\?\?70/.test(apiSource) &&
+    /activeModule\.ultrasonicObstacle\.position\.x=[\s\S]*1\.65\+\(\(visualDistance-2\)\/398\)\*LESSON_ULTRASONIC_VISUAL_SPAN/.test(apiSource) &&
+    /instructional slider in 3D, not a scaled physical centimeter axis/.test(apiSource));
+  check("public-ultrasonic-api-is-exact-four-field-enabled-shape-with-idempotent-safe-off",
+    /function setLessonUltrasonicActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonUltrasonicActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","distance","onDistanceChange"\]/.test(apiSource) &&
+    /Object\.getPrototypeOf\(options\)!==Object\.prototype/.test(apiSource));
+  check("enabled-ultrasonic-path-is-exactly-lesson07-integer-two-to-400-with-function-callback",
+    /options\.lessonId!==7\|\|currentLessonId!==7/.test(apiSource) &&
+    /!Number\.isInteger\(options\.distance\)\|\|options\.distance<2\|\|options\.distance>400/.test(apiSource) &&
+    /typeof options\.onDistanceChange!=="function"/.test(apiSource));
+  check("ultrasonic-actuator-fails-closed-on-context-layout-edit-hidden-or-noncanonical-target",
+    /!lessonUltrasonicActuation\.enabled\|\|disposed\|\|contextLost/.test(apiSource) &&
+    /labEdit\.enabled\|\|activeLabLayout/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /obstacle\?\.isMesh!==true\|\|obstacle\.parent!==activeModule\.module/.test(apiSource) &&
+    /obstacle\.userData\?\.kind!=="ultrasonic-obstacle-target"/.test(apiSource) &&
+    /obstacle\.userData\.sourceId!==LESSON_ULTRASONIC_SOURCE_ID/.test(apiSource) &&
+    /obstacle\.userData\.lessonId!==7/.test(apiSource) &&
+    /obstacle\.userData\.physicalVerified!==false/.test(apiSource) &&
+    /obstacle\.userData\.electricalAuthority!==false/.test(apiSource) &&
+    /obstacle\.userData\.measuredEcho!==false/.test(apiSource));
+  check("ultrasonic-status-is-frozen-with-preview-target-count-mode-and-no-authority",
+    /function lessonUltrasonicStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonUltrasonicActuator\(\)!==null,[\s\S]*previewDistance:[\s\S]*targetCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false,measuredEcho:false/.test(apiSource));
+  check("scene-ultrasonic-api-never-mutates-host-controls-graph-progress-storage-or-avr",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|markCompleted|quizSolved|localStorage|avr/i.test(apiSource));
+  check("ultrasonic-hit-test-raycasts-only-current-exact-obstacle-nonrecursively",
+    /function lessonUltrasonicHit\(event\)/.test(apiSource) &&
+    /const current=currentLessonUltrasonicActuator\(\)/.test(apiSource) &&
+    /scene\.updateMatrixWorld\(true\)/.test(apiSource) &&
+    /raycaster\.intersectObject\(current\.obstacle,false\)\[0\]\?\?null/.test(apiSource) &&
+    /return hit\?\.object===current\.obstacle/.test(apiSource));
+  const ultrasonicDownStart = downSource.indexOf("const ultrasonicHit=lessonUltrasonicHit(event)");
+  const ultrasonicDownEnd = downSource.indexOf("if(labEdit.enabled&&activeLabLayout)", ultrasonicDownStart);
+  const ultrasonicDownSource = downSource.slice(ultrasonicDownStart, ultrasonicDownEnd);
+  check("pointerdown-ultrasonic-priority-captures-stable-source-host-distance-and-callback-without-host-write",
+    ultrasonicDownStart >= 0 && ultrasonicDownEnd > ultrasonicDownStart &&
+    downSource.indexOf("const fsrHit=lessonFsrHit(event)") < ultrasonicDownStart &&
+    /kind:"lesson-ultrasonic-actuator",lessonId:7/.test(ultrasonicDownSource) &&
+    /sourceId:ultrasonicHit\.sourceId,sourceObject:ultrasonicHit\.obstacle/.test(ultrasonicDownSource) &&
+    /startHostDistance:ultrasonicHit\.distance/.test(ultrasonicDownSource) &&
+    /previewDistance:ultrasonicHit\.distance/.test(ultrasonicDownSource) &&
+    /onDistanceChange:ultrasonicHit\.onDistanceChange/.test(ultrasonicDownSource) &&
+    /canvas\.setPointerCapture\?\.\(event\.pointerId\)/.test(ultrasonicDownSource) &&
+    !/emitLessonUltrasonicDistance|onControlsInput|state\.controls/.test(ultrasonicDownSource));
+  const ultrasonicMoveStart = moveSource.indexOf('drag.kind==="lesson-ultrasonic-actuator"');
+  const ultrasonicMoveEnd = moveSource.indexOf('}else if(drag.kind==="lab-component")', ultrasonicMoveStart);
+  const ultrasonicMoveSource = moveSource.slice(ultrasonicMoveStart, ultrasonicMoveEnd);
+  check("pointermove-owns-ultrasonic-preview-without-camera-layout-or-host-callback",
+    ultrasonicMoveStart >= 0 && ultrasonicMoveEnd > ultrasonicMoveStart &&
+    /event\.preventDefault\(\)/.test(ultrasonicMoveSource) &&
+    /if\(moved\)updateLessonUltrasonicDrag\(event\)/.test(ultrasonicMoveSource) &&
+    !/theta|phi|setLabVisualTransform|emitLessonUltrasonicDistance|onControlsInput/.test(ultrasonicMoveSource));
+  check("ultrasonic-preview-is-bounded-start-plus-two-centimeters-per-rightward-css-pixel",
+    /const deltaX=event\.clientX-drag\.startClientX/.test(apiSource) &&
+    /drag\.previewDistance=Math\.max\(2,Math\.min\(400,[\s\S]*Math\.round\(drag\.startHostDistance\+deltaX\*LESSON_ULTRASONIC_DRAG_CM_PER_PX\)\)\)/.test(apiSource));
+  check("pointerup-folds-final-ultrasonic-release-displacement-before-clearing-owned-drag",
+    /if\(select&&drag\.kind==="lesson-ultrasonic-actuator"\)[\s\S]*const deltaX=event\.clientX-drag\.startClientX;[\s\S]*Math\.hypot\(deltaX,deltaY\)>drag\.tapThreshold[\s\S]*const original=drag;[\s\S]*updateLessonUltrasonicDrag\(event\)[\s\S]*if\(drag!==original\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonUltrasonicDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("pointerup-ultrasonic-commit-requires-current-target-source-host-distance-callback-move-and-new-bounded-preview",
+    /finished\.kind==="lesson-ultrasonic-actuator"/.test(finishSource) &&
+    /current\.obstacle===finished\.sourceObject/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.distance===finished\.startHostDistance/.test(finishSource) &&
+    /current\.onDistanceChange===finished\.onDistanceChange/.test(finishSource) &&
+    /if\(select&&moved&&stillCurrent&&[\s\S]*Number\.isInteger\(finished\.previewDistance\)&&[\s\S]*finished\.previewDistance>=2&&finished\.previewDistance<=400&&[\s\S]*finished\.previewDistance!==finished\.startHostDistance\)[\s\S]*emitLessonUltrasonicDistance/.test(finishSource));
+  check("ultrasonic-host-callback-meta-is-frozen-exact-five-field-pointer-change-and-physical-unverified",
+    /callback\(distance,Object\.freeze\(\{[\s\S]*lessonId:7,source:"pointer",pointerType,phase:"change",[\s\S]*physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("pointercancel-and-lostcapture-share-ultrasonic-noncommit-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("hidden-document-cancels-ultrasonic-preview-without-host-change",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonUltrasonicGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonUltrasonicDistance/.test(visibilitySource));
+  check("layout-edit-lesson-context-loss-and-dispose-reset-ultrasonic-actuation",
+    /resetLessonUltrasonicActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonUltrasonicActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonUltrasonicActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonUltrasonicActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonUltrasonicActuation\(false\)/.test(publicSource));
+  check("scene-update-resyncs-ultrasonic-visual-without-emitting-input",
+    /syncLessonUltrasonicVisual\(\)/.test(updateSource) &&
+    !/emitLessonUltrasonicDistance|onControlsInput/.test(updateSource));
+  check("scene-owned-touch-action-covers-ultrasonic-pointer-slide",
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\)\?"none":""/.test(touchActionSource));
+  check("canvas-accessibility-explains-two-per-pixel-rightward-slide-release-keyboard-and-no-real-sonar-claim",
+    /Vật cản 3D khái niệm bài 7:[\s\S]*kéo sang phải để tăng hoặc sang trái để giảm khoảng cách đặt 2–400 cm,[\s\S]*hai đơn vị khoảng cách giả lập cho mỗi pixel;[\s\S]*thả mới cập nhật thanh trượt HTML\.[\s\S]*Có thể dùng bàn phím trên thanh trượt\.[\s\S]*không phải cm đo thực, xung Echo vật lý, kết nối điện hay AVR/.test(sceneSource));
+  check("ultrasonic-diagnostics-expose-host-distance-preview-gesture-single-target-and-no-authority",
+    /dataset\.lessonUltrasonicMode=lessonUltrasonicActuation\.enabled\?"pointer-slide":"off"/.test(apiSource) &&
+    /dataset\.lessonUltrasonicDistance=lessonUltrasonicActuation\.enabled/.test(apiSource) &&
+    /dataset\.lessonUltrasonicPreviewDistance=preview===null\?"":String\(preview\)/.test(apiSource) &&
+    /dataset\.lessonUltrasonicGesture=gesture\?\(moved\?"dragging":"grabbed"\):"none"/.test(apiSource) &&
+    /dataset\.lessonUltrasonicTargetCount=activeModule\?\.ultrasonicObstacle\?"1":"0"/.test(apiSource) &&
+    /dataset\.lessonUltrasonicPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonUltrasonicElectricalAuthority="false"/.test(apiSource) &&
+    /dataset\.lessonUltrasonicMeasuredEcho="false"/.test(apiSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-ultrasonic-actuation",
+    !/lessonUltrasonic|ultrasonic-obstacle-target|setLessonUltrasonicActuation/.test(onKeySource));
+  check("public-controller-exports-ultrasonic-api-after-existing-button-potentiometer-piano-servo-and-fsr-apis",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,focusLabComponent/.test(publicSource));
+  check("lesson07-native-range-is-authored-two-to-400-step-one-default70-centimeters-and-rendered-as-keyboard-capable-range",
+    /id: 7,[\s\S]*controls: \[slider\("distance", "Khoảng cách", 2, 400, 70, "cm"\)\]/.test(lessonsSource) &&
+    /insight: "Mô phỏng cảnh báo khi khoảng cách dưới 20 cm; khoảng đo sử dụng ở đây chỉ là tham số giả lập\."/.test(lessonsSource) &&
+    /caution: "Bài mô phỏng không đo vật cản ngoài đời\./.test(lessonsSource) &&
+    /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
+    /input\.type="range";input\.id=`control-\$\{config\.key\}`;input\.dataset\.control=config\.key/.test(renderControlsSource) &&
+    /Object\.assign\(input,\{min:config\.min,max:config\.max,step:config\.step,value:state\.controls\[config\.key\]\}\)/.test(renderControlsSource));
+  check("lesson07-native-distance-range-has-44px-keyboard-target-and-focus-ring",
+    /\.control-field input#control-distance\[type=range\] \{ min-height: 44px; height: 44px; \}/.test(appCssSource) &&
+    /\.control-field input#control-distance\[type=range\]:focus-visible \{ outline: 3px solid #0b8b7b; outline-offset: 2px; \}/.test(appCssSource));
+  check("lesson07-simulator-derives-conceptual-echo-from-clamped-distance-and-gates-alert-led-on-running",
+    /const d = Math\.round\(clamp\(c\.distance, 2, 400\)\)/.test(simulatorUltrasonicSource) &&
+    /const alert = d < 20/.test(simulatorUltrasonicSource) &&
+    /const micros = Math\.round\(d \* 2 \/ 0\.0343\)/.test(simulatorUltrasonicSource) &&
+    /kind: "ultrasonic", led: running && alert, brightness: running && alert \? 1 : 0/.test(simulatorUltrasonicSource) &&
+    /value: `\$\{d\} cm`/.test(simulatorUltrasonicSource) &&
+    /serial: `Echo ≈ \$\{micros\} µs; distance=\$\{d\} cm`/.test(simulatorUltrasonicSource) &&
+    /pins: \[\["D7", "TRIG"\], \["D8", `\$\{micros\} µs`\], \["D13", running && alert \? "HIGH" : "LOW"\]\]/.test(simulatorUltrasonicSource));
+  check("host-revoke-retires-ultrasonic-binding-and-safe-offs-scene-without-changing-distance",
+    /function revokeSceneLessonUltrasonicActuation\(\)\{[\s\S]*const binding=state\.sceneUltrasonicActuation;[\s\S]*if\(binding\)binding\.active=false;[\s\S]*state\.sceneUltrasonicActuation=null;[\s\S]*setLessonUltrasonicActuation\?\.\(\{enabled:false\}\)/.test(appUltrasonicSource) &&
+    !/state\.controls\.distance\s*=/.test(appUltrasonicSource.slice(0, appUltrasonicSource.indexOf("function syncSceneLessonUltrasonicActuation"))));
+  check("host-sync-requires-exact-current-connected-enabled-lesson07-native-distance-range-and-valid-stage",
+    /function syncSceneLessonUltrasonicActuation\(\)/.test(appUltrasonicSource) &&
+    /if\(!scene\?\.setLessonUltrasonicActuation\)return/.test(appUltrasonicSource) &&
+    /find\(item=>item\.key==="distance"\)/.test(appUltrasonicSource) &&
+    /const distance=state\.controls\.distance/.test(appUltrasonicSource) &&
+    /const slider=\$\("control-distance"\)/.test(appUltrasonicSource) &&
+    /state\.lessonId===7&&config\?\.type==="slider"&&[\s\S]*config\.min===2&&config\.max===400&&config\.step===1/.test(appUltrasonicSource) &&
+    /Number\.isInteger\(distance\)&&distance>=2&&distance<=400/.test(appUltrasonicSource) &&
+    /slider\?\.tagName==="INPUT"&&slider\.type==="range"&&[\s\S]*slider\.dataset\.control==="distance"&&[\s\S]*slider\.min==="2"&&slider\.max==="400"&&slider\.step==="1"&&[\s\S]*!slider\.disabled&&slider\.isConnected/.test(appUltrasonicSource) &&
+    /if\(!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\)/.test(appUltrasonicSource));
+  check("host-scene-ultrasonic-callback-requires-current-binding-bounded-distance-and-exact-frozen-five-field-meta",
+    /binding\.onDistanceChange=\(proposed,meta\)=>\{[\s\S]*binding!==state\.sceneUltrasonicActuation\|\|!binding\.active\|\|[\s\S]*state\.lessonId!==7\|\|state\.stageTab!=="3d"\|\|document\.hidden\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\|\|[\s\S]*!Number\.isInteger\(proposed\)\|\|proposed<2\|\|proposed>400/.test(appUltrasonicSource) &&
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|[\s\S]*Object\.getPrototypeOf\(meta\)!==Object\.prototype\|\|[\s\S]*Reflect\.ownKeys\(meta\)\.length!==5/.test(appUltrasonicSource) &&
+    /const fields=\["lessonId","source","pointerType","phase","physicalVerified"\]/.test(appUltrasonicSource) &&
+    /values\.lessonId!==7\|\|values\.source!=="pointer"\|\|[\s\S]*!\["mouse","touch","pen"\]\.includes\(values\.pointerType\)\|\|[\s\S]*values\.phase!=="change"\|\|values\.physicalVerified!==false/.test(appUltrasonicSource));
+  check("accepted-scene-ultrasonic-change-reuses-native-change-path-and-requires-nonauthoritative-single-target-receipt",
+    /const native=\$\("control-distance"\)/.test(appUltrasonicSource) &&
+    /native!==slider\|\|native\?\.tagName!=="INPUT"\|\|native\.type!=="range"\|\|[\s\S]*native\.dataset\.control!=="distance"\|\|native\.min!=="2"\|\|[\s\S]*native\.max!=="400"\|\|native\.step!=="1"\|\|[\s\S]*native\.disabled\|\|!native\.isConnected/.test(appUltrasonicSource) &&
+    /native\.value=String\(proposed\);[\s\S]*onControlsInput\(\{target:native,type:"change",source:"scene"\}\);[\s\S]*return true/.test(appUltrasonicSource) &&
+    /scene\.setLessonUltrasonicActuation\(\{[\s\S]*enabled:true,lessonId:7,distance,onDistanceChange:binding\.onDistanceChange,[\s\S]*\}\)/.test(appUltrasonicSource) &&
+    /receipt\?\.active!==true\|\|receipt\?\.targetCount!==1\|\|[\s\S]*receipt\?\.physicalVerified!==false\|\|receipt\?\.electricalAuthority!==false\|\|[\s\S]*receipt\?\.measuredEcho!==false/.test(appUltrasonicSource) &&
+    !/connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|recordPracticeAction|markCompleted|quizSolved|mastery/.test(appUltrasonicSource));
+  check("native-distance-input-revokes-held-ultrasonic-preview-before-host-change-and-resyncs-scene-afterward",
+    /if\(key==="distance"&&state\.lessonId===7&&config\.type==="slider"&&[\s\S]*event\.source!=="scene"\)[\s\S]*revokeSceneLessonUltrasonicActuation\(\)/.test(controlsInputSource) &&
+    /if\(key==="distance"&&state\.lessonId===7&&config\.type==="slider"\)[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(controlsInputSource));
+  check("start-pause-revokes-stale-ultrasonic-preview-before-run-state-change-and-finally-rearms",
+    /const rearmUltrasonic=state\.lessonId===7;[\s\S]*if\(rearmUltrasonic\)revokeSceneLessonUltrasonicActuation\(\);[\s\S]*try\{/.test(startPauseSource) &&
+    /\}finally\{[\s\S]*if\(rearmUltrasonic\)syncSceneLessonUltrasonicActuation\(\);[\s\S]*\}\s*\}/.test(startPauseSource));
+  check("host-stage-reset-lesson-visibility-focus-edit-layout-reconcile-webgl-beforeunload-and-initial-mount-own-ultrasonic-lifecycle",
+    /function renderStage\(\)[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /function resetSimulation\(\)[\s\S]*revokeSceneLessonUltrasonicActuation\(\)[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /function setLesson\(id,replaceHash=true\)[\s\S]*revokeSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /document\.addEventListener\("visibilitychange",\(\)=>\{[\s\S]*revokeSceneLessonUltrasonicActuation\(\)[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("blur",\(\)=>\{[\s\S]*revokeSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("focus",\(\)=>\{[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("beforeunload",\(\)=>\{[\s\S]*revokeSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /onEditModeChange\(\)\{[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /onLayoutChange\(\)\{[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /onSceneReconciled\(layout,meta,lessonId\)\{[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource) &&
+    /state\.scene=mountScene[\s\S]*syncSceneLessonUltrasonicActuation\(\)/.test(appSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonUltrasonicRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson07 ultrasonic raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const module = new T.Group();
+  module.position.set(5.15, .55, .10);
+  const material = new T.MeshBasicMaterial();
+  const obstacle = new T.Mesh(new T.BoxGeometry(.64, .86, .40), material);
+  obstacle.position.set(1.65 + ((70 - 2) / 398) * 2.4, .68, .10);
+  obstacle.userData = {
+    kind: "ultrasonic-obstacle-target", lessonId: 7,
+    sourceId: "lesson-7-ultrasonic-obstacle",
+    physicalVerified: false, electricalAuthority: false, measuredEcho: false,
+  };
+  module.add(obstacle);
+  module.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const firstHitAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObject(obstacle, false)[0]?.object ?? null;
+  };
+  const center = obstacle.getWorldPosition(new T.Vector3());
+  check("exactly-one-native-three-ultrasonic-obstacle-is-the-raycast-surface",
+    module.children.filter(child=>child.userData?.kind==="ultrasonic-obstacle-target").length===1 &&
+    obstacle.isMesh===true && obstacle.parent===module && obstacle.children.length===0 &&
+    obstacle.userData.lessonId===7 && obstacle.userData.sourceId==="lesson-7-ultrasonic-obstacle" &&
+    obstacle.userData.physicalVerified===false && obstacle.userData.electricalAuthority===false &&
+    obstacle.userData.measuredEcho===false);
+  check("default-view-ultrasonic-obstacle-center-hits-exact-target",
+    firstHitAt(center)===obstacle);
+  check("nearby-off-target-region-does-not-hit-ultrasonic-obstacle",
+    firstHitAt(center.clone().add(new T.Vector3(1.25, 0, 0)))===null);
+
+  obstacle.geometry.dispose();
   material.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -1558,6 +1859,11 @@ export async function runScene3DContracts() {
   for (const name of lessonFsrSourceContracts.checks) check("lesson-fsr-source-"+name,true);
   const lessonFsrRaycastContracts = await runScene3DLessonFsrRaycastContracts();
   for (const name of lessonFsrRaycastContracts.checks) check("lesson-fsr-raycast-"+name,true);
+  const lessonUltrasonicSourceContracts = runScene3DLessonUltrasonicSourceContracts(
+    sceneSource, appSource, lessonsSource, simulatorSource, appCssSource);
+  for (const name of lessonUltrasonicSourceContracts.checks) check("lesson-ultrasonic-source-"+name,true);
+  const lessonUltrasonicRaycastContracts = await runScene3DLessonUltrasonicRaycastContracts();
+  for (const name of lessonUltrasonicRaycastContracts.checks) check("lesson-ultrasonic-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);

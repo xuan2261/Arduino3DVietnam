@@ -85,6 +85,9 @@ const state = {
   // A conceptual Lesson15 FSR pad only proposes a bounded ADC index. The
   // native HTML range and existing JS lesson simulator retain input authority.
   sceneFsrActuation: null,
+  // A Lesson07 obstacle drag proposes the same conceptual distance already
+  // owned by the native range and JavaScript lesson simulator, never sonar.
+  sceneUltrasonicActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -884,6 +887,7 @@ function closeReadOnlyGuideMode(){
   syncSceneLessonPianoActuation();
   syncSceneLessonServoActuation();
   syncSceneLessonFsrActuation();
+  syncSceneLessonUltrasonicActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1616,6 +1620,7 @@ function renderStage() {
   syncSceneLessonPianoActuation();
   syncSceneLessonServoActuation();
   syncSceneLessonFsrActuation();
+  syncSceneLessonUltrasonicActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1663,6 +1668,8 @@ function renderControls(){
       ?"Kéo tay servo 3D để xem trước góc đặt, thả để áp dụng 0–180° vào thanh trượt HTML; hủy kéo không đổi góc. Bàn phím dùng phím mũi tên/Home/End trên thanh trượt. Khi mô phỏng dừng, góc đặt được lưu nhưng đầu ra servo khái niệm giữ 90°; đây không phải đo góc hay điều khiển servo thật."
     :lesson.id===15
       ?"Nhấn đĩa FSR 3D để xem trước tăng 96 điểm ADC khái niệm; kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel, thả để ghi vào thanh trượt HTML (0–1023). Hủy nhấn không đổi chỉ số. Có thể dùng bàn phím trên thanh trượt. Không coi ADC là lực newton hay phép đo/cấp điện từ cảm biến thật."
+    :lesson.id===7
+      ?"Kéo vật cản 3D sang phải để tăng hoặc sang trái để giảm khoảng cách giả lập 2–400 cm; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML. Dùng phím mũi tên/Home/End trên thanh trượt để thao tác bằng bàn phím. Vị trí hình học, Echo và cảnh báo đều khái niệm; không đo khoảng cách, thời gian xung hay điện áp HC-SR04 thật."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1832,6 +1839,8 @@ function startPause(){
   // Changing run state may also invalidate a held FSR squeeze proposal.
   const rearmFsr=state.lessonId===15;
   if(rearmFsr)revokeSceneLessonFsrActuation();
+  const rearmUltrasonic=state.lessonId===7;
+  if(rearmUltrasonic)revokeSceneLessonUltrasonicActuation();
   try{
     if(state.running) {
       stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
@@ -1864,6 +1873,7 @@ function startPause(){
     // guard remains fail-closed on hidden documents and unsupported layouts.
     if(rearmServo)syncSceneLessonServoActuation();
     if(rearmFsr)syncSceneLessonFsrActuation();
+    if(rearmUltrasonic)syncSceneLessonUltrasonicActuation();
   }
 }
 function resetSimulation() {
@@ -1872,6 +1882,7 @@ function resetSimulation() {
   revokeSceneLessonPianoActuation();
   revokeSceneLessonServoActuation();
   revokeSceneLessonFsrActuation();
+  revokeSceneLessonUltrasonicActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
@@ -1880,6 +1891,7 @@ function resetSimulation() {
   syncSceneLessonPianoActuation();
   syncSceneLessonServoActuation();
   syncSceneLessonFsrActuation();
+  syncSceneLessonUltrasonicActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
@@ -1889,6 +1901,7 @@ function setLesson(id,replaceHash=true){
   revokeSceneLessonPianoActuation();
   revokeSceneLessonServoActuation();
   revokeSceneLessonFsrActuation();
+  revokeSceneLessonUltrasonicActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -1929,6 +1942,12 @@ function onControlsInput(event){
     // does not imply a new selection or pointer revocation.
     revokeSceneLessonFsrActuation();
   }
+  if(key==="distance"&&state.lessonId===7&&config.type==="slider"&&
+     event.source!=="scene"){
+    // Only an actual native input/change supersedes a held 3D proposal;
+    // a boundary key producing no event does not claim new authority.
+    revokeSceneLessonUltrasonicActuation();
+  }
   const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
@@ -1952,6 +1971,9 @@ function onControlsInput(event){
   }
   if(key==="force"&&state.lessonId===15&&config.type==="slider"){
     syncSceneLessonFsrActuation();
+  }
+  if(key==="distance"&&state.lessonId===7&&config.type==="slider"){
+    syncSceneLessonUltrasonicActuation();
   }
 }
 function setButtonPress(pressed){
@@ -2316,6 +2338,75 @@ function syncSceneLessonFsrActuation(){
     }
   }catch{revokeSceneLessonFsrActuation();}
 }
+function revokeSceneLessonUltrasonicActuation(){
+  const binding=state.sceneUltrasonicActuation;
+  if(binding)binding.active=false;
+  state.sceneUltrasonicActuation=null;
+  try{state.scene?.setLessonUltrasonicActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonUltrasonicActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonUltrasonicActuation)return;
+  const config=currentLesson()?.controls?.find(item=>item.key==="distance");
+  const distance=state.controls.distance;
+  const slider=$("control-distance");
+  const supported=state.lessonId===7&&config?.type==="slider"&&
+    config.min===2&&config.max===400&&config.step===1&&
+    Number.isInteger(distance)&&distance>=2&&distance<=400&&
+    slider?.tagName==="INPUT"&&slider.type==="range"&&
+    slider.dataset.control==="distance"&&
+    slider.min==="2"&&slider.max==="400"&&slider.step==="1"&&
+    !slider.disabled&&slider.isConnected;
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonUltrasonicActuation();
+    return;
+  }
+  let binding=state.sceneUltrasonicActuation;
+  if(!binding||!binding.active||binding.lessonId!==7){
+    binding={active:true,lessonId:7,onDistanceChange:null};
+    binding.onDistanceChange=(proposed,meta)=>{
+      if(binding!==state.sceneUltrasonicActuation||!binding.active||
+         state.lessonId!==7||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<2||proposed>400||
+         !meta||!Object.isFrozen(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        values[field]=descriptor.value;
+      }
+      if(values.lessonId!==7||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         values.phase!=="change"||values.physicalVerified!==false)return false;
+      const native=$("control-distance");
+      if(native!==slider||native?.tagName!=="INPUT"||native.type!=="range"||
+         native.dataset.control!=="distance"||native.min!=="2"||
+         native.max!=="400"||native.step!=="1"||
+         native.disabled||!native.isConnected)return false;
+      // The 3D target cannot write an independent sonar value or graph.
+      // Use the native lesson control, simulator, and optional observation path.
+      native.value=String(proposed);
+      onControlsInput({target:native,type:"change",source:"scene"});
+      return true;
+    };
+    state.sceneUltrasonicActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonUltrasonicActuation({
+      enabled:true,lessonId:7,distance,onDistanceChange:binding.onDistanceChange,
+    });
+    if(receipt?.active!==true||receipt?.targetCount!==1||
+       receipt?.physicalVerified!==false||receipt?.electricalAuthority!==false||
+       receipt?.measuredEcho!==false){
+      revokeSceneLessonUltrasonicActuation();
+    }
+  }catch{revokeSceneLessonUltrasonicActuation();}
+}
 function playNote(hz){
   if(!state.running||!hz)return;
   try{
@@ -2644,6 +2735,7 @@ function wireEvents(){
       revokeSceneLessonPianoActuation();
       revokeSceneLessonServoActuation();
       revokeSceneLessonFsrActuation();
+      revokeSceneLessonUltrasonicActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
@@ -2651,6 +2743,7 @@ function wireEvents(){
       syncSceneLessonPianoActuation();
       syncSceneLessonServoActuation();
       syncSceneLessonFsrActuation();
+      syncSceneLessonUltrasonicActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -2661,6 +2754,7 @@ function wireEvents(){
     revokeSceneLessonPianoActuation();
     revokeSceneLessonServoActuation();
     revokeSceneLessonFsrActuation();
+    revokeSceneLessonUltrasonicActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
@@ -2668,10 +2762,12 @@ function wireEvents(){
     syncSceneLessonPianoActuation();
     syncSceneLessonServoActuation();
     syncSceneLessonFsrActuation();
+    syncSceneLessonUltrasonicActuation();
   });
   window.addEventListener("beforeunload",()=>{
     revokeSceneLessonServoActuation();
     revokeSceneLessonFsrActuation();
+    revokeSceneLessonUltrasonicActuation();
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
     state.resistiveUI?.dispose();
@@ -2704,6 +2800,7 @@ async function init(){
       syncSceneLessonPianoActuation();
       syncSceneLessonServoActuation();
       syncSceneLessonFsrActuation();
+      syncSceneLessonUltrasonicActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -2716,6 +2813,7 @@ async function init(){
       syncSceneLessonPianoActuation();
       syncSceneLessonServoActuation();
       syncSceneLessonFsrActuation();
+      syncSceneLessonUltrasonicActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -2741,6 +2839,7 @@ async function init(){
       syncSceneBreadboardHoleStudy();
       syncSceneLessonServoActuation();
       syncSceneLessonFsrActuation();
+      syncSceneLessonUltrasonicActuation();
     },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
@@ -2845,6 +2944,7 @@ async function init(){
       revokeSceneLessonPianoActuation();
       revokeSceneLessonServoActuation();
       revokeSceneLessonFsrActuation();
+      revokeSceneLessonUltrasonicActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -2867,6 +2967,7 @@ async function init(){
       syncSceneLessonPianoActuation();
       syncSceneLessonServoActuation();
       syncSceneLessonFsrActuation();
+      syncSceneLessonUltrasonicActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -2883,6 +2984,7 @@ async function init(){
     syncSceneLessonPianoActuation();
     syncSceneLessonServoActuation();
     syncSceneLessonFsrActuation();
+    syncSceneLessonUltrasonicActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){
