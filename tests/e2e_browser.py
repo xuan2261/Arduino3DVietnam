@@ -1428,6 +1428,11 @@ def main() -> None:
         and validate the actual pointer interaction and canonical ID.
         The coordinates are neither CAD/mm nor an electrical hole mapping.
         """
+        # Keyboard/native hole-grid actions can scroll the document below the
+        # canvas. Re-enter the real 3D viewport BEFORE projecting mouse/touch
+        # pixels, as for other first-party pointer helpers. Frustum visibility
+        # alone does not make a negative viewport-Y pixel clickable.
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
         return page.evaluate(
             """async ({lessonId,ids}) => {
                 const [T, layoutModule, router] = await Promise.all([
