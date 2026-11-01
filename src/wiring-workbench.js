@@ -69,6 +69,10 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   // Cross-surface inspection may point at ONE already-committed learner wire.
   // This is presentation state only; it never creates/changes an edge or history.
   let highlightedWire=null;
+  // A committed learner-wire edit is a temporary proposal. Only Confirm
+  // replaces the current router-produced edge, with ONE host history event.
+  let reroute=null,rerouteHover=null;
+  const terminalIds=new Set(terminals.map(item=>item.id));
 
   host.replaceChildren();
   host.classList.add("wiring-workbench");
@@ -133,7 +137,40 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   const connections=create("div","wire-connection-list");
   const connectionsTitle=create("h4","","DANH SÁCH DÂY ĐANG NỐI");
   const connectionsList=create("div","wire-connections");
-  connections.append(connectionsTitle,connectionsList);
+  const rerouteEditor=create("section","wire-reroute-editor");
+  rerouteEditor.hidden=true;
+  rerouteEditor.setAttribute("role","group");
+  rerouteEditor.setAttribute("aria-label","Sửa đầu dây đã nối trên mạch học viên");
+  rerouteEditor.append(create("h5","","SỬA MỘT ĐẦU DÂY"));
+  const rerouteAnchors=create("div","wire-reroute-anchors");
+  const keepFrom=create("button","wire-action wire-reroute-anchor","");keepFrom.type="button";
+  keepFrom.dataset.wireRerouteAnchor="from";
+  const keepTo=create("button","wire-action wire-reroute-anchor","");keepTo.type="button";
+  keepTo.dataset.wireRerouteAnchor="to";
+  rerouteAnchors.append(keepFrom,keepTo);
+  const targetLabel=create("label","wire-reroute-label","Chân đích mới");
+  const targetSelect=create("select","wire-reroute-target");
+  targetSelect.dataset.wireRerouteTarget="";
+  const emptyTarget=create("option","","— Chọn chân mới —");emptyTarget.value="";
+  targetSelect.append(emptyTarget);
+  terminals.forEach(item=>{
+    const option=create("option","",title(item));option.value=name(item);
+    targetSelect.append(option);
+  });
+  targetLabel.append(targetSelect);
+  const rerouteMessage=create("p","wire-reroute-message","");
+  rerouteMessage.setAttribute("role","status");
+  rerouteMessage.setAttribute("aria-live","polite");
+  const rerouteActions=create("div","wire-reroute-actions");
+  const rerouteConfirm=create("button","wire-action wire-reroute-confirm","Xác nhận sửa dây");
+  rerouteConfirm.type="button";
+  rerouteConfirm.dataset.wireRerouteConfirm="";
+  const rerouteCancel=create("button","wire-action","Hủy sửa");
+  rerouteCancel.type="button";
+  rerouteCancel.dataset.wireRerouteCancel="";
+  rerouteActions.append(rerouteConfirm,rerouteCancel);
+  rerouteEditor.append(rerouteAnchors,targetLabel,rerouteMessage,rerouteActions);
+  connections.append(connectionsTitle,connectionsList,rerouteEditor);
   host.append(titleRow,workspace,feedback,connections);
 
   function terminalButton(key) {
@@ -228,6 +265,122 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     if(!state||!Array.isArray(state.wires))return null;
     return state.wires.map(wire=>`${wire.id}\u0000${wire.from}\u0000${wire.to}`).sort().join("\u0001");
   }
+  function currentReroute() {
+    if(!reroute||disposed||reroute.base!==circuit||
+       reroute.lessonId!==id||reroute.revision!==historyState.revision||
+       reroute.fingerprint!==graphFingerprint(circuit)||
+       reroute.nextWireId!==circuit.nextWireId)return null;
+    try{
+      const wire=canonicalCurrentWire(reroute.wireId);
+      return wire.from===reroute.from&&wire.to===reroute.to&&
+        (reroute.anchor===wire.from||reroute.anchor===wire.to)?reroute:null;
+    }catch{return null;}
+  }
+  function rerouteTargetProblem(intent=currentReroute()) {
+    if(!intent||!intent.target)return "Chưa chọn chân đích mới.";
+    const target=intent.target;
+    const originalOther=intent.anchor===intent.from?intent.to:intent.from;
+    if(!terminalIds.has(target)||target===intent.anchor)return "Chân đích không hợp lệ.";
+    if(target===originalOther)return "Hai đầu dây chưa thay đổi.";
+    if(circuit.wires.some(wire=>wire.id!==intent.wireId&&
+      ((wire.from===intent.anchor&&wire.to===target)||
+       (wire.to===intent.anchor&&wire.from===target))))return "Đường nối này đã tồn tại.";
+    return null;
+  }
+  function renderReroute() {
+    if(reroute&&!currentReroute()){reroute=null;rerouteHover=null;}
+    const intent=currentReroute();
+    rerouteEditor.hidden=!intent;
+    host.dataset.wireRerouteMode=intent?"preview":"off";
+    if(intent){
+      host.dataset.wireRerouteWireId=intent.wireId;
+      host.dataset.wireRerouteTarget=intent.target??"";
+      keepFrom.textContent="Giữ chân "+intent.from;
+      keepTo.textContent="Giữ chân "+intent.to;
+      keepFrom.setAttribute("aria-pressed",String(intent.anchor===intent.from));
+      keepTo.setAttribute("aria-pressed",String(intent.anchor===intent.to));
+      targetSelect.value=intent.target??"";
+      const reason=rerouteTargetProblem(intent);
+      rerouteConfirm.disabled=Boolean(reason);
+      rerouteConfirm.setAttribute("aria-disabled",String(Boolean(reason)));
+      rerouteMessage.textContent=reason
+        ? `Dây ${intent.wireId}: giữ ${intent.anchor}. ${reason} Chưa thay đổi netlist.`
+        : `Đề xuất thay ${intent.wireId}: giữ ${intent.anchor} → ${intent.target}. Chỉ Xác nhận mới sửa learner graph; chưa kiểm tra dây vật lý.`;
+    }else{
+      delete host.dataset.wireRerouteWireId;
+      delete host.dataset.wireRerouteTarget;
+      rerouteConfirm.disabled=true;
+      rerouteConfirm.setAttribute("aria-disabled","true");
+      targetSelect.value="";
+    }
+  }
+  function beginReroute(wireId) {
+    if(disposed)return false;
+    let wire;
+    try{wire=canonicalCurrentWire(wireId);}catch{return false;}
+    selected=null;preview=null;pointerStart=null;suggestedPair=null;rerouteHover=null;
+    reroute=Object.freeze({
+      lessonId:id,wireId:wire.id,from:wire.from,to:wire.to,
+      anchor:wire.from,target:null,revision:historyState.revision,base:circuit,
+      fingerprint:graphFingerprint(circuit),nextWireId:circuit.nextWireId,
+    });
+    render("Đang chuẩn bị sửa một đầu dây. Chọn chân giữ lại rồi chọn đích; chưa sửa mạch.");
+    keepFrom.focus({preventScroll:true});
+    return true;
+  }
+  function proposeRerouteTarget(target) {
+    const intent=currentReroute();
+    if(!intent||(target!==""&&!terminalIds.has(target)))return false;
+    reroute=Object.freeze({...intent,target:target||null});
+    rerouteHover=null;
+    render("Đã cập nhật đích xem trước; chưa thay đổi mạch.");
+    return rerouteTargetProblem()===null;
+  }
+  function chooseRerouteAnchor(anchor) {
+    const intent=currentReroute();
+    if(!intent||![intent.from,intent.to].includes(anchor))return false;
+    reroute=Object.freeze({...intent,anchor,target:null});
+    rerouteHover=null;preview=null;pointerStart=null;
+    render("Đã chọn chân cố định; chưa gỡ hoặc thêm dây.");
+    targetSelect.focus({preventScroll:true});
+    return true;
+  }
+  function cancelReroute({restoreFocus=false,message="Đã hủy sửa đầu dây; netlist không đổi."}={}) {
+    const wireId=reroute?.wireId??null;
+    if(!reroute)return false;
+    reroute=null;rerouteHover=null;preview=null;pointerStart=null;selected=null;
+    render(message);
+    if(restoreFocus&&wireId){
+      [...connectionsList.querySelectorAll("[data-wire-reroute-start]")]
+        .find(button=>button.dataset.wireRerouteStart===wireId)
+        ?.focus({preventScroll:true});
+    }
+    return true;
+  }
+  function commitReroute() {
+    const intent=currentReroute();
+    if(!intent||rerouteTargetProblem(intent))return false;
+    let next,newWire;
+    try {
+      // Router calls operate on NEW candidate graphs. No preview or hover
+      // ever calls these methods or changes circuit/history.
+      const without=disconnectCircuit(circuit,intent.wireId);
+      next=connectCircuit(without,intent.anchor,intent.target);
+      newWire=next.wires.find(wire=>!without.wires.some(old=>old.id===wire.id));
+      if(!newWire||newWire.id===intent.wireId||
+         newWire.from!==intent.anchor||newWire.to!==intent.target||
+         next.wires.length!==circuit.wires.length)throw new Error("Router từ chối cạnh mới.");
+    }catch(error){
+      render("Không thể sửa dây: "+(error?.message||"kết nối không hợp lệ")+". Netlist không đổi.");
+      return false;
+    }
+    circuit=next;
+    reroute=null;rerouteHover=null;preview=null;pointerStart=null;selected=null;
+    notify(); // Exactly one canonical host mutation and learner-history entry.
+    render(`Đã sửa ${intent.wireId} thành ${newWire.id}: ${intent.anchor} → ${intent.target}.`);
+    undoBtn.focus({preventScroll:true});
+    return true;
+  }
   function applyCommittedHighlightRow() {
     connectionsList.querySelectorAll("[data-wiring-wire-id]").forEach(row=>{
       const wireId=row.getAttribute("data-wiring-wire-id");
@@ -293,6 +446,21 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
           svg.append(visual);
         }
       }
+      const intent=currentReroute();
+      if(intent){
+        const start=terminalPoint(intent.anchor);
+        const end=rerouteHover??(intent.target?terminalPoint(intent.target):null);
+        if(start&&end){
+          const ghost=createSvg("path",{
+            d:curved(start,end),fill:"none",stroke:"#ab5b1e",
+            "stroke-width":3,"stroke-dasharray":"7 6","stroke-linecap":"round",
+            "data-wire-reroute-preview":"true",
+          });
+          ghost.setAttribute("pointer-events","none");
+          ghost.userData={kind:"committed-wire-reroute-proposal",committed:false,electricalAuthority:false};
+          svg.append(ghost);
+        }
+      }
       if(selected&&preview){
         const start=terminalPoint(selected);
         if(start)svg.append(createSvg("path",{d:curved(start,preview),fill:"none",stroke:"#0b7e75","stroke-width":2,"stroke-dasharray":"5 6","stroke-linecap":"round"}));
@@ -309,6 +477,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     // The app may explicitly reselect after it revalidates the fresh model.
     highlightedWire=null;
     suggestedPair=null;
+    reroute=null;rerouteHover=null;
     const changedAnalysis=analyzeCircuit(id,changedCircuit);
     analysis=changedAnalysis;
     const revokeActive=active && (!changedAnalysis.ok || !changedAnalysis.functional);
@@ -332,6 +501,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   function render(message="") {
     analysis=analyzeCircuit(id,circuit);
     reconcileCommittedHighlight();
+    if(reroute&&!currentReroute()){reroute=null;rerouteHover=null;}
     workspace.querySelectorAll("[data-terminal]").forEach(button=>{
       const chosen=selected===button.dataset.terminal;
       button.classList.toggle("is-selected",chosen);
@@ -378,17 +548,23 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       row.setAttribute("data-wiring-wire-id",wire.id);
       row.setAttribute("aria-label",wireRowLabel(wire,false));
       row.append(create("span","",`${wire.from}  →  ${wire.to}`));
+      const start=create("button","wire-action wire-reroute-start","Sửa đầu dây");
+      start.type="button";
+      start.dataset.wireRerouteStart=wire.id;
+      start.setAttribute("aria-label",`Sửa một đầu dây ${wire.id}, từ ${wire.from} tới ${wire.to}`);
       const remove=create("button","wire-remove","Gỡ");
       remove.type="button";
       remove.dataset.removeWire=wire.id;
       remove.setAttribute("aria-label",`Gỡ dây ${wire.from} nối ${wire.to}`);
-      row.append(remove);connectionsList.append(row);
+      row.append(start,remove);connectionsList.append(row);
     }
     applyCommittedHighlightRow();
+    renderReroute();
     requestDraw();
   }
   function connect(from,to) {
     if(!from||!to)return;
+    if(reroute)cancelReroute();
     if(from===to){selected=null;render("Đã hủy chọn chân.");return;}
     try {
       circuit=connectCircuit(circuit,from,to);
@@ -409,6 +585,10 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   const click=e=>{
     const button=e.target.closest("[data-terminal]");
     if(!button||skipClick)return;
+    if(currentReroute()){
+      proposeRerouteTarget(button.dataset.terminal);
+      return;
+    }
     selectTerminal(button.dataset.terminal);
   };
   workspace.addEventListener("click",click);
@@ -417,23 +597,37 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     if(e.button!==0)return;
     const button=e.target.closest("[data-terminal]");
     if(!button)return;
+    const intent=currentReroute();
+    if(intent&&button.dataset.terminal!==intent.anchor)return;
     pointerStart={x:e.clientX,y:e.clientY,key:button.dataset.terminal,pointerId:e.pointerId};
   };
   const move=e=>{
     if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
     if(Math.abs(e.clientX-pointerStart.x)+Math.abs(e.clientY-pointerStart.y)<11)return;
-    selected=pointerStart.key;
     const rect=workspace.getBoundingClientRect();
-    preview={x:e.clientX-rect.left,y:e.clientY-rect.top};
+    if(currentReroute()){
+      selected=null;preview=null;
+      rerouteHover={x:e.clientX-rect.left,y:e.clientY-rect.top};
+    }else{
+      selected=pointerStart.key;
+      preview={x:e.clientX-rect.left,y:e.clientY-rect.top};
+    }
     requestDraw();
   };
   const up=e=>{
     if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
     const from=pointerStart.key;
     const moved=Math.abs(e.clientX-pointerStart.x)+Math.abs(e.clientY-pointerStart.y)>=11;
-    pointerStart=null;preview=null;
+    pointerStart=null;preview=null;rerouteHover=null;
     if(!moved)return;
     const to=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-terminal]")?.dataset.terminal;
+    if(currentReroute()){
+      if(to&&to!==from)proposeRerouteTarget(to);
+      else render("Chưa chọn đích mới; chỉ là bản xem trước, netlist không đổi.");
+      skipClick=true;
+      setTimeout(()=>skipClick=false,0);
+      return;
+    }
     selected=null;
     if(to&&to!==from)connect(from,to);
     else render("Dây chưa nối. Thả trên một chân khác để hoàn tất.");
@@ -444,9 +638,11 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     if(!pointerStart || e.pointerId!==pointerStart.pointerId)return;
     // Touch cancellation or lost capture is never a completed wire gesture,
     // even if the last pointer coordinates happen to overlap another terminal.
-    pointerStart=null;preview=null;selected=null;
+    pointerStart=null;preview=null;selected=null;rerouteHover=null;
     skipClick=true;
-    render("Thao tác kéo dây đã bị hủy; netlist không thay đổi.");
+    render(currentReroute()
+      ?"Đã hủy thao tác kéo đầu dây; chỉ giữ đề xuất đã chọn, netlist không đổi."
+      :"Thao tác kéo dây đã bị hủy; netlist không thay đổi.");
     setTimeout(()=>skipClick=false,0);
   };
   workspace.addEventListener("pointerdown",down);
@@ -455,23 +651,56 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   window.addEventListener("pointercancel",cancel);
   workspace.addEventListener("lostpointercapture",cancel);
   const removeClick=e=>{
+    const edit=e.target.closest("[data-wire-reroute-start]");
+    if(edit){beginReroute(edit.dataset.wireRerouteStart);return;}
     const button=e.target.closest("[data-remove-wire]");
     if(!button)return;
     try{
       circuit=disconnectCircuit(circuit,button.dataset.removeWire);
+      reroute=null;rerouteHover=null;
       notify();render("Đã tháo dây.");
     }catch(error){render(error?.message||"Không thể tháo dây.");}
   };
   connectionsList.addEventListener("click",removeClick);
+  const selectRerouteAnchor=e=>{
+    const button=e.target.closest("[data-wire-reroute-anchor]");
+    if(!button)return;
+    const intent=currentReroute();
+    if(!intent)return;
+    chooseRerouteAnchor(button.dataset.wireRerouteAnchor==="from"?intent.from:intent.to);
+  };
+  const updateRerouteTarget=()=>{if(currentReroute())proposeRerouteTarget(targetSelect.value);};
+  const confirmReroute=()=>{commitReroute();};
+  const cancelRerouteClick=()=>{cancelReroute({restoreFocus:true});};
+  const rerouteKeydown=e=>{
+    if(e.key!=="Escape"||!reroute)return;
+    e.preventDefault?.();
+    cancelReroute({restoreFocus:true});
+  };
+  const rerouteBlur=()=>{
+    if(reroute)cancelReroute({message:"Đã hủy đề xuất sửa đầu dây khi cửa sổ mất focus; netlist không đổi."});
+    else if(pointerStart) {
+      pointerStart=null;preview=null;selected=null;rerouteHover=null;
+      render("Đã hủy thao tác kéo dây khi cửa sổ mất focus; netlist không đổi.");
+    }
+  };
+  const rerouteVisibility=()=>{if(document.hidden)rerouteBlur();};
+  rerouteAnchors.addEventListener("click",selectRerouteAnchor);
+  targetSelect.addEventListener("change",updateRerouteTarget);
+  rerouteConfirm.addEventListener("click",confirmReroute);
+  rerouteCancel.addEventListener("click",cancelRerouteClick);
+  window.addEventListener("keydown",rerouteKeydown);
+  window.addEventListener("blur",rerouteBlur);
+  document.addEventListener?.("visibilitychange",rerouteVisibility);
   const sample=()=>{
     try{
       circuit=sampleCircuit(id);
-      selected=null;suggestedPair=null;highlightedWire=null;
+      selected=null;suggestedPair=null;highlightedWire=null;reroute=null;rerouteHover=null;
       notify();render("Đã nối mạch mẫu để đối chiếu với bài học.");
     }catch(error){render("Không thể tạo mạch mẫu: "+(error?.message||"Không rõ lỗi"));}
   };
   const clear=()=>{
-    circuit=createCircuit(id);selected=null;suggestedPair=null;highlightedWire=null;
+    circuit=createCircuit(id);selected=null;suggestedPair=null;highlightedWire=null;reroute=null;rerouteHover=null;
     notify();render("Đã tháo toàn bộ dây.");
   };
   const activate=()=>{
@@ -484,10 +713,12 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
   };
   const undo=()=>{
     if(disposed||undoBtn.disabled||typeof options.onUndo!=="function")return;
+    reroute=null;rerouteHover=null;
     options.onUndo(Object.freeze({lessonId:id,expectedRevision:historyState.revision}));
   };
   const redo=()=>{
     if(disposed||redoBtn.disabled||typeof options.onRedo!=="function")return;
+    reroute=null;rerouteHover=null;
     options.onRedo(Object.freeze({lessonId:id,expectedRevision:historyState.revision}));
   };
   if(historyControls){
@@ -509,7 +740,12 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
     isActive:()=>active,
     setHistoryState(next) {
       if(disposed)return false;
-      historyState=normalizeHistoryState(next,id);
+      const normalized=normalizeHistoryState(next,id);
+      if(reroute&&normalized.revision!==historyState.revision){
+        reroute=null;rerouteHover=null;pointerStart=null;
+        render("Lịch sử mạch đã thay đổi; hủy đề xuất sửa dây cũ.");
+      }
+      historyState=normalized;
       refreshHistoryControls();
       return true;
     },
@@ -525,7 +761,7 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       }
       // Clear incomplete gestures before displaying a reference suggestion.
       // No circuit-router call, notify callback, activity or journal event.
-      selected=null;preview=null;pointerStart=null;
+      selected=null;preview=null;pointerStart=null;reroute=null;rerouteHover=null;
       suggestedPair=Object.freeze([pair[0],pair[1]]);
       render();
       terminalButton(pair[0])?.focus({preventScroll:true});
@@ -582,14 +818,14 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       const nextFingerprint=graphFingerprint(next);
       circuit=next;
       analysis=nextAnalysis;
-      selected=null;preview=null;pointerStart=null;suggestedPair=null;
+      selected=null;preview=null;pointerStart=null;suggestedPair=null;reroute=null;rerouteHover=null;
       if(previousFingerprint!==nextFingerprint)highlightedWire=null;
       else reconcileCommittedHighlight();
       active=Boolean(options.active) && nextAnalysis.ok===true && nextAnalysis.functional===true;
       render("Bàn 2D đã cập nhật theo netlist dùng chung; không xác nhận mạch điện thực.");
     },
     dispose(){
-      if(disposed)return;disposed=true;highlightedWire=null;
+      if(disposed)return;disposed=true;highlightedWire=null;reroute=null;rerouteHover=null;
       observer.disconnect();if(raf)cancelAnimationFrame(raf);
       workspace.removeEventListener("click",click);
       workspace.removeEventListener("pointerdown",down);
@@ -598,6 +834,13 @@ export function mountWiringWorkbench(host,lessonId,options={}) {
       window.removeEventListener("pointercancel",cancel);
       workspace.removeEventListener("lostpointercapture",cancel);
       connectionsList.removeEventListener("click",removeClick);
+      rerouteAnchors.removeEventListener("click",selectRerouteAnchor);
+      targetSelect.removeEventListener("change",updateRerouteTarget);
+      rerouteConfirm.removeEventListener("click",confirmReroute);
+      rerouteCancel.removeEventListener("click",cancelRerouteClick);
+      window.removeEventListener("keydown",rerouteKeydown);
+      window.removeEventListener("blur",rerouteBlur);
+      document.removeEventListener?.("visibilitychange",rerouteVisibility);
       if(historyControls){
         undoBtn.removeEventListener("click",undo);
         redoBtn.removeEventListener("click",redo);

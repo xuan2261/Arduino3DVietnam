@@ -121,6 +121,59 @@ def main() -> None:
             raise AssertionError("3D readiness failed: " +
                                  json.dumps(actual, ensure_ascii=True)) from error
 
+    def workbench_reroute_snapshot(page) -> dict[str, object]:
+        """Read-only DOM evidence for one 2D committed-wire reroute transition."""
+        return page.evaluate("""() => {
+            const host=document.querySelector('.wiring-view');
+            const active=document.activeElement;
+            const startValue=node=>node?.getAttribute?.('data-wire-reroute-start') ?? null;
+            const editor=host?.querySelector('.wire-reroute-editor');
+            return {
+                rowIds:[...(host?.querySelectorAll('.wire-connected[data-wiring-wire-id]')??[])]
+                    .map(node=>node.getAttribute('data-wiring-wire-id')),
+                svgIds:[...(host?.querySelectorAll('.wire-svg [data-wiring-wire-id]')??[])]
+                    .map(node=>node.getAttribute('data-wiring-wire-id')),
+                startIds:[...(host?.querySelectorAll('[data-wire-reroute-start]')??[])]
+                    .map(node=>node.getAttribute('data-wire-reroute-start')),
+                expanded:[...(host?.querySelectorAll('[data-wire-reroute-start]')??[])]
+                    .map(node=>({id:startValue(node),expanded:node.getAttribute('aria-expanded')})),
+                anchors:[...(host?.querySelectorAll('[data-wire-reroute-anchor]')??[])]
+                    .map(node=>({id:node.getAttribute('data-wire-reroute-anchor'),
+                                pressed:node.getAttribute('aria-pressed')})),
+                target:host?.querySelector('[data-wire-reroute-target]')?.value ?? null,
+                mode:host?.getAttribute('data-wire-reroute-mode') ?? null,
+                rerouteWireId:host?.getAttribute('data-wire-reroute-wire-id') ?? null,
+                editorHidden:editor?.hidden ?? null,
+                previewCount:host?.querySelectorAll('[data-wire-reroute-preview]').length ?? -1,
+                previewPath:host?.querySelector('[data-wire-reroute-preview]')?.getAttribute('d') ?? null,
+                confirmCount:host?.querySelectorAll('[data-wire-reroute-confirm]').length ?? -1,
+                confirmDisabled:host?.querySelector('[data-wire-reroute-confirm]')?.disabled ?? null,
+                cancelCount:host?.querySelectorAll('[data-wire-reroute-cancel]').length ?? -1,
+                wireCount:host?.querySelectorAll('.wire-connected').length ?? -1,
+                suggestedPair:host?.getAttribute('data-wire-suggested-pair') ?? null,
+                suggestionPreviewCount:host?.querySelectorAll('[data-wire-suggestion-preview]').length ?? -1,
+                undoDisabled:host?.querySelector('.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')?.disabled ?? null,
+                redoDisabled:host?.querySelector('.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')?.disabled ?? null,
+                activeTag:active?.tagName ?? null,
+                activeStart:startValue(active),
+                activeAnchor:active?.getAttribute?.('data-wire-reroute-anchor') ?? null,
+                activeIsTarget:active?.hasAttribute?.('data-wire-reroute-target') ?? false,
+                activeIsConfirm:active?.hasAttribute?.('data-wire-reroute-confirm') ?? false,
+                activeIsCancel:active?.hasAttribute?.('data-wire-reroute-cancel') ?? false,
+            };
+        }""")
+
+    def wait_for_workbench_reroute(
+        page, predicate: str, timeout: int = 5000
+    ) -> tuple[str | None, dict[str, object]]:
+        """Bound one RAF-driven 2D reroute convergence and preserve failure evidence."""
+        error_text = None
+        try:
+            page.wait_for_function(predicate, timeout=timeout)
+        except PlaywrightTimeoutError as error:
+            error_text = str(error)
+        return error_text, workbench_reroute_snapshot(page)
+
     def run_page_contract(page, module_path: str, export_name: str):
         """Import a browser contract relative to the served app base/subpath."""
         return page.evaluate(
@@ -4614,6 +4667,75 @@ def main() -> None:
                           suggested_host.locator(".wire-connected").count() == 1
                           and suggested_host.get_attribute("data-wire-suggested-pair") is None
                           and guided.locator("#labExplorer [data-explorer-wire]").count() >= 1)
+                    guided_progress_before_2d_reroute=guided.locator("#progressText").inner_text()
+                    next_practice_pair=guided.locator(
+                        "#learningCoach [data-practice-preview-pair-2d]").first
+                    check("post-2d-reroute-guided-next-missing-pair-remains-previewable",
+                          next_practice_pair.count()==1)
+                    next_practice_pair.focus()
+                    next_practice_pair.press("Enter")
+                    suggestion_error,suggestion_state=wait_for_workbench_reroute(
+                        guided,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            return host?.querySelectorAll('.wire-connected').length===1
+                              && host.getAttribute('data-wire-suggested-pair')!==null
+                              && host.querySelectorAll('[data-wire-suggestion-preview]').length===1;
+                        }""")
+                    guided_w1_start=suggested_host.locator(
+                        '.wire-connected[data-wiring-wire-id="w1"] [data-wire-reroute-start="w1"]')
+                    guided_w1_start.focus()
+                    guided_w1_start.press("Enter")
+                    suggestion_clear_error,suggestion_cleared=wait_for_workbench_reroute(
+                        guided,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1'
+                              && host.getAttribute('data-wire-reroute-mode')==='preview'
+                              && host.getAttribute('data-wire-reroute-wire-id')==='w1'
+                              && host.getAttribute('data-wire-suggested-pair')===null
+                              && host.querySelectorAll('[data-wire-suggestion-preview]').length===0
+                              && host.querySelector('[data-wire-reroute-target]')?.value===''
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===true;
+                        }""")
+                    check("post-2d-reroute-start-clears-authored-suggestion-after-raf-without-graph-write",
+                          suggestion_error is None
+                          and suggestion_clear_error is None
+                          and suggestion_state["rowIds"]==["w1"]
+                          and suggestion_state["suggestedPair"] is not None
+                          and suggestion_state["suggestionPreviewCount"]==1
+                          and suggestion_cleared["rowIds"]==["w1"]
+                          and suggestion_cleared["mode"]=="preview"
+                          and suggestion_cleared["rerouteWireId"]=="w1"
+                          and suggestion_cleared["suggestedPair"] is None
+                          and suggestion_cleared["suggestionPreviewCount"]==0
+                          and suggestion_cleared["confirmDisabled"] is True
+                          and guided.locator("#progressText").inner_text()==
+                              guided_progress_before_2d_reroute,
+                          json.dumps({"suggestionError":suggestion_error,
+                                      "clearError":suggestion_clear_error,
+                                      "before":suggestion_state,
+                                      "after":suggestion_cleared},ensure_ascii=False))
+                    suggested_host.locator('[data-wire-reroute-cancel]').focus()
+                    suggested_host.locator('[data-wire-reroute-cancel]').press("Enter")
+                    guided_cancel_error,guided_cancelled=wait_for_workbench_reroute(
+                        guided,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            return host?.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.querySelectorAll('[data-wire-suggestion-preview]').length===0
+                              && document.activeElement?.getAttribute('data-wire-reroute-start')==='w1';
+                        }""")
+                    check("post-2d-reroute-guided-cancel-restores-w1-focus-without-progress",
+                          guided_cancel_error is None
+                          and guided_cancelled["rowIds"]==["w1"]
+                          and guided_cancelled["mode"]=="off"
+                          and guided_cancelled["activeStart"]=="w1"
+                          and guided.locator("#progressText").inner_text()==
+                              guided_progress_before_2d_reroute,
+                          json.dumps({"settleError":guided_cancel_error,
+                                      **guided_cancelled},ensure_ascii=False))
                     guided.locator("#stageTab3d").click()
                     guided.locator("#labEditToggle").click()
                     wire_button = guided.locator("#labExplorer [data-explorer-highlight-wire]").first
@@ -6333,7 +6455,387 @@ def main() -> None:
                               "document.documentElement.scrollWidth <= innerWidth"))
                     repair_page.locator(
                         "#sceneInspectionStatus [data-wire-repair-cancel]").click()
+
+                    # The 2D workbench owns its own committed-wire reroute UI.
+                    # Its SVG is presentation-only/pointer-events:none, so real
+                    # input starts from native row/terminal controls instead of
+                    # pretending that the drawn wire itself is a hit target.
+                    repair_page.locator("#stageTabWiring").click()
+                    mobile_wire_row=repair_page.locator(
+                        '.wiring-view .wire-connected[data-wiring-wire-id="w3"]')
+                    mobile_reroute_start=mobile_wire_row.locator(
+                        '[data-wire-reroute-start="w3"]')
+                    mobile_start_box=mobile_reroute_start.bounding_box()
+                    check("post-2d-reroute-mobile375-entry-is-native-44px-focusable",
+                          mobile_reroute_start.count()==1
+                          and mobile_start_box is not None
+                          and mobile_start_box["width"]>=44
+                          and mobile_start_box["height"]>=44
+                          and mobile_reroute_start.evaluate("node=>node.tagName")=="BUTTON"
+                          and "w3" in (mobile_reroute_start.get_attribute("aria-label") or "")
+                          and repair_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    mobile_reroute_start.focus()
+                    mobile_reroute_start.press("Enter")
+                    mobile_reroute_host=repair_page.locator('.wiring-view')
+                    mobile_anchor_d13=mobile_reroute_host.locator(
+                        '[data-wire-reroute-anchor="from"]')
+                    mobile_target=mobile_reroute_host.locator('[data-wire-reroute-target]')
+                    mobile_confirm=mobile_reroute_host.locator('[data-wire-reroute-confirm]')
+                    mobile_cancel=mobile_reroute_host.locator('[data-wire-reroute-cancel]')
+                    mobile_controls=mobile_reroute_host.locator(
+                        '[data-wire-reroute-start="w3"], [data-wire-reroute-anchor], '
+                        '[data-wire-reroute-target], [data-wire-reroute-confirm], '
+                        '[data-wire-reroute-cancel]')
+                    mobile_control_rects=[control.bounding_box()
+                                          for control in mobile_controls.all()]
+                    check("post-2d-reroute-mobile375-native-controls-aria-and-44px",
+                          len(mobile_control_rects)>=6
+                          and all(rect is not None and rect["width"]>=44 and rect["height"]>=44
+                                  for rect in mobile_control_rects)
+                          and mobile_reroute_host.get_attribute("data-wire-reroute-mode")=="preview"
+                          and mobile_reroute_host.get_attribute("data-wire-reroute-wire-id")=="w3"
+                          and mobile_reroute_host.locator('[data-wire-reroute-anchor]').count()==2
+                          and mobile_anchor_d13.get_attribute("aria-pressed")=="true"
+                          and "D13" in mobile_anchor_d13.inner_text()
+                          and mobile_target.evaluate("node=>node.tagName")=="SELECT"
+                          and mobile_target.evaluate("node=>node.labels?.length===1")
+                          and mobile_confirm.evaluate("node=>node.tagName")=="BUTTON"
+                          and mobile_cancel.evaluate("node=>node.tagName")=="BUTTON"
+                          and mobile_confirm.get_attribute("aria-disabled")=="true"
+                          and repair_page.evaluate(
+                              "document.activeElement?.getAttribute('data-wire-reroute-anchor')==='from'")
+                          and repair_page.evaluate(
+                              "document.documentElement.scrollWidth <= innerWidth"))
+                    mobile_anchor_d13.focus()
+                    mobile_anchor_d13.press("Enter")
+                    mobile_gnd=repair_page.locator('.wiring-view [data-terminal="GND"]')
+                    mobile_gnd.scroll_into_view_if_needed()
+                    mobile_gnd_box=mobile_gnd.bounding_box()
+                    if mobile_gnd_box is None:
+                        raise AssertionError("375px 2D reroute GND terminal lost browser box")
+                    mobile_touch=repair_context.new_cdp_session(repair_page)
+                    mobile_touch_point={
+                        "x":mobile_gnd_box["x"]+mobile_gnd_box["width"]/2,
+                        "y":mobile_gnd_box["y"]+mobile_gnd_box["height"]/2,
+                        "id":73,"radiusX":1,"radiusY":1,"force":1,
+                    }
+                    mobile_touch.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[mobile_touch_point],
+                    })
+                    mobile_touch.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    mobile_proposal_error,mobile_proposal=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w3'
+                              && host.querySelector('[data-wire-reroute-target]')?.value==='GND'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===1
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===false;
+                        }""")
+                    check("post-2d-reroute-mobile375-real-touch-target-is-preview-only",
+                          mobile_proposal_error is None
+                          and mobile_proposal["rowIds"]==["w1","w3"]
+                          and mobile_proposal["wireCount"]==2
+                          and mobile_proposal["target"]=="GND"
+                          and mobile_proposal["previewCount"]==1
+                          and bool(mobile_proposal["previewPath"])
+                          and mobile_proposal["confirmDisabled"] is False
+                          and mobile_confirm.get_attribute("aria-disabled")=="false"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"settleError":mobile_proposal_error,
+                                      **mobile_proposal},ensure_ascii=False))
+                    mobile_cancel.focus()
+                    mobile_cancel.press("Enter")
+                    mobile_cancel_error,mobile_cancelled=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w3'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelector('[data-wire-reroute-target]')?.value===''
+                              && document.activeElement?.getAttribute('data-wire-reroute-start')==='w3';
+                        }""")
+                    check("post-2d-reroute-mobile375-cancel-restores-exact-wire-and-focus",
+                          mobile_cancel_error is None
+                          and mobile_cancelled["rowIds"]==["w1","w3"]
+                          and mobile_cancelled["previewCount"]==0
+                          and mobile_cancelled["activeStart"]=="w3"
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"settleError":mobile_cancel_error,
+                                      **mobile_cancelled},ensure_ascii=False))
                     repair_page.set_viewport_size({"width":1280,"height":820})
+
+                    # Desktop 2D committed-wire reroute: native row opt-in +
+                    # real terminal pointer drag proposes only. Confirm is the
+                    # sole graph mutation; history must atomically restore the
+                    # exact old/new canonical IDs, and stale UI must fail closed.
+                    repair_page.locator("#stageTabWiring").click()
+                    wire_row=repair_page.locator(
+                        '.wiring-view .wire-connected[data-wiring-wire-id="w3"]')
+                    reroute_start=wire_row.locator('[data-wire-reroute-start="w3"]')
+                    before_2d_reroute=workbench_reroute_snapshot(repair_page)
+                    reroute_start.focus()
+                    reroute_start.press("Enter")
+                    reroute_host=repair_page.locator('.wiring-view')
+                    anchor_d13=reroute_host.locator('[data-wire-reroute-anchor="from"]')
+                    reroute_target=reroute_host.locator('[data-wire-reroute-target]')
+                    reroute_confirm=reroute_host.locator('[data-wire-reroute-confirm]')
+                    reroute_cancel=reroute_host.locator('[data-wire-reroute-cancel]')
+                    check("post-2d-reroute-desktop-keyboard-opens-exact-wire-controls",
+                          reroute_host.get_attribute("data-wire-reroute-mode")=="preview"
+                          and reroute_host.get_attribute("data-wire-reroute-wire-id")=="w3"
+                          and "w3" in (reroute_start.get_attribute("aria-label") or "")
+                          and reroute_host.locator('.wire-reroute-editor').get_attribute("aria-label") is not None
+                          and reroute_host.locator('[data-wire-reroute-anchor]').count()==2
+                          and anchor_d13.count()==1
+                          and anchor_d13.get_attribute("aria-pressed")=="true"
+                          and "D13" in anchor_d13.inner_text()
+                          and reroute_target.count()==1
+                          and reroute_confirm.is_disabled()
+                          and reroute_confirm.get_attribute("aria-disabled")=="true"
+                          and reroute_cancel.count()==1
+                          and workbench_reroute_snapshot(repair_page)["rowIds"]==["w1","w3"]
+                          and repair_page.evaluate(
+                              "document.activeElement?.getAttribute('data-wire-reroute-anchor')==='from'"))
+                    anchor_d13.focus()
+                    anchor_d13.press("Enter")
+                    check("post-2d-reroute-desktop-anchor-selection-is-aria-explicit",
+                          anchor_d13.get_attribute("aria-pressed")=="true"
+                          and repair_page.evaluate(
+                              "document.activeElement?.hasAttribute('data-wire-reroute-target')"))
+                    d13_terminal=repair_page.locator('.wiring-view [data-terminal="D13"]')
+                    gnd_terminal=repair_page.locator('.wiring-view [data-terminal="GND"]')
+                    d13_terminal.scroll_into_view_if_needed()
+                    gnd_terminal.scroll_into_view_if_needed()
+                    d13_box=d13_terminal.bounding_box()
+                    gnd_box=gnd_terminal.bounding_box()
+                    if d13_box is None or gnd_box is None:
+                        raise AssertionError("2D reroute terminal lost browser box before real pointer drag")
+                    d13_point=(d13_box["x"]+d13_box["width"]/2,
+                               d13_box["y"]+d13_box["height"]/2)
+                    gnd_point=(gnd_box["x"]+gnd_box["width"]/2,
+                               gnd_box["y"]+gnd_box["height"]/2)
+                    repair_page.mouse.move(*d13_point)
+                    repair_page.mouse.down()
+                    repair_page.mouse.move(*gnd_point,steps=8)
+                    repair_page.mouse.up()
+                    proposal_error,proposal_state=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w3'
+                              && host.querySelector('[data-wire-reroute-target]')?.value==='GND'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===1
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===false;
+                        }""")
+                    check("post-2d-reroute-real-mouse-drag-is-preview-only-no-history-write",
+                          proposal_error is None
+                          and proposal_state["rowIds"]==["w1","w3"]
+                          and proposal_state["wireCount"]==2
+                          and proposal_state["target"]=="GND"
+                          and proposal_state["previewCount"]==1
+                          and bool(proposal_state["previewPath"])
+                          and proposal_state["confirmDisabled"] is False
+                          and reroute_confirm.get_attribute("aria-disabled")=="false"
+                          and proposal_state["undoDisabled"]==before_2d_reroute["undoDisabled"]
+                          and proposal_state["redoDisabled"]==before_2d_reroute["redoDisabled"]
+                          and proposal_state["suggestedPair"] is None
+                          and proposal_state["suggestionPreviewCount"]==0
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"settleError":proposal_error,
+                                      **proposal_state},ensure_ascii=False))
+                    reroute_confirm.focus()
+                    reroute_confirm.press("Enter")
+                    confirm_error,confirmed=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w4'
+                              && host.querySelector('.wire-connected[data-wiring-wire-id="w3"]')===null
+                              && host.querySelectorAll('.wire-svg [data-wiring-wire-id="w4"]').length===2
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===true;
+                        }""")
+                    undo_2d=repair_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    redo_2d=repair_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-2d-reroute-confirm-atomically-replaces-w3-with-w4",
+                          confirm_error is None
+                          and confirmed["rowIds"]==["w1","w4"]
+                          and confirmed["wireCount"]==2
+                          and confirmed["svgIds"].count("w4")==2
+                          and confirmed["previewCount"]==0
+                          and "D13" in repair_page.locator(
+                              '.wire-connected[data-wiring-wire-id="w4"]').inner_text()
+                          and "GND" in repair_page.locator(
+                              '.wire-connected[data-wiring-wire-id="w4"]').inner_text()
+                          and not undo_2d.is_disabled()
+                          and redo_2d.is_disabled()
+                          and repair_page.evaluate(
+                              "document.activeElement === document.querySelector('.wire-actions [aria-label=\"Hoàn tác trạng thái đấu dây trước đó trong ứng dụng\"]')")
+                          and repair_page.locator("#completeButton").is_hidden()
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"settleError":confirm_error,
+                                      **confirmed},ensure_ascii=False))
+                    undo_2d.focus()
+                    undo_2d.press("Enter")
+                    undo_error,undo_state=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w3'
+                              && host.querySelector('.wire-connected[data-wiring-wire-id="w4"]')===null
+                              && host.querySelectorAll('.wire-svg [data-wiring-wire-id="w3"]').length===2
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0;
+                        }""")
+                    check("post-2d-reroute-one-undo-restores-exact-w3-route",
+                          undo_error is None
+                          and undo_state["rowIds"]==["w1","w3"]
+                          and undo_state["svgIds"].count("w3")==2
+                          and repair_page.locator(
+                              '.wire-connected[data-wiring-wire-id="w3"]').inner_text().find("R1:B")>=0
+                          and not redo_2d.is_disabled(),
+                          json.dumps({"settleError":undo_error,
+                                      **undo_state},ensure_ascii=False))
+                    redo_2d.focus()
+                    redo_2d.press("Enter")
+                    redo_error,redo_state=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w4'
+                              && host.querySelectorAll('.wire-svg [data-wiring-wire-id="w4"]').length===2
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0;
+                        }""")
+                    check("post-2d-reroute-one-redo-restores-exact-w4-route",
+                          redo_error is None
+                          and redo_state["rowIds"]==["w1","w4"]
+                          and redo_state["svgIds"].count("w4")==2
+                          and "GND" in repair_page.locator(
+                              '.wire-connected[data-wiring-wire-id="w4"]').inner_text()
+                          and redo_2d.is_disabled(),
+                          json.dumps({"settleError":redo_error,
+                                      **redo_state},ensure_ascii=False))
+
+                    # Cancel is a no-history operation and restores focus to the
+                    # exact committed row action, never to an obsolete control.
+                    row_w4=repair_page.locator(
+                        '.wiring-view .wire-connected[data-wiring-wire-id="w4"]')
+                    start_w4=row_w4.locator('[data-wire-reroute-start="w4"]')
+                    start_w4.focus()
+                    start_w4.press("Enter")
+                    reroute_host.locator('[data-wire-reroute-anchor="from"]').press("Enter")
+                    reroute_host.locator('[data-wire-reroute-target]').select_option("R1:B")
+                    cancel_ready_error,cancel_ready=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            return host.querySelector('[data-wire-reroute-target]')?.value==='R1:B'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===1
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===false;
+                        }""")
+                    cancel_button=reroute_host.locator('[data-wire-reroute-cancel]')
+                    cancel_button.focus()
+                    cancel_button.press("Enter")
+                    cancel_error,cancelled=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            return host.querySelector('.wire-connected[data-wiring-wire-id="w4"]')!==null
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelector('[data-wire-reroute-target]')?.value===''
+                              && document.activeElement?.getAttribute('data-wire-reroute-start')==='w4';
+                        }""")
+                    check("post-2d-reroute-cancel-is-no-history-and-restores-row-focus",
+                          cancel_ready_error is None
+                          and cancel_error is None
+                          and cancel_ready["rowIds"]==["w1","w4"]
+                          and cancelled["rowIds"]==["w1","w4"]
+                          and cancelled["previewCount"]==0
+                          and cancelled["activeStart"]=="w4"
+                          and cancelled["undoDisabled"]==redo_state["undoDisabled"]
+                          and cancelled["redoDisabled"]==redo_state["redoDisabled"]
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"readyError":cancel_ready_error,
+                                      "cancelError":cancel_error,
+                                      "ready":cancel_ready,"cancelled":cancelled},ensure_ascii=False))
+
+                    # A canonical history change while reroute UI is open makes
+                    # that UI stale. Undo must revoke it immediately; Redo may
+                    # restore w4 but must never resurrect the stale proposal.
+                    start_w4.focus()
+                    start_w4.press("Enter")
+                    reroute_host.locator('[data-wire-reroute-anchor="from"]').press("Enter")
+                    reroute_host.locator('[data-wire-reroute-target]').select_option("R1:B")
+                    stale_ready_error,stale_ready=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            return host.querySelector('[data-wire-reroute-target]')?.value==='R1:B'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===1
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===false;
+                        }""")
+                    undo_2d.focus()
+                    undo_2d.press("Enter")
+                    stale_undo_error,stale_undo=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w3'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelector('[data-wire-reroute-target]')?.value===''
+                              && host.querySelector('[data-wire-reroute-confirm]')?.disabled===true;
+                        }""")
+                    check("post-2d-reroute-stale-open-ui-revoked-by-canonical-undo",
+                          stale_ready_error is None
+                          and stale_undo_error is None
+                          and stale_ready["rowIds"]==["w1","w4"]
+                          and stale_undo["rowIds"]==["w1","w3"]
+                          and stale_undo["previewCount"]==0
+                          and stale_undo["confirmDisabled"] is True
+                          and stale_undo["editorHidden"] is True
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"readyError":stale_ready_error,
+                                      "undoError":stale_undo_error,
+                                      "before":stale_ready,"after":stale_undo},ensure_ascii=False))
+                    redo_2d.focus()
+                    redo_2d.press("Enter")
+                    stale_redo_error,stale_redo=wait_for_workbench_reroute(
+                        repair_page,"""() => {
+                            const host=document.querySelector('.wiring-view');
+                            const rows=[...host.querySelectorAll('.wire-connected[data-wiring-wire-id]')]
+                              .map(node=>node.getAttribute('data-wiring-wire-id'));
+                            return rows.join('|')==='w1|w4'
+                              && host.querySelectorAll('[data-wire-reroute-preview]').length===0
+                              && host.getAttribute('data-wire-reroute-mode')==='off'
+                              && host.querySelector('.wire-reroute-editor')?.hidden===true
+                              && host.querySelector('[data-wire-reroute-target]')?.value==='';
+                        }""")
+                    check("post-2d-reroute-redo-restores-wire-not-stale-proposal",
+                          stale_redo_error is None
+                          and stale_redo["rowIds"]==["w1","w4"]
+                          and stale_redo["previewCount"]==0
+                          and stale_redo["target"]==""
+                          and stale_redo["editorHidden"] is True
+                          and repair_page.locator("#progressText").inner_text()==repair_progress,
+                          json.dumps({"settleError":stale_redo_error,
+                                      **stale_redo},ensure_ascii=False))
                 finally:
                     repair_context.close()
 

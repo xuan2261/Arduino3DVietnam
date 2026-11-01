@@ -283,6 +283,197 @@ export function runWiringWorkbenchHighlightContracts() {
     check("pointer-graph-mutation-clears-cross-surface-highlight",highlightedRow(pointerHost)===null&&
       pointerHost.querySelector(".wire-svg").querySelectorAll("[data-wiring-highlight-wire]").length===0);
 
+    // Committed-wire endpoint reroute is a proposal until explicit Confirm.
+    // The 2D controller must keep the router-produced learner graph immutable
+    // through preview/cancel and publish exactly one final graph on success.
+    const rerouteHost=new WorkbenchFakeNode("div");
+    let rerouteInitial=createCircuit(2);
+    rerouteInitial=connectCircuit(rerouteInitial,"D13","R1:A");
+    rerouteInitial=connectCircuit(rerouteInitial,"R1:B","LED:A");
+    const rerouteBaseJson=JSON.stringify(rerouteInitial);
+    const rerouteChanges=[];
+    const rerouteMounted=mountWiringWorkbench(rerouteHost,2,{
+      initial:rerouteInitial,
+      historyState:{lessonId:2,revision:11,canUndo:true,canRedo:false},
+      onChange(model,analysis){rerouteChanges.push({model,analysis});},
+    });
+    mounts.push(rerouteMounted);flush();
+    const rerouteSvg=rerouteHost.querySelector(".wire-svg");
+    const startW1=rerouteHost.querySelector('[data-wire-reroute-start="w1"]');
+    const rerouteEditor=rerouteHost.querySelector(".wire-reroute-editor");
+    const keepFrom=rerouteHost.querySelector('[data-wire-reroute-anchor="from"]');
+    const keepTo=rerouteHost.querySelector('[data-wire-reroute-anchor="to"]');
+    const targetSelect=rerouteHost.querySelector("[data-wire-reroute-target]");
+    const confirm=rerouteHost.querySelector("[data-wire-reroute-confirm]");
+    const cancelRerouteButton=rerouteHost.querySelector("[data-wire-reroute-cancel]");
+    check("reroute-native-controls-and-aria-contract",startW1?.type==="button"&&
+      /Sửa một đầu dây w1/i.test(startW1.getAttribute("aria-label")||"")&&
+      rerouteEditor?.getAttribute("role")==="group"&&
+      /Sửa đầu dây đã nối/.test(rerouteEditor.getAttribute("aria-label")||"")&&
+      keepFrom?.type==="button"&&keepTo?.type==="button"&&confirm?.type==="button"&&
+      cancelRerouteButton?.type==="button"&&
+      rerouteEditor.querySelector(".wire-reroute-message")?.getAttribute("role")==="status"&&
+      rerouteEditor.querySelector(".wire-reroute-message")?.getAttribute("aria-live")==="polite");
+
+    startW1.click();flush();
+    check("reroute-start-is-preview-only-and-focuses-anchor",rerouteHost.dataset.wireRerouteMode==="preview"&&
+      rerouteHost.dataset.wireRerouteWireId==="w1"&&rerouteHost.dataset.wireRerouteTarget===""&&
+      keepFrom.focused===true&&keepFrom.getAttribute("aria-pressed")==="true"&&
+      keepTo.getAttribute("aria-pressed")==="false"&&JSON.stringify(rerouteMounted.getCircuit())===rerouteBaseJson&&
+      rerouteChanges.length===0);
+    targetSelect.value="GND";
+    targetSelect.dispatchEvent({type:"change",target:targetSelect});flush();
+    check("reroute-target-preview-does-not-mutate-graph",rerouteHost.dataset.wireRerouteTarget==="GND"&&
+      confirm.disabled===false&&confirm.getAttribute("aria-disabled")==="false"&&
+      rerouteSvg.querySelectorAll("[data-wire-reroute-preview]").length===1&&
+      JSON.stringify(rerouteMounted.getCircuit())===rerouteBaseJson&&rerouteChanges.length===0);
+    const previewGhost=rerouteSvg.querySelector("[data-wire-reroute-preview]");
+    check("reroute-svg-preview-is-explicitly-noncanonical",previewGhost?.userData?.kind==="committed-wire-reroute-proposal"&&
+      previewGhost.userData.committed===false&&previewGhost.userData.electricalAuthority===false);
+
+    cancelRerouteButton.click();flush();
+    const restoredStart=rerouteHost.querySelector('[data-wire-reroute-start="w1"]');
+    check("reroute-cancel-keeps-graph-and-restores-action-focus",rerouteHost.dataset.wireRerouteMode==="off"&&
+      rerouteHost.getAttribute("data-wire-reroute-wire-id")===null&&
+      rerouteSvg.querySelectorAll("[data-wire-reroute-preview]").length===0&&
+      JSON.stringify(rerouteMounted.getCircuit())===rerouteBaseJson&&rerouteChanges.length===0&&
+      restoredStart?.focused===true);
+
+    restoredStart.click();flush();
+    targetSelect.value="GND";
+    targetSelect.dispatchEvent({type:"change",target:targetSelect});flush();
+    confirm.click();flush();
+    const rerouted=rerouteMounted.getCircuit();
+    const replacement=rerouted.wires.find(wire=>wire.id==="w3");
+    check("reroute-confirm-publishes-one-router-generated-replacement",rerouteChanges.length===1&&
+      rerouteChanges[0].model===rerouted&&
+      JSON.stringify(rerouteChanges[0].analysis)===JSON.stringify(rerouteMounted.getAnalysis())&&
+      rerouted!==rerouteInitial&&JSON.stringify(rerouteInitial)===rerouteBaseJson&&
+      !rerouted.wires.some(wire=>wire.id==="w1")&&replacement?.from==="D13"&&replacement?.to==="GND"&&
+      rerouted.wires.length===rerouteInitial.wires.length&&rerouted.nextWireId===4&&
+      rerouteHost.dataset.wireRerouteMode==="off"&&rerouteSvg.querySelectorAll("[data-wire-reroute-preview]").length===0);
+
+    // Invalid proposals are fully local: no router publication, no host write.
+    const invalidHost=new WorkbenchFakeNode("div");
+    let invalidGraph=createCircuit(2);
+    invalidGraph=connectCircuit(invalidGraph,"D13","R1:A");
+    invalidGraph=connectCircuit(invalidGraph,"D13","GND");
+    const invalidBefore=JSON.stringify(invalidGraph);
+    let invalidChanges=0;
+    const invalidMounted=mountWiringWorkbench(invalidHost,2,{
+      initial:invalidGraph,
+      historyState:{lessonId:2,revision:3,canUndo:false,canRedo:false},
+      onChange(){invalidChanges+=1;},
+    });
+    mounts.push(invalidMounted);flush();
+    invalidHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const invalidTarget=invalidHost.querySelector("[data-wire-reroute-target]");
+    const invalidConfirm=invalidHost.querySelector("[data-wire-reroute-confirm]");
+    invalidTarget.value="D13";
+    invalidTarget.dispatchEvent({type:"change",target:invalidTarget});flush();
+    check("reroute-self-target-is-disabled-and-nonmutating",invalidConfirm.disabled===true&&
+      invalidConfirm.getAttribute("aria-disabled")==="true"&&JSON.stringify(invalidMounted.getCircuit())===invalidBefore&&invalidChanges===0);
+    invalidTarget.value="GND";
+    invalidTarget.dispatchEvent({type:"change",target:invalidTarget});flush();
+    check("reroute-duplicate-target-is-disabled-and-nonmutating",invalidConfirm.disabled===true&&
+      /Đường nối này đã tồn tại/.test(invalidHost.querySelector(".wire-reroute-message")?.textContent||"")&&
+      JSON.stringify(invalidMounted.getCircuit())===invalidBefore&&invalidChanges===0);
+    invalidHost.querySelector("[data-wire-reroute-cancel]").click();flush();
+    const staleStart=invalidHost.querySelector('[data-wire-reroute-start="w1"]');
+    invalidMounted.setCircuit(createCircuit(2));flush();
+    staleStart.click();flush();
+    check("stale-detached-wire-id-cannot-reopen-reroute",invalidHost.dataset.wireRerouteMode==="off"&&
+      invalidMounted.getCircuit().wires.length===0&&invalidChanges===0);
+
+    // A pending proposal is bound to both the exact host history revision and
+    // exact same-lesson canonical graph object.
+    const revisionHost=new WorkbenchFakeNode("div");
+    const revisionGraph=connectCircuit(createCircuit(2),"D13","R1:A");
+    let revisionChanges=0;
+    const revisionMounted=mountWiringWorkbench(revisionHost,2,{
+      initial:revisionGraph,
+      historyState:{lessonId:2,revision:21,canUndo:true,canRedo:false},
+      onChange(){revisionChanges+=1;},
+    });
+    mounts.push(revisionMounted);flush();
+    revisionHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const revisionTarget=revisionHost.querySelector("[data-wire-reroute-target]");
+    revisionTarget.value="GND";
+    revisionTarget.dispatchEvent({type:"change",target:revisionTarget});flush();
+    revisionMounted.setHistoryState({lessonId:2,revision:22,canUndo:true,canRedo:false});flush();
+    check("history-revision-change-invalidates-reroute-transactionally",revisionHost.dataset.wireRerouteMode==="off"&&
+      revisionHost.getAttribute("data-wire-reroute-wire-id")===null&&
+      revisionHost.querySelector(".wire-svg").querySelectorAll("[data-wire-reroute-preview]").length===0&&
+      JSON.stringify(revisionMounted.getCircuit())===JSON.stringify(revisionGraph)&&revisionChanges===0);
+    revisionHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const revisionBeforeForeign=JSON.stringify(revisionMounted.getCircuit());
+    expectThrow("cross-lesson-setCircuit-rejected-during-reroute",()=>revisionMounted.setCircuit(createCircuit(3)),TypeError);
+    check("cross-lesson-rejection-preserves-current-reroute-and-graph",revisionHost.dataset.wireRerouteMode==="preview"&&
+      revisionHost.dataset.wireRerouteWireId==="w1"&&JSON.stringify(revisionMounted.getCircuit())===revisionBeforeForeign&&
+      revisionChanges===0);
+    revisionHost.querySelector("[data-wire-reroute-cancel]").click();flush();
+    revisionHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const freshSameLesson=connectCircuit(createCircuit(2),"D13","GND");
+    revisionMounted.setCircuit(freshSameLesson);flush();
+    check("same-lesson-setCircuit-reconciliation-invalidates-old-reroute",revisionHost.dataset.wireRerouteMode==="off"&&
+      revisionHost.querySelector(".wire-svg").querySelectorAll("[data-wire-reroute-preview]").length===0&&
+      revisionMounted.getCircuit()===freshSameLesson&&revisionChanges===0);
+
+    // Pointer cancellation may clear a transient ghost, but must preserve the
+    // explicit reroute proposal and canonical graph until Cancel/Confirm.
+    const cancelHost=new WorkbenchFakeNode("div");
+    const cancelGraph=connectCircuit(createCircuit(2),"D13","R1:A");
+    let pointerCancelChanges=0;
+    const cancelMounted=mountWiringWorkbench(cancelHost,2,{
+      initial:cancelGraph,
+      historyState:{lessonId:2,revision:5,canUndo:false,canRedo:false},
+      onChange(){pointerCancelChanges+=1;},
+    });
+    mounts.push(cancelMounted);flush();
+    cancelHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const cancelAnchor=cancelHost.querySelectorAll("[data-terminal]").find(node=>node.dataset.terminal==="D13");
+    cancelAnchor.dispatchEvent({type:"pointerdown",target:cancelAnchor,button:0,clientX:12,clientY:12,pointerId:91});
+    globalThis.window.dispatchEvent({type:"pointermove",button:0,clientX:55,clientY:42,pointerId:91});flush();
+    check("reroute-pointer-drag-renders-only-transient-ghost",cancelHost.querySelector(".wire-svg").querySelectorAll("[data-wire-reroute-preview]").length===1&&
+      JSON.stringify(cancelMounted.getCircuit())===JSON.stringify(cancelGraph)&&pointerCancelChanges===0);
+    globalThis.window.dispatchEvent({type:"pointercancel",pointerId:91});flush();
+    check("reroute-pointercancel-clears-ghost-without-canceling-proposal-or-graph",cancelHost.dataset.wireRerouteMode==="preview"&&
+      cancelHost.querySelector(".wire-svg").querySelectorAll("[data-wire-reroute-preview]").length===0&&
+      JSON.stringify(cancelMounted.getCircuit())===JSON.stringify(cancelGraph)&&pointerCancelChanges===0);
+
+    // Precision: reroute actions use exact canonical wire IDs, never prefix
+    // matching w1 to w10 when both exist in the same learner graph.
+    const reroute16Host=new WorkbenchFakeNode("div");
+    const reroute16=mountWiringWorkbench(reroute16Host,16,{initial:createSampleCircuit(16)});
+    mounts.push(reroute16);flush();
+    const rerouteStarts16=reroute16Host.querySelectorAll("[data-wire-reroute-start]");
+    const rerouteW1=rerouteStarts16.find(button=>button.dataset.wireRerouteStart==="w1");
+    const rerouteW10=rerouteStarts16.find(button=>button.dataset.wireRerouteStart==="w10");
+    rerouteW1.click();flush();
+    check("reroute-wire-id-precision-w1-not-w10",Boolean(rerouteW10)&&
+      reroute16Host.dataset.wireRerouteWireId==="w1"&&
+      rerouteStarts16.filter(button=>button.dataset.wireRerouteStart==="w1").length===1&&
+      reroute16Host.dataset.wireRerouteMode==="preview");
+    reroute16Host.querySelector("[data-wire-reroute-cancel]").click();flush();
+
+    const disposeHost=new WorkbenchFakeNode("div");
+    const disposeGraph=connectCircuit(createCircuit(2),"D13","R1:A");
+    let disposeChanges=0;
+    const disposeMounted=mountWiringWorkbench(disposeHost,2,{
+      initial:disposeGraph,
+      historyState:{lessonId:2,revision:1,canUndo:false,canRedo:false},
+      onChange(){disposeChanges+=1;},
+    });
+    mounts.push(disposeMounted);flush();
+    disposeHost.querySelector('[data-wire-reroute-start="w1"]').click();flush();
+    const detachedConfirm=disposeHost.querySelector("[data-wire-reroute-confirm]");
+    const detachedCancel=disposeHost.querySelector("[data-wire-reroute-cancel]");
+    disposeMounted.dispose();
+    mounts.splice(mounts.indexOf(disposeMounted),1);
+    detachedConfirm.click();detachedCancel.click();flush();
+    check("reroute-dispose-removes-ui-and-detaches-mutation-listeners",disposeHost.children.length===0&&
+      disposeChanges===0&&JSON.stringify(disposeMounted.getCircuit())===JSON.stringify(disposeGraph));
+
     // Precision: w1 must never prefix-match w10 in the same current learner graph.
     const host16=new WorkbenchFakeNode("div");
     const sample16=createSampleCircuit(16);
@@ -327,12 +518,33 @@ export function runWiringWorkbenchHighlightStaticContracts(sourceText,cssText) {
   check("existing-svg-paths-own-highlight-attribute",/wire-committed-path/.test(sourceText)&&
     /data-wiring-wire-id/.test(sourceText)&&/data-wiring-highlight-wire/.test(sourceText));
   check("suggestion-preview-contract-preserved",/data-wire-suggestion-preview/.test(sourceText)&&/stroke-dasharray/.test(sourceText));
+  const rerouteCommit=/function commitReroute\(\)\s*\{([\s\S]*?)\n\s*\}\n\s*function applyCommittedHighlightRow/.exec(sourceText)?.[1]??"";
+  const reroutePropose=/function proposeRerouteTarget\(target\)\s*\{([\s\S]*?)\n\s*\}\n\s*function chooseRerouteAnchor/.exec(sourceText)?.[1]??"";
+  check("reroute-stable-selector-and-diagnostic-contract",[
+    "wireRerouteStart","wireRerouteAnchor","wireRerouteTarget","wireRerouteConfirm","wireRerouteCancel",
+    "wireRerouteMode","wireRerouteWireId","data-wire-reroute-preview",
+  ].every(token=>sourceText.includes(token)));
+  check("reroute-preview-path-has-no-electrical-authority",/data-wire-reroute-preview/.test(sourceText)&&
+    /committed-wire-reroute-proposal/.test(sourceText)&&/electricalAuthority:false/.test(sourceText)&&
+    reroutePropose.length>0&&!/connectCircuit|disconnectCircuit|notify\s*\(/.test(reroutePropose));
+  check("reroute-confirm-is-one-atomic-router-publication",rerouteCommit.length>0&&
+    rerouteCommit.indexOf("disconnectCircuit")>=0&&
+    rerouteCommit.indexOf("connectCircuit")>rerouteCommit.indexOf("disconnectCircuit")&&
+    rerouteCommit.indexOf("notify()")>rerouteCommit.indexOf("connectCircuit")&&
+    (rerouteCommit.match(/\bnotify\(\)/g)??[]).length===1);
+  check("reroute-stale-revision-and-canonical-refresh-fail-closed",
+    /setHistoryState\(next\)[\s\S]*?normalized\.revision!==historyState\.revision[\s\S]*?reroute=null/.test(sourceText)&&
+    /setCircuit\(next, options = \{\}\)[\s\S]*?reroute=null;rerouteHover=null/.test(sourceText)&&
+    /dispose\(\)[\s\S]*?disposed=true;highlightedWire=null;reroute=null;rerouteHover=null/.test(sourceText));
   check("highlight-row-css-is-high-contrast",/\.wire-connected\[data-wiring-highlight-wire\][^{]*\{[^}]*border\s*:\s*2px[^}]*background\s*:\s*#fff7bf/is.test(cssText));
   check("375-compatible-controls-retain-44px-minimum",/@media\s*\(max-width:\s*800px\)[\s\S]*?\.wire-activate,\.wire-action\s*\{[^}]*min-height\s*:\s*44px/i.test(cssText)&&
     /\.wire-action\s*\{[^}]*min-width\s*:\s*44px[^}]*min-height\s*:\s*44px/i.test(cssText)&&
     /\.wire-activate\s*\{[^}]*min-width\s*:\s*44px[^}]*min-height\s*:\s*44px/i.test(cssText)&&
     /\.wire-remove\s*\{[^}]*min-width\s*:\s*44px[^}]*min-height\s*:\s*44px/i.test(cssText)&&
     /\.wire-terminal\s*\{[^}]*min-height\s*:\s*44px/i.test(cssText));
+  check("reroute-target-and-mobile-actions-retain-accessible-sizing",
+    /\.wire-reroute-target\s*\{[^}]*min-height\s*:\s*44px/i.test(cssText)&&
+    /@media\s*\(max-width:\s*800px\)[\s\S]*?\.wire-reroute-anchors \.wire-action,\.wire-reroute-actions \.wire-action\s*\{[^}]*flex\s*:\s*1 1 130px/i.test(cssText));
   return Object.freeze({total:results.length,passed:results.length,failed:0,results:Object.freeze(results)});
 }
 

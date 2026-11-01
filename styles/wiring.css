@@ -47,10 +47,23 @@
 .wire-connection-list h4 { font-size:9px; letter-spacing:.10em; font-weight:850; margin:0 0 9px; color:#78978c; }
 .wire-connections { display:flex; flex-wrap:wrap; gap:6px; }
 .wire-connected { display:inline-flex; gap:10px; align-items:center; border:1px solid #d0e4d8; background:#fff; border-radius:7px; padding:5px 6px 5px 9px; font-size:10px; color:#315f55; font-weight:680; }
+.wire-connected { flex-wrap:wrap; max-width:100%; }
+.wire-reroute-start { background:#e5f1fb; color:#22557a; border-color:#9ebfdc; }
 .wire-connected[data-wiring-highlight-wire] { border:2px solid #17202a; background:#fff7bf; color:#17202a; box-shadow:0 0 0 3px rgba(255,228,92,.55); }
 .wire-committed-path.is-highlighted { filter:drop-shadow(0 0 2px rgba(23,32,42,.55)); }
 .wire-remove { border:0; border-radius:5px; min-width:44px; min-height:44px; padding:7px 10px; background:#f3e6e1; color:#a65b42; font-size:10px; font-weight:800; }
 .wire-remove:hover { background:#f4cdbd; }
+.wire-reroute-editor { margin-top:13px; padding:14px; border:2px solid #9cbbb2; border-radius:10px; background:#fffdf5; min-width:0; }
+.wire-reroute-editor[hidden] { display:none; }
+.wire-reroute-editor h5 { margin:0 0 9px; font-size:11px; letter-spacing:.06em; color:#315f55; }
+.wire-reroute-anchors,.wire-reroute-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.wire-reroute-anchor[aria-pressed="true"] { border:2px solid #12685a; background:#d9f5e8; color:#125b4c; }
+.wire-reroute-label { display:flex; flex-direction:column; gap:6px; margin:12px 0; font-size:11px; font-weight:750; color:#315f55; }
+.wire-reroute-target { display:block; width:min(100%,340px); min-width:0; min-height:44px; padding:9px 11px; border:1px solid #9cbcaf; background:#fff; color:#20453f; border-radius:7px; }
+.wire-reroute-target:focus-visible { outline:3px solid #11887b; outline-offset:2px; }
+.wire-reroute-message { min-height:20px; font-size:11px; line-height:1.6; color:#75552d; margin:9px 0; }
+.wire-reroute-confirm { background:#19756a; border-color:#0e5c50; color:#fff; }
+.wire-reroute-confirm:hover:not(:disabled) { background:#0b6359; color:#fff; }
 .wire-empty { margin:0; color:#86a094; font-size:10px; }
 .wiring-unsupported { padding:20px; background:rgba(255,255,255,.85); border:1px solid #dce9dd; border-radius:10px; }
 .wiring-unsupported strong { color:#315954; font-size:13px; }
@@ -74,4 +87,6 @@
   .wire-intro h3 { font-size:15px; }
   .wire-feedback-row { align-items:stretch; flex-direction:column; }
   .wire-activate { width:100%; }
+  .wire-reroute-editor { padding:11px 9px; }
+  .wire-reroute-anchors .wire-action,.wire-reroute-actions .wire-action { flex:1 1 130px; }
 }
