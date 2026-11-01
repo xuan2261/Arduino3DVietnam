@@ -104,7 +104,8 @@ const ASSETS = [
   "./docs/THREE_D_LESSON12_SERVO.md",
   "./docs/THREE_D_LESSON15_FSR.md",
   "./docs/THREE_D_LESSON07_ULTRASONIC.md",
-  "./docs/THREE_D_LESSON06_LDR.md"
+  "./docs/THREE_D_LESSON06_LDR.md",
+  "./docs/THREE_D_LESSON11_TEMPERATURE.md"
 ];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

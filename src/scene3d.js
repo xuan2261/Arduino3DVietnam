@@ -39,6 +39,9 @@ const LESSON_ULTRASONIC_VISUAL_SPAN = 2.4; // Conceptual display units, NOT cent
 const LESSON_LDR_SOURCE_ID = "lesson-6-ldr-light-source";
 const LESSON_LDR_DRAG_ADC_PER_PX = 5; // Input convention, NOT lux per pixel.
 const LESSON_LDR_VISUAL_SPAN = 2.4; // Conceptual display units, NOT measured distance.
+const LESSON_TEMPERATURE_SOURCE_ID = "lesson-11-temperature-heat-source";
+const LESSON_TEMPERATURE_DRAG_C_PER_PX = 1 / 5; // Local input mapping, not a calibrated thermal law.
+const LESSON_TEMPERATURE_VISUAL_SPAN = 2.4; // Display units, not physical heat-source distance.
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1016,7 +1019,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null,temperatureHeatSource:null };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1072,7 +1075,18 @@ function createModule(scene, kind, shared) {
           physicalVerified:false,electricalAuthority:false,measuredIlluminance:false,
         };
         state.ldrLightSource=lamp;
-      }else if(kind==="temperature"){canvasLabel(module,"°C",0,.58,0,.85,77,"#fff");
+      }else if(kind==="temperature"){
+        canvasLabel(module,"°C",0,.58,0,.85,77,"#fff");
+        // A separate pedagogical setpoint handle, not a real heater,
+        // calibrated proximity sensor, or measured LM35 temperature.
+        const heat=box(module,[.64,.62,.42],0xe7ab6a,
+          [1.45+(25/60)*LESSON_TEMPERATURE_VISUAL_SPAN,.86,.10]);
+        heat.userData={
+          kind:"temperature-heat-source-target",lessonId:11,
+          sourceId:LESSON_TEMPERATURE_SOURCE_ID,
+          physicalVerified:false,electricalAuthority:false,measuredTemperature:false,
+        };
+        state.temperatureHeatSource=heat;
       }else{
         canvasLabel(module,"FSR",0,.58,0,.95,62,"#edf6eb");
         // This one semantic press surface is a conceptual ADC input only.
@@ -1219,6 +1233,7 @@ export function mountScene(host, onSelect = () => {}) {
   // No 3D position becomes a sonar measurement or electrical graph edge.
   let lessonUltrasonicActuation={enabled:false,lessonId:null,distance:null,onDistanceChange:null};
   let lessonLdrActuation={enabled:false,lessonId:null,light:null,onLightChange:null};
+  let lessonTemperatureActuation={enabled:false,lessonId:null,temp:null,onTempChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1433,6 +1448,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonLdrActuation.enabled){
       parts.push("Nguồn sáng 3D khái niệm bài 6: kéo sang phải làm giảm chỉ số ánh sáng A0, kéo sang trái làm tăng, năm điểm ADC mỗi pixel; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML 0–1023. Bàn phím dùng thanh trượt HTML. Khoảng cách hình học không đo lux, điện áp, độ rọi, điện trở hay tín hiệu vật lý; không chứng minh nối dây hay chạy AVR.");
     }
+    if(lessonTemperatureActuation.enabled){
+      parts.push("Tay kéo mức nhiệt 3D khái niệm bài 11: kéo sang phải để tăng và sang trái để giảm nhiệt độ mô phỏng 0–60 °C, một độ cho mỗi năm pixel; kéo chỉ xem trước, thả mới cập nhật thanh trượt HTML. Dùng bàn phím trên thanh trượt tương đương. Đây không phải nhiệt độ LM35 thực, nguồn nhiệt vật lý, phép đo ADC/điện áp hoặc biên dịch AVR.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1596,6 +1614,14 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonLdrPhysicalVerified="false";
   canvas.dataset.lessonLdrElectricalAuthority="false";
   canvas.dataset.lessonLdrMeasuredIlluminance="false";
+  canvas.dataset.lessonTemperatureMode="off";
+  canvas.dataset.lessonTemperatureTemp="";
+  canvas.dataset.lessonTemperaturePreviewTemp="";
+  canvas.dataset.lessonTemperatureGesture="none";
+  canvas.dataset.lessonTemperatureTargetCount="0";
+  canvas.dataset.lessonTemperaturePhysicalVerified="false";
+  canvas.dataset.lessonTemperatureElectricalAuthority="false";
+  canvas.dataset.lessonTemperatureMeasuredTemperature="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2849,6 +2875,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
     resetLessonLdrActuation(false);
+    resetLessonTemperatureActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -4006,6 +4033,156 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonTemperatureVisual(){
+    const gesture=drag?.kind==="lesson-temperature-actuator"?drag:null;
+    const preview=gesture&&moved?gesture.previewTemp:null;
+    const visualTemp=preview??lessonTemperatureActuation.temp??25;
+    if(activeModule?.temperatureHeatSource&&currentLessonId===11){
+      // This shows a selectable setpoint; geometry cannot measure heat.
+      activeModule.temperatureHeatSource.position.x=
+        1.45+(visualTemp/60)*LESSON_TEMPERATURE_VISUAL_SPAN;
+    }
+    canvas.dataset.lessonTemperatureMode=lessonTemperatureActuation.enabled?"pointer-slide":"off";
+    canvas.dataset.lessonTemperatureTemp=lessonTemperatureActuation.enabled
+      ?String(lessonTemperatureActuation.temp):"";
+    canvas.dataset.lessonTemperaturePreviewTemp=preview===null?"":String(preview);
+    canvas.dataset.lessonTemperatureGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonTemperatureTargetCount=activeModule?.temperatureHeatSource?"1":"0";
+    canvas.dataset.lessonTemperaturePhysicalVerified="false";
+    canvas.dataset.lessonTemperatureElectricalAuthority="false";
+    canvas.dataset.lessonTemperatureMeasuredTemperature="false";
+  }
+  function currentLessonTemperatureActuator(){
+    if(!lessonTemperatureActuation.enabled||disposed||contextLost||
+       currentLessonId!==11||lessonTemperatureActuation.lessonId!==11||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonTemperatureActuation.temp)||
+       lessonTemperatureActuation.temp<0||lessonTemperatureActuation.temp>60||
+       typeof lessonTemperatureActuation.onTempChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const heatSource=activeModule?.temperatureHeatSource;
+    if(heatSource?.isMesh!==true||heatSource.parent!==activeModule.module||
+       heatSource.userData?.kind!=="temperature-heat-source-target"||
+       heatSource.userData.sourceId!==LESSON_TEMPERATURE_SOURCE_ID||
+       heatSource.userData.lessonId!==11||
+       heatSource.userData.physicalVerified!==false||
+       heatSource.userData.electricalAuthority!==false||
+       heatSource.userData.measuredTemperature!==false)return null;
+    return {heatSource,lessonId:11,sourceId:LESSON_TEMPERATURE_SOURCE_ID,
+      temp:lessonTemperatureActuation.temp,
+      onTempChange:lessonTemperatureActuation.onTempChange};
+  }
+  function lessonTemperatureStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonTemperatureActuation.enabled,
+      active:currentLessonTemperatureActuator()!==null,
+      lessonId:lessonTemperatureActuation.lessonId,
+      temp:lessonTemperatureActuation.enabled?lessonTemperatureActuation.temp:null,
+      previewTemp:drag?.kind==="lesson-temperature-actuator"&&moved
+        ?drag.previewTemp:null,
+      targetCount:activeModule?.temperatureHeatSource?1:0,
+      mode:lessonTemperatureActuation.enabled?"pointer-slide":"off",
+      physicalVerified:false,electricalAuthority:false,measuredTemperature:false});
+  }
+  function cancelLessonTemperatureGesture(redraw=false){
+    if(drag?.kind!=="lesson-temperature-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonTemperatureVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonTemperatureActuation(redraw=false){
+    cancelLessonTemperatureGesture(false);
+    lessonTemperatureActuation={enabled:false,lessonId:null,temp:null,onTempChange:null};
+    syncLessonTemperatureVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonTemperatureStatus(true);
+  }
+  function setLessonTemperatureActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,temp:null,previewTemp:null,targetCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,measuredTemperature:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson temperature options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonTemperatureActuation(true);
+    const required=["enabled","lessonId","temp","onTempChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const descriptor=Object.getOwnPropertyDescriptor(options,key);
+         return !descriptor||!("value" in descriptor);
+       }))throw new RangeError("Temperature enabled phải có đúng enabled/lessonId/temp/onTempChange");
+    if(options.lessonId!==11||currentLessonId!==11){
+      throw new RangeError("Tay kéo nhiệt độ 3D chỉ được điều khiển trong bài 11");
+    }
+    if(!Number.isInteger(options.temp)||options.temp<0||options.temp>60){
+      throw new RangeError("Nhiệt độ giả lập phải là số nguyên 0–60");
+    }
+    if(typeof options.onTempChange!=="function"){
+      throw new TypeError("onTempChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.temperatureHeatSource?.userData?.sourceId!==LESSON_TEMPERATURE_SOURCE_ID){
+      throw new RangeError("Tay kéo nhiệt độ không khả dụng trong scene/edit/layout hiện tại");
+    }
+    const same=lessonTemperatureActuation.enabled&&lessonTemperatureActuation.lessonId===11;
+    if(!same){
+      resetLessonTemperatureActuation(false);
+    }else if(drag?.kind==="lesson-temperature-actuator"&&
+      (options.temp!==lessonTemperatureActuation.temp||
+       options.onTempChange!==lessonTemperatureActuation.onTempChange)){
+      cancelLessonTemperatureGesture(false);
+    }
+    lessonTemperatureActuation={enabled:true,lessonId:11,temp:options.temp,
+      onTempChange:options.onTempChange};
+    syncLessonTemperatureVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonTemperatureStatus(true);
+  }
+  function lessonTemperatureHit(event){
+    const current=currentLessonTemperatureActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||
+       (pointerType==="mouse"&&event.button!==0)||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.heatSource,false)[0]??null;
+    return hit?.object===current.heatSource?{...current,pointerType}:null;
+  }
+  function updateLessonTemperatureDrag(event){
+    if(drag?.kind!=="lesson-temperature-actuator"||!moved)return false;
+    const current=currentLessonTemperatureActuator();
+    if(!current||current.heatSource!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.temp!==drag.startHostTemp||
+       current.onTempChange!==drag.onTempChange){
+      cancelLessonTemperatureGesture(true);
+      return false;
+    }
+    const deltaX=event.clientX-drag.startClientX;
+    drag.previewTemp=Math.max(0,Math.min(60,
+      Math.round(drag.startHostTemp+deltaX*LESSON_TEMPERATURE_DRAG_C_PER_PX)));
+    syncLessonTemperatureVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonTemperatureValue(temp,pointerType,callback){
+    if(!Number.isInteger(temp)||temp<0||temp>60||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(temp,Object.freeze({
+        lessonId:11,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -4024,7 +4201,7 @@ export function mountScene(host, onSelect = () => {}) {
     canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled||
       lessonPianoActuation.enabled||lessonServoActuation.enabled||
       lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled||
-      lessonLdrActuation.enabled)?"none":"";
+      lessonLdrActuation.enabled||lessonTemperatureActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -4249,6 +4426,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonFsrActuation(false);
     if(nextEditEnabled)resetLessonUltrasonicActuation(false);
     if(nextEditEnabled)resetLessonLdrActuation(false);
+    if(nextEditEnabled)resetLessonTemperatureActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -4919,6 +5097,20 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const temperatureHit=lessonTemperatureHit(event);
+    if(temperatureHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-temperature-actuator",lessonId:11,
+        sourceId:temperatureHit.sourceId,sourceObject:temperatureHit.heatSource,
+        startHostTemp:temperatureHit.temp,previewTemp:temperatureHit.temp,
+        onTempChange:temperatureHit.onTempChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonTemperatureVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -5068,6 +5260,9 @@ export function mountScene(host, onSelect = () => {}) {
     }else if(drag.kind==="lesson-ldr-actuator"){
       event.preventDefault();
       if(moved)updateLessonLdrDrag(event);
+    }else if(drag.kind==="lesson-temperature-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonTemperatureDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -5136,6 +5331,16 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-temperature-actuator"){
+      const deltaX=event.clientX-drag.startClientX;
+      const deltaY=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(deltaX,deltaY)>drag.tapThreshold)moved=true;
+      if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonTemperatureDrag(event);
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
     if(select&&drag.kind==="lesson-ldr-actuator"){
       const deltaX=event.clientX-drag.startClientX;
       const deltaY=event.clientY-drag.startClientY;
@@ -5325,6 +5530,24 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    if(finished.kind==="lesson-temperature-actuator"){
+      const current=currentLessonTemperatureActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===11&&
+        current.heatSource===finished.sourceObject&&
+        current.sourceId===finished.sourceId&&
+        current.temp===finished.startHostTemp&&
+        current.onTempChange===finished.onTempChange);
+      syncLessonTemperatureVisual(); // Clear transient preview before native host.
+      if(select&&moved&&stillCurrent&&
+         Number.isInteger(finished.previewTemp)&&
+         finished.previewTemp>=0&&finished.previewTemp<=60&&
+         finished.previewTemp!==finished.startHostTemp){
+        emitLessonTemperatureValue(finished.previewTemp,finished.pointerType,
+          finished.onTempChange);
+      }
+      invalidate();
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -5447,6 +5670,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonFsrGesture(false);
       cancelLessonUltrasonicGesture(false);
       cancelLessonLdrGesture(false);
+      cancelLessonTemperatureGesture(false);
       return;
     }
     invalidate();
@@ -5518,6 +5742,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
     resetLessonLdrActuation(false);
+    resetLessonTemperatureActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -5579,6 +5804,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
     resetLessonLdrActuation(false);
+    resetLessonTemperatureActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -5593,6 +5819,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonFsrVisual();
     syncLessonUltrasonicVisual();
     syncLessonLdrVisual();
+    syncLessonTemperatureVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -5676,6 +5903,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonFsrVisual();
     syncLessonUltrasonicVisual();
     syncLessonLdrVisual();
+    syncLessonTemperatureVisual();
     invalidate();
   }
   function control(action){
@@ -5693,7 +5921,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -5705,6 +5933,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonFsrActuation(false);
     resetLessonUltrasonicActuation(false);
     resetLessonLdrActuation(false);
+    resetLessonTemperatureActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

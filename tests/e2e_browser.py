@@ -925,6 +925,106 @@ def main() -> None:
             and actual.get("sceneContext") == "ready"
         )
 
+    def lesson11_scene_temperature_pixel(page, temp_c: int | None = None):
+        """Project the authored Lesson11 conceptual heat-handle center.
+
+        This duplicates only the published display transform and initial camera
+        so Playwright can send genuine browser input at the rendered target.
+        Production Three.js raycasting remains the hit-test authority.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedTemp => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson11 3D canvas missing');
+            const current=canvas.dataset.lessonTemperaturePreviewTemp!==''?
+              Number(canvas.dataset.lessonTemperaturePreviewTemp):
+              Number(canvas.dataset.lessonTemperatureTemp);
+            const temp=requestedTemp===null?current:Number(requestedTemp);
+            if(!Number.isInteger(temp)||temp<0||temp>60){
+              throw new Error('Lesson11 conceptual temperature missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const localX=1.45+(temp/60)*2.4;
+            const point=new T.Vector3(5.15+localX,.55+.86,.10+.10);
+            const projected=point.project(camera);
+            const x=rect.left+(projected.x+1)*rect.width/2;
+            const y=rect.top+(1-projected.y)*rect.height/2;
+            return Object.freeze({
+              temp,x,y,
+              insideFrustum:projected.z>=-1&&projected.z<=1,
+              insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+              onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""", temp_c)
+
+    def lesson11_temperature_acceptance_state(page):
+        """Read native Lesson11 range and public heat-handle diagnostics only."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-temp');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson11 canonical temperature UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),
+              min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',
+              output:output?.textContent||'',
+              label:label?.textContent||'',
+              labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonTemperatureMode||'',
+              sceneTemp:canvas.dataset.lessonTemperatureTemp||'',
+              previewTemp:canvas.dataset.lessonTemperaturePreviewTemp||'',
+              gesture:canvas.dataset.lessonTemperatureGesture||'',
+              targetCount:Number(canvas.dataset.lessonTemperatureTargetCount||0),
+              physicalVerified:canvas.dataset.lessonTemperaturePhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonTemperatureElectricalAuthority||'',
+              measuredTemperature:canvas.dataset.lessonTemperatureMeasuredTemperature||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson11_temperature_state_agrees(actual: dict[str, object], expected_temp: int) -> bool:
+        return (
+            0 <= expected_temp <= 60
+            and actual.get("value") == expected_temp
+            and actual.get("min") == "0"
+            and actual.get("max") == "60"
+            and actual.get("step") == "1"
+            and actual.get("control") == "temp"
+            and actual.get("output") == f"{expected_temp} °C"
+            and actual.get("labelFor") == "control-temp"
+            and actual.get("labelCount") == 1
+            and "Nhiệt độ" in str(actual.get("label"))
+            and actual.get("mode") == "pointer-slide"
+            and actual.get("sceneTemp") == str(expected_temp)
+            and actual.get("previewTemp") == ""
+            and actual.get("gesture") == "none"
+            and actual.get("targetCount") == 1
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("measuredTemperature") == "false"
+            and actual.get("sceneContext") == "ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1428,7 +1528,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 590
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 627
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -1470,6 +1570,12 @@ def main() -> None:
                       and "lesson-piano-source-scene-piano-api-never-mutates-host-controls-electrical-graph-progress-or-avr" in
                           scene_lifecycle_names
                       and "lesson-piano-raycast-default-view-rays-hit-all-seven-exact-key-centers" in
+                          scene_lifecycle_names
+                      and "lesson-temperature-source-pointercancel-and-lostcapture-share-temperature-noncommit-finish-path" in
+                          scene_lifecycle_names
+                      and "lesson-temperature-source-scene-temperature-api-never-mutates-host-controls-electrical-graph-progress-storage-or-avr" in
+                          scene_lifecycle_names
+                      and "lesson-temperature-raycast-default-view-temperature-heat-source-center-hits-exact-target" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
@@ -10994,6 +11100,764 @@ def main() -> None:
                               ldr_progress_storage)
                 finally:
                     ldr_context.close()
+
+                # Lesson11 LM35: one tagged conceptual heat-level handle is an
+                # optional 3D pointer surface for the existing native 0..60 °C
+                # range. Real browser input may preview the setpoint in Three.js,
+                # but only release may request the host-owned native control path.
+                temperature_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    temperature_page=temperature_context.new_page()
+                    capture_console(temperature_page)
+                    temperature_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(temperature_page)
+                    temperature_page.locator('.lesson-link[data-lesson="11"]').click()
+                    temperature_canvas=temperature_page.locator("#sceneMount canvas")
+                    temperature_slider=temperature_page.locator("#control-temp")
+                    temperature_progress=temperature_page.locator("#progressText").inner_text()
+                    temperature_progress_storage=temperature_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    temperature_complete_visible=temperature_page.locator(
+                        "#completeButton").is_visible()
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-temp')?.value==='25'
+                          &&canvas?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureTargetCount==='1';
+                    }""",timeout=5000)
+                    temperature_initial=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_initial_pixel=lesson11_scene_temperature_pixel(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-native-range-and-tagged-heat-handle-ready",
+                          lesson11_temperature_state_agrees(temperature_initial,25)
+                          and temperature_initial_pixel["insideFrustum"]
+                          and temperature_initial_pixel["insideCanvas"]
+                          and temperature_initial_pixel["onScreen"]
+                          and temperature_initial_pixel["canvasUncovered"]
+                          and "không phải nhiệt độ lm35 thực" in
+                              temperature_initial["canvasLabel"].lower(),
+                          json.dumps({"state":temperature_initial,
+                                      "pixel":temperature_initial_pixel},ensure_ascii=False))
+
+                    # Native range remains the complete keyboard fallback and
+                    # reaches both authored bounds without any canvas shortcut.
+                    temperature_slider.focus()
+                    temperature_slider.press("Home")
+                    temperature_home=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_slider.press("End")
+                    temperature_end=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-native-keyboard-home-end-cover-zero-to-60",
+                          lesson11_temperature_state_agrees(temperature_home,0)
+                          and temperature_home["focused"] is True
+                          and lesson11_temperature_state_agrees(temperature_end,60)
+                          and temperature_end["focused"] is True
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+                    temperature_page.locator("#resetButton").click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#control-temp')?.value==='25'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureTemp==='25'
+                    """,timeout=3000)
+
+                    # A genuine no-move click owns and releases the target but is
+                    # below the drag threshold, so it cannot fabricate a change.
+                    tap_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(tap_pixel["x"],tap_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_tap_pressed=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.mouse.up()
+                    temperature_tap_after=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-mouse-click-is-noop",
+                          temperature_tap_pressed["gesture"]=="grabbed"
+                          and temperature_tap_pressed["previewTemp"]==""
+                          and temperature_tap_pressed["value"]==25
+                          and lesson11_temperature_state_agrees(
+                              temperature_tap_after,25))
+
+                    # Prime runtime contract: 50 CSS px RIGHT from 25 previews
+                    # 35 °C. The native #control-temp remains 25 until release.
+                    mouse_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(mouse_pixel["x"],mouse_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_mouse_grab=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-mouse-down-grabs-without-preview-or-host-write",
+                          temperature_mouse_grab["gesture"]=="grabbed"
+                          and temperature_mouse_grab["previewTemp"]==""
+                          and temperature_mouse_grab["value"]==25
+                          and temperature_mouse_grab["sceneTemp"]=="25")
+                    temperature_page.mouse.move(
+                        mouse_pixel["x"]+50,mouse_pixel["y"],steps=8)
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonTemperatureGesture==='dragging'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='35';
+                    }""",timeout=3000)
+                    temperature_mouse_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-mouse-drag-right-previews-35-without-host-commit",
+                          temperature_mouse_preview["value"]==25
+                          and temperature_mouse_preview["sceneTemp"]=="25"
+                          and temperature_mouse_preview["previewTemp"]=="35"
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+                    temperature_page.mouse.up()
+                    temperature_page.wait_for_function("""() => {
+                        const input=document.querySelector('#control-temp');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value==='35'
+                          &&canvas?.dataset.lessonTemperatureTemp==='35'
+                          &&canvas.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='';
+                    }""",timeout=3000)
+                    temperature_mouse_commit=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-mouse-release-commits-35-through-native-range",
+                          lesson11_temperature_state_agrees(
+                              temperature_mouse_commit,35)
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+
+                    # The source-backed simulator remains the only owner of the
+                    # LM35 educational ADC/D13 model. D13 is HIGH only when the
+                    # host is running and temp > 30; pausing keeps setpoint 35.
+                    temperature_simulator=temperature_page.evaluate("""async temp => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const pin=(snapshot,name)=>
+                          snapshot.pins.find(([pinName])=>pinName===name)?.[1]??null;
+                        const stopped=simulate(11,{temp},0,false,{});
+                        const running=simulate(11,{temp},0,true,{});
+                        const threshold=simulate(11,{temp:30},0,true,{});
+                        return Object.freeze({
+                          stoppedD13:pin(stopped,'D13'),runningD13:pin(running,'D13'),
+                          thresholdD13:pin(threshold,'D13'),
+                          stoppedA0:pin(stopped,'A0'),runningA0:pin(running,'A0'),
+                          stoppedLed:stopped.led,runningLed:running.led,
+                          thresholdLed:threshold.led,
+                          runningValue:running.value,runningStatus:running.status,
+                        });
+                    }""",35)
+                    temperature_run_button=temperature_page.locator("#runButton")
+                    temperature_run_button.click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-temp')?.value==='35'
+                    """,timeout=3000)
+                    temperature_running_ui=temperature_page.locator(
+                        "#simOutput").inner_text()
+                    temperature_run_button.click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-temp')?.value==='35'
+                    """,timeout=3000)
+                    check("post-v16-lesson11-temperature-simulator-d13-is-running-and-above-30-only",
+                          temperature_simulator["stoppedD13"]=="LOW"
+                          and temperature_simulator["runningD13"]=="HIGH"
+                          and temperature_simulator["thresholdD13"]=="LOW"
+                          and temperature_simulator["stoppedA0"]=="72"
+                          and temperature_simulator["runningA0"]=="72"
+                          and temperature_simulator["stoppedLed"] is False
+                          and temperature_simulator["runningLed"] is True
+                          and temperature_simulator["thresholdLed"] is False
+                          and temperature_running_ui==
+                              f"{temperature_simulator['runningValue']} · "
+                              f"{temperature_simulator['runningStatus']}"
+                          and lesson11_temperature_state_agrees(
+                              lesson11_temperature_acceptance_state(temperature_page),35))
+
+                    # A value-changing native action supersedes a held scene
+                    # preview. Late mouseup must not overwrite the native 60 °C.
+                    temperature_page.locator("#resetButton").click()
+                    temperature_page.wait_for_function(
+                        "() => document.querySelector('#control-temp')?.value==='25'",
+                        timeout=3000)
+                    supersede_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(
+                        supersede_pixel["x"],supersede_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        supersede_pixel["x"]+50,supersede_pixel["y"],steps=5)
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_supersede_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_slider.focus()
+                    temperature_slider.press("End")
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-temp')?.value==='60'
+                          &&canvas?.dataset.lessonTemperatureTemp==='60'
+                          &&canvas.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='';
+                    }""",timeout=3000)
+                    temperature_page.mouse.up()
+                    temperature_supersede_after=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-native-value-change-revokes-stale-mouse-preview",
+                          temperature_supersede_preview["value"]==25
+                          and temperature_supersede_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_supersede_after,60))
+                    temperature_page.locator("#resetButton").click()
+                    temperature_page.wait_for_function(
+                        "() => document.querySelector('#control-temp')?.value==='25'",
+                        timeout=3000)
+
+                    # Run/Pause keyboard activation is another host lifecycle
+                    # transition: it cancels held preview before changing run state.
+                    run_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(run_pixel["x"],run_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        run_pixel["x"]+50,run_pixel["y"],steps=4)
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_run_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_run_button=temperature_page.locator("#runButton")
+                    temperature_run_button.focus()
+                    temperature_page.keyboard.press("Enter")
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-temp')?.value==='25'
+                          &&canvas?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='';
+                    }""",timeout=3000)
+                    temperature_run_state=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.keyboard.press("Enter")
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-temp')?.value==='25'
+                    """,timeout=3000)
+                    temperature_page.mouse.up()
+                    temperature_late_run_up=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          temperature_run_preview["value"]==25
+                          and temperature_run_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_run_state,25)
+                          and lesson11_temperature_state_agrees(
+                              temperature_late_run_up,25)
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+
+                    temperature_input=temperature_context.new_cdp_session(
+                        temperature_page)
+
+                    # Genuine Chrome touch preview followed by touchCancel maps
+                    # onto pointercancel and must discard the preview, not commit.
+                    touch_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    touch_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":121,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_cancel_move={
+                        **touch_start,
+                        "x":touch_pixel["x"]+50,"y":touch_pixel["y"],
+                    }
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_cancel_move],
+                    })
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_touch_cancel_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='';
+                    }""",timeout=3000)
+                    temperature_touch_cancel=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-touchcancel-discards-preview-without-commit",
+                          temperature_touch_cancel_preview["value"]==25
+                          and temperature_touch_cancel_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_touch_cancel,25))
+
+                    # Genuine touch drags left far enough to clamp 25→0. Pointer
+                    # capture owns the gesture; the endpoint stays in the viewport.
+                    touch_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    if touch_pixel["x"]-130<8:
+                        raise AssertionError(
+                            "Lesson11 heat handle lacks 130px leftward viewport room")
+                    touch_low_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":122,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={
+                        **touch_low_start,
+                        "x":touch_pixel["x"]-130,"y":touch_pixel["y"],
+                    }
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low_start],
+                    })
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='0'
+                    """,timeout=3000)
+                    temperature_touch_low_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#control-temp')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureGesture==='none'
+                    """,timeout=3000)
+                    temperature_touch_low=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-touch-drag-left-clamps-and-commits-zero",
+                          temperature_touch_low_preview["value"]==25
+                          and temperature_touch_low_preview["previewTemp"]=="0"
+                          and lesson11_temperature_state_agrees(
+                              temperature_touch_low,0))
+                    temperature_page.locator("#resetButton").click()
+                    temperature_page.wait_for_function(
+                        "() => document.querySelector('#control-temp')?.value==='25'",
+                        timeout=3000)
+
+                    # Genuine Chrome pen input covers the upper 60 °C clamp.
+                    pen_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    if pen_pixel["x"]+180>1272:
+                        raise AssertionError(
+                            "Lesson11 heat handle lacks 180px rightward viewport room")
+                    temperature_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    temperature_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    temperature_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"]+180,"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"pointerType":"pen",
+                    })
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='60'
+                    """,timeout=3000)
+                    temperature_pen_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"]+180,"y":pen_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#control-temp')?.value==='60'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureGesture==='none'
+                    """,timeout=3000)
+                    temperature_pen_commit=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-pen-drag-right-clamps-and-commits-60",
+                          temperature_pen_preview["value"]==25
+                          and temperature_pen_preview["previewTemp"]=="60"
+                          and lesson11_temperature_state_agrees(
+                              temperature_pen_commit,60))
+                    temperature_page.locator("#resetButton").click()
+                    temperature_page.wait_for_function(
+                        "() => document.querySelector('#control-temp')?.value==='25'",
+                        timeout=3000)
+
+                    # Native lostpointercapture is a non-commit cancel path.
+                    temperature_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2ETemperaturePointerId=null;
+                        window.__arduinoE2ETemperatureGotCaptureId=null;
+                        window.__arduinoE2ETemperatureLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2ETemperaturePointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2ETemperatureGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2ETemperatureLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        lost_pixel["x"]+50,lost_pixel["y"],steps=4)
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ETemperaturePointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2ETemperatureGotCaptureId===id
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='35';
+                    }""",timeout=3000)
+                    temperature_lost_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ETemperaturePointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson11 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    temperature_page.mouse.move(
+                        lost_pixel["x"]+50.5,lost_pixel["y"]+.5)
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp===''
+                          &&window.__arduinoE2ETemperatureLostCaptureId===
+                             window.__arduinoE2ETemperaturePointerId;
+                    }""",timeout=3000)
+                    temperature_page.mouse.up()
+                    temperature_lost_after=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-native-lostcapture-discards-preview-without-commit",
+                          temperature_lost_preview["value"]==25
+                          and temperature_lost_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_lost_after,25))
+
+                    # A real tab switch may deliver visibilitychange, blur, or
+                    # neither in a headless build. Observe browser capability and
+                    # require safe cancellation whenever the browser reports it.
+                    temperature_page.evaluate("""() => {
+                        window.__arduinoE2ETemperatureBlurCount=0;
+                        window.__arduinoE2ETemperatureFocusCount=0;
+                        window.addEventListener('blur',()=>{
+                          window.__arduinoE2ETemperatureBlurCount+=1;
+                        });
+                        window.addEventListener('focus',()=>{
+                          window.__arduinoE2ETemperatureFocusCount+=1;
+                        });
+                    }""")
+                    visibility_peer=temperature_context.new_page()
+                    visibility_peer.goto("about:blank")
+                    temperature_page.bring_to_front()
+                    temperature_page.wait_for_function(
+                        "() => document.hidden===false",timeout=3000)
+                    visibility_pixel=lesson11_scene_temperature_pixel(
+                        temperature_page)
+                    temperature_page.mouse.move(
+                        visibility_pixel["x"],visibility_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        visibility_pixel["x"]+50,visibility_pixel["y"],steps=4)
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_visibility_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    visibility_peer.bring_to_front()
+                    temperature_background_capability=temperature_page.evaluate("""() => ({
+                        hidden:document.hidden===true,
+                        blurCount:window.__arduinoE2ETemperatureBlurCount||0,
+                    })""")
+                    if temperature_background_capability["hidden"]:
+                        temperature_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='off'
+                        """,polling=100,timeout=5000)
+                    elif temperature_background_capability["blurCount"]>0:
+                        temperature_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='off'
+                        """,polling=100,timeout=5000)
+                    temperature_background_state=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.bring_to_front()
+                    if (not temperature_background_capability["hidden"] and
+                            temperature_background_capability["blurCount"]==0 and
+                            temperature_background_state["gesture"]!="none"):
+                        temperature_page.locator("#resetButton").focus()
+                        temperature_page.keyboard.press("Enter")
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.hidden===false
+                          &&document.querySelector('#control-temp')?.value==='25'
+                          &&canvas?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureGesture==='none'
+                          &&canvas.dataset.lessonTemperaturePreviewTemp==='';
+                    }""",timeout=5000)
+                    temperature_page.mouse.up()
+                    temperature_visibility_after=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_focus_count=temperature_page.evaluate(
+                        "window.__arduinoE2ETemperatureFocusCount||0")
+                    visibility_peer.close()
+                    check("post-v16-lesson11-temperature-real-tab-switch-respects-visibility-blur-and-cancels-safely",
+                          temperature_visibility_preview["value"]==25
+                          and temperature_visibility_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_visibility_after,25)
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress,
+                          json.dumps({
+                              **temperature_background_capability,
+                              "focusCount":temperature_focus_count,
+                              "backgroundMode":temperature_background_state["mode"],
+                              "backgroundGesture":temperature_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL loss revokes a held preview. Restore may only
+                    # re-arm the exact current native 25 °C host setpoint.
+                    loss_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        loss_pixel["x"]+50,loss_pixel["y"],steps=4)
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_pre_loss=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2ETemperatureGL=gl;
+                        window.__arduinoE2ETemperatureLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ETemperatureGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonTemperatureMode==='off'
+                          &&canvas.dataset.lessonTemperatureGesture==='none';
+                    }""",timeout=10000)
+                    temperature_lost_context=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-webgl-loss-revokes-preview-without-host-write",
+                          temperature_pre_loss["value"]==25
+                          and temperature_pre_loss["previewTemp"]=="35"
+                          and temperature_lost_context["mode"]=="off"
+                          and temperature_lost_context["gesture"]=="none"
+                          and temperature_lost_context["previewTemp"]==""
+                          and temperature_lost_context["value"]==25
+                          and temperature_lost_context["measuredTemperature"]=="false"
+                          and temperature_lost_context["canvasBusy"]=="true")
+                    temperature_page.mouse.up()
+                    temperature_page.wait_for_timeout(500)
+                    temperature_page.evaluate(
+                        "window.__arduinoE2ETemperatureLoseExtension.restoreContext()")
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ETemperatureGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureGesture==='none';
+                    }""",timeout=10000)
+                    temperature_restored=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-webgl-restore-rearms-current-native-temp-only",
+                          lesson11_temperature_state_agrees(
+                              temperature_restored,25)
+                          and temperature_restored["canvasBusy"] is None)
+
+                    # Stage roundtrip revokes scene authority outside 3D and
+                    # re-arms only the current host value on return.
+                    temperature_page.locator("#stageTabWiring").click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='off'
+                    """,timeout=3000)
+                    temperature_stage_off=temperature_canvas.get_attribute(
+                        "data-lesson-temperature-mode")
+                    temperature_page.locator("#stageTab3d").click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureTemp==='25'
+                    """,timeout=3000)
+                    check("post-v16-lesson11-temperature-stage-roundtrip-revokes-and-rearms-current-native-temp",
+                          temperature_stage_off=="off"
+                          and lesson11_temperature_state_agrees(
+                              lesson11_temperature_acceptance_state(
+                                  temperature_page),25))
+
+                    # Lab edit mounts a conceptual layout and hides the legacy
+                    # target. Exiting edit clears that layout and re-arms it.
+                    temperature_page.locator("#labEditToggle").click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='off'
+                    """,timeout=5000)
+                    temperature_edit_off=temperature_canvas.get_attribute(
+                        "data-lesson-temperature-mode")
+                    temperature_page.locator("#labEditToggle").click()
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonTemperatureTemp==='25'
+                    """,timeout=5000)
+                    check("post-v16-lesson11-temperature-lab-edit-layout-roundtrip-revokes-and-rearms-current-temp",
+                          temperature_edit_off=="off"
+                          and lesson11_temperature_state_agrees(
+                              lesson11_temperature_acceptance_state(
+                                  temperature_page),25))
+
+                    # Exact lesson ownership removes both target and native input.
+                    temperature_page.locator('.lesson-link[data-lesson="10"]').click()
+                    check("post-v16-lesson11-temperature-lesson-switch-revokes-old-heat-handle-authority",
+                          temperature_canvas.get_attribute(
+                              "data-lesson-temperature-mode")=="off"
+                          and temperature_canvas.get_attribute(
+                              "data-lesson-temperature-target-count")=="0"
+                          and temperature_page.locator("#control-temp").count()==0
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+                    temperature_page.locator('.lesson-link[data-lesson="11"]').click()
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-temp')?.value==='25'
+                          &&canvas?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureTargetCount==='1';
+                    }""",timeout=5000)
+                    check("post-v16-lesson11-temperature-return-restores-authored-25-default",
+                          lesson11_temperature_state_agrees(
+                              lesson11_temperature_acceptance_state(
+                                  temperature_page),25)
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress)
+
+                    # Native range stays accessible at the 375px learner width.
+                    temperature_page.set_viewport_size({"width":375,"height":812})
+                    temperature_slider=temperature_page.locator("#control-temp")
+                    temperature_slider.scroll_into_view_if_needed()
+                    temperature_mobile_rect=temperature_slider.bounding_box()
+                    temperature_slider.focus()
+                    temperature_mobile=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          temperature_mobile_rect is not None
+                          and temperature_mobile_rect["width"]>=44
+                          and temperature_mobile_rect["height"]>=44
+                          and temperature_mobile["focused"] is True
+                          and temperature_mobile["labelCount"]==1
+                          and temperature_mobile["labelFor"]=="control-temp"
+                          and "Nhiệt độ" in temperature_mobile["label"]
+                          and temperature_page.get_by_role(
+                              "slider",name="Nhiệt độ").count()==1
+                          and temperature_mobile["measuredTemperature"]=="false"
+                          and temperature_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+                    temperature_page.set_viewport_size({"width":1280,"height":820})
+                    temperature_page.wait_for_function(
+                        "() => innerWidth===1280",timeout=3000)
+
+                    # Reload exercises beforeunload + scene disposal while a real
+                    # drag is held. Reloaded Lesson11 starts from authored 25.
+                    dispose_pixel=lesson11_scene_temperature_pixel(temperature_page)
+                    temperature_page.mouse.move(
+                        dispose_pixel["x"],dispose_pixel["y"])
+                    temperature_page.mouse.down()
+                    temperature_page.mouse.move(
+                        dispose_pixel["x"]+50,dispose_pixel["y"],steps=4)
+                    temperature_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonTemperaturePreviewTemp==='35'
+                    """,timeout=3000)
+                    temperature_dispose_preview=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    temperature_page.reload(
+                        wait_until="domcontentloaded",timeout=20000)
+                    ready(temperature_page)
+                    temperature_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-temp')?.value==='25'
+                          &&canvas?.dataset.lessonTemperatureMode==='pointer-slide'
+                          &&canvas.dataset.lessonTemperatureTemp==='25'
+                          &&canvas.dataset.lessonTemperatureGesture==='none';
+                    }""",timeout=5000)
+                    temperature_page.mouse.up()
+                    temperature_after_dispose=lesson11_temperature_acceptance_state(
+                        temperature_page)
+                    check("post-v16-lesson11-temperature-real-reload-disposes-held-gesture-without-stale-replay",
+                          temperature_dispose_preview["value"]==25
+                          and temperature_dispose_preview["previewTemp"]=="35"
+                          and lesson11_temperature_state_agrees(
+                              temperature_after_dispose,25)
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress
+                          and temperature_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              temperature_progress_storage)
+
+                    # This milestone must preserve the authored curriculum shape.
+                    temperature_curriculum=temperature_page.evaluate("""async () => {
+                        const [{lessons},{listPracticeCheckpoints}]=await Promise.all([
+                          import('./src/lessons.js'),import('./src/practice-checkpoints.js')
+                        ]);
+                        return Object.freeze({
+                          lessons:lessons.length,
+                          checkpoints:lessons.reduce(
+                            (total,lesson)=>total+listPracticeCheckpoints(lesson).length,0),
+                          ids:lessons.map(lesson=>lesson.id),
+                        });
+                    }""")
+                    check("post-v16-lesson11-temperature-preserves-16-lessons-and-48-authored-checkpoints",
+                          temperature_curriculum["lessons"]==16
+                          and temperature_curriculum["checkpoints"]==48
+                          and temperature_curriculum["ids"]==list(range(1,17))
+                          and temperature_page.locator(".lesson-link").count()==16)
+
+                    # Temperature input is simulation-only: no learner edge or
+                    # history, mastery/progress write, AVR evidence, or measured
+                    # physical-temperature claim may result from the 3D handle.
+                    temperature_page.locator("#stageTabWiring").click()
+                    temperature_undo=temperature_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    temperature_redo=temperature_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson11-temperature-no-electrical-graph-history-mastery-progress-avr-or-measurement-write",
+                          temperature_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and temperature_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and temperature_page.locator(
+                              ".wire-activate").get_attribute(
+                                  "aria-pressed")=="false"
+                          and temperature_undo.count()==1
+                          and temperature_undo.is_disabled()
+                          and temperature_redo.count()==1
+                          and temperature_redo.is_disabled()
+                          and temperature_canvas.get_attribute(
+                              "data-lesson-temperature-mode")=="off"
+                          and temperature_canvas.get_attribute(
+                              "data-lesson-temperature-measured-temperature")=="false"
+                          and temperature_page.locator(
+                              "#progressText").inner_text()==temperature_progress
+                          and temperature_page.locator(
+                              "#completeButton").is_visible()==
+                              temperature_complete_visible
+                          and temperature_page.locator("#avrMetrics").is_hidden()
+                          and temperature_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              temperature_progress_storage)
+                finally:
+                    temperature_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

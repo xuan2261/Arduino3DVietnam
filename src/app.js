@@ -91,6 +91,9 @@ const state = {
   // The Lesson06 lamp handle proposes only the already-authored A0 ADC index.
   // The native HTML slider remains the input authority, never measured lux.
   sceneLdrActuation: null,
+  // Lesson11 heat-level handle proposes only the native LM35 lesson setpoint.
+  // The source never measures a physical temperature or voltage.
+  sceneTemperatureActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -892,6 +895,7 @@ function closeReadOnlyGuideMode(){
   syncSceneLessonFsrActuation();
   syncSceneLessonUltrasonicActuation();
   syncSceneLessonLdrActuation();
+  syncSceneLessonTemperatureActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1626,6 +1630,7 @@ function renderStage() {
   syncSceneLessonFsrActuation();
   syncSceneLessonUltrasonicActuation();
   syncSceneLessonLdrActuation();
+  syncSceneLessonTemperatureActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1677,6 +1682,8 @@ function renderControls(){
       ?"Kéo vật cản 3D sang phải để tăng hoặc sang trái để giảm khoảng cách giả lập 2–400 cm; chỉ xem trước khi kéo, thả mới cập nhật thanh trượt HTML. Dùng phím mũi tên/Home/End trên thanh trượt để thao tác bằng bàn phím. Vị trí hình học, Echo và cảnh báo đều khái niệm; không đo khoảng cách, thời gian xung hay điện áp HC-SR04 thật."
     :lesson.id===6
       ?"Kéo nguồn sáng 3D sang phải để giảm và sang trái để tăng mức ánh sáng giả lập A0 (5 ADC mỗi pixel); kéo chỉ xem trước, thả mới cập nhật thanh trượt HTML 0–1023. Bàn phím dùng phím mũi tên/Home/End trên thanh trượt. Vị trí, độ rọi, điện áp và điện trở đều khái niệm, không phải phép đo LDR thực."
+    :lesson.id===11
+      ?"Kéo tay điều chỉnh mức nhiệt 3D sang phải để tăng hoặc sang trái để giảm nhiệt độ mô phỏng LM35 (1 °C mỗi 5 pixel). Trong lúc kéo chỉ xem trước, thả mới ghi vào thanh trượt HTML 0–60 °C. Dùng bàn phím trên thanh trượt để điều chỉnh tương đương. Đây không phải nhiệt độ, điện áp hay tín hiệu cảm biến được đo thực tế."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1850,6 +1857,8 @@ function startPause(){
   if(rearmUltrasonic)revokeSceneLessonUltrasonicActuation();
   const rearmLdr=state.lessonId===6;
   if(rearmLdr)revokeSceneLessonLdrActuation();
+  const rearmTemperature=state.lessonId===11;
+  if(rearmTemperature)revokeSceneLessonTemperatureActuation();
   try{
     if(state.running) {
       stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
@@ -1884,6 +1893,7 @@ function startPause(){
     if(rearmFsr)syncSceneLessonFsrActuation();
     if(rearmUltrasonic)syncSceneLessonUltrasonicActuation();
     if(rearmLdr)syncSceneLessonLdrActuation();
+    if(rearmTemperature)syncSceneLessonTemperatureActuation();
   }
 }
 function resetSimulation() {
@@ -1894,6 +1904,7 @@ function resetSimulation() {
   revokeSceneLessonFsrActuation();
   revokeSceneLessonUltrasonicActuation();
   revokeSceneLessonLdrActuation();
+  revokeSceneLessonTemperatureActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
@@ -1904,6 +1915,7 @@ function resetSimulation() {
   syncSceneLessonFsrActuation();
   syncSceneLessonUltrasonicActuation();
   syncSceneLessonLdrActuation();
+  syncSceneLessonTemperatureActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
@@ -1915,6 +1927,7 @@ function setLesson(id,replaceHash=true){
   revokeSceneLessonFsrActuation();
   revokeSceneLessonUltrasonicActuation();
   revokeSceneLessonLdrActuation();
+  revokeSceneLessonTemperatureActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -1966,6 +1979,11 @@ function onControlsInput(event){
     // An actual native input/change invalidates any held 3D light proposal.
     revokeSceneLessonLdrActuation();
   }
+  if(key==="temp"&&state.lessonId===11&&config.type==="slider"&&
+     event.source!=="scene"){
+    // Real native range events supersede a held 3D setpoint preview.
+    revokeSceneLessonTemperatureActuation();
+  }
   const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
@@ -1995,6 +2013,9 @@ function onControlsInput(event){
   }
   if(key==="light"&&state.lessonId===6&&config.type==="slider"){
     syncSceneLessonLdrActuation();
+  }
+  if(key==="temp"&&state.lessonId===11&&config.type==="slider"){
+    syncSceneLessonTemperatureActuation();
   }
 }
 function setButtonPress(pressed){
@@ -2497,6 +2518,75 @@ function syncSceneLessonLdrActuation(){
     }
   }catch{revokeSceneLessonLdrActuation();}
 }
+function revokeSceneLessonTemperatureActuation(){
+  const binding=state.sceneTemperatureActuation;
+  if(binding)binding.active=false;
+  state.sceneTemperatureActuation=null;
+  try{state.scene?.setLessonTemperatureActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonTemperatureActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonTemperatureActuation)return;
+  const config=currentLesson()?.controls?.find(item=>item.key==="temp");
+  const temp=state.controls.temp;
+  const slider=$("control-temp");
+  const supported=state.lessonId===11&&config?.type==="slider"&&
+    config.min===0&&config.max===60&&config.step===1&&
+    Number.isInteger(temp)&&temp>=0&&temp<=60&&
+    slider?.tagName==="INPUT"&&slider.type==="range"&&
+    slider.dataset.control==="temp"&&
+    slider.min==="0"&&slider.max==="60"&&slider.step==="1"&&
+    !slider.disabled&&slider.isConnected;
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonTemperatureActuation();
+    return;
+  }
+  let binding=state.sceneTemperatureActuation;
+  if(!binding||!binding.active||binding.lessonId!==11){
+    binding={active:true,lessonId:11,onTempChange:null};
+    binding.onTempChange=(proposed,meta)=>{
+      if(binding!==state.sceneTemperatureActuation||!binding.active||
+         state.lessonId!==11||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<0||proposed>60||
+         !meta||!Object.isFrozen(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const values=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        values[field]=descriptor.value;
+      }
+      if(values.lessonId!==11||values.source!=="pointer"||
+         !["mouse","touch","pen"].includes(values.pointerType)||
+         values.phase!=="change"||values.physicalVerified!==false)return false;
+      const native=$("control-temp");
+      if(native!==slider||native?.tagName!=="INPUT"||native.type!=="range"||
+         native.dataset.control!=="temp"||native.min!=="0"||
+         native.max!=="60"||native.step!=="1"||
+         native.disabled||!native.isConnected)return false;
+      // The handle cannot generate LM35 temperature measurements or edges.
+      // The existing native range remains the sole lesson-control authority.
+      native.value=String(proposed);
+      onControlsInput({target:native,type:"change",source:"scene"});
+      return true;
+    };
+    state.sceneTemperatureActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonTemperatureActuation({
+      enabled:true,lessonId:11,temp,onTempChange:binding.onTempChange,
+    });
+    if(receipt?.active!==true||receipt?.targetCount!==1||
+       receipt?.physicalVerified!==false||receipt?.electricalAuthority!==false||
+       receipt?.measuredTemperature!==false){
+      revokeSceneLessonTemperatureActuation();
+    }
+  }catch{revokeSceneLessonTemperatureActuation();}
+}
 function playNote(hz){
   if(!state.running||!hz)return;
   try{
@@ -2827,6 +2917,7 @@ function wireEvents(){
       revokeSceneLessonFsrActuation();
       revokeSceneLessonUltrasonicActuation();
       revokeSceneLessonLdrActuation();
+      revokeSceneLessonTemperatureActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
@@ -2836,6 +2927,7 @@ function wireEvents(){
       syncSceneLessonFsrActuation();
       syncSceneLessonUltrasonicActuation();
       syncSceneLessonLdrActuation();
+      syncSceneLessonTemperatureActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -2848,6 +2940,7 @@ function wireEvents(){
     revokeSceneLessonFsrActuation();
     revokeSceneLessonUltrasonicActuation();
     revokeSceneLessonLdrActuation();
+    revokeSceneLessonTemperatureActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
@@ -2857,12 +2950,14 @@ function wireEvents(){
     syncSceneLessonFsrActuation();
     syncSceneLessonUltrasonicActuation();
     syncSceneLessonLdrActuation();
+    syncSceneLessonTemperatureActuation();
   });
   window.addEventListener("beforeunload",()=>{
     revokeSceneLessonServoActuation();
     revokeSceneLessonFsrActuation();
     revokeSceneLessonUltrasonicActuation();
     revokeSceneLessonLdrActuation();
+    revokeSceneLessonTemperatureActuation();
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
     state.resistiveUI?.dispose();
@@ -2897,6 +2992,7 @@ async function init(){
       syncSceneLessonFsrActuation();
       syncSceneLessonUltrasonicActuation();
       syncSceneLessonLdrActuation();
+      syncSceneLessonTemperatureActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -2911,6 +3007,7 @@ async function init(){
       syncSceneLessonFsrActuation();
       syncSceneLessonUltrasonicActuation();
       syncSceneLessonLdrActuation();
+      syncSceneLessonTemperatureActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -2938,6 +3035,7 @@ async function init(){
       syncSceneLessonFsrActuation();
       syncSceneLessonUltrasonicActuation();
       syncSceneLessonLdrActuation();
+      syncSceneLessonTemperatureActuation();
     },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
@@ -3044,6 +3142,7 @@ async function init(){
       revokeSceneLessonFsrActuation();
       revokeSceneLessonUltrasonicActuation();
       revokeSceneLessonLdrActuation();
+      revokeSceneLessonTemperatureActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -3068,6 +3167,7 @@ async function init(){
       syncSceneLessonFsrActuation();
       syncSceneLessonUltrasonicActuation();
       syncSceneLessonLdrActuation();
+      syncSceneLessonTemperatureActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -3086,6 +3186,7 @@ async function init(){
     syncSceneLessonFsrActuation();
     syncSceneLessonUltrasonicActuation();
     syncSceneLessonLdrActuation();
+    syncSceneLessonTemperatureActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){
