@@ -627,6 +627,104 @@ def main() -> None:
             and actual.get("sceneContext") == "ready"
         )
 
+    def lesson15_scene_fsr_pixel(page):
+        """Project the authored Lesson15 FSR pad center for real pointer QA.
+
+        This duplicates only the public conceptual module transform and current
+        dataset-driven compression cue. Production Three.js raycasting remains
+        the authority for whether a real mouse/touch/pen press owns the pad.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async () => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson15 3D canvas missing');
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const preview=canvas.dataset.lessonFsrPreviewValue;
+            const host=canvas.dataset.lessonFsrValue;
+            const value=Number(preview!==''?preview:host);
+            const bounded=Number.isInteger(value)?Math.max(0,Math.min(1023,value)):0;
+            const visualScale=1-bounded/1023*.20;
+            const localY=.45-.11*(1-visualScale);
+            const point=new T.Vector3(5.15,.55+localY,.10);
+            const projected=point.project(camera);
+            const x=rect.left+(projected.x+1)*rect.width/2;
+            const y=rect.top+(1-projected.y)*rect.height/2;
+            return Object.freeze({
+              x,y,
+              insideFrustum:projected.z>=-1&&projected.z<=1,
+              insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+              onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""")
+
+    def lesson15_fsr_acceptance_state(page):
+        """Read native Lesson15 range plus public FSR scene diagnostics only."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-force');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson15 canonical FSR UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),
+              min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',
+              output:output?.textContent||'',
+              label:label?.textContent||'',
+              labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonFsrMode||'',
+              sceneValue:canvas.dataset.lessonFsrValue||'',
+              previewValue:canvas.dataset.lessonFsrPreviewValue||'',
+              gesture:canvas.dataset.lessonFsrGesture||'',
+              padCount:Number(canvas.dataset.lessonFsrPadCount||0),
+              physicalVerified:canvas.dataset.lessonFsrPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonFsrElectricalAuthority||'',
+              calibratedForce:canvas.dataset.lessonFsrCalibratedForce||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson15_fsr_state_agrees(actual: dict[str, object], expected_value: int) -> bool:
+        return (
+            0 <= expected_value <= 1023
+            and actual.get("value") == expected_value
+            and actual.get("min") == "0"
+            and actual.get("max") == "1023"
+            and actual.get("step") == "1"
+            and actual.get("control") == "force"
+            and actual.get("output") == f"{expected_value} ADC"
+            and actual.get("labelFor") == "control-force"
+            and actual.get("labelCount") == 1
+            and "Chỉ số FSR" in str(actual.get("label"))
+            and actual.get("mode") == "pointer-press"
+            and actual.get("sceneValue") == str(expected_value)
+            and actual.get("previewValue") == ""
+            and actual.get("gesture") == "none"
+            and actual.get("padCount") == 1
+            and actual.get("physicalVerified") == "false"
+            and actual.get("electricalAuthority") == "false"
+            and actual.get("calibratedForce") == "false"
+            and actual.get("sceneContext") == "ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1130,7 +1228,13 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 481
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 516
+                      and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
+                          scene_lifecycle_names
+                      and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
+                          scene_lifecycle_names
+                      and "lesson-fsr-raycast-default-view-fsr-pad-center-hits-exact-pad" in
+                          scene_lifecycle_names
                       and "lesson-pot-source-pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners" in
                           scene_lifecycle_names
                       and "lesson-pot-source-pointerup-folds-final-pot-delta-before-clearing-and-stops-if-callback-revokes" in
@@ -8673,6 +8777,620 @@ def main() -> None:
                               "localStorage.getItem('arduino-3d-viet-progress-v1')")==servo_progress_storage)
                 finally:
                     servo_context.close()
+
+                # Lesson15 FSR: one tagged 3D pad is an optional pointer input
+                # surface for the existing native 0..1023 range. Browser input
+                # may preview conceptual ADC pressure, but only a successful
+                # release may commit through the host-owned range path.
+                fsr_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    fsr_page=fsr_context.new_page()
+                    capture_console(fsr_page)
+                    fsr_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(fsr_page)
+                    fsr_page.locator('.lesson-link[data-lesson="15"]').click()
+                    fsr_canvas=fsr_page.locator("#sceneMount canvas")
+                    fsr_slider=fsr_page.locator("#control-force")
+                    fsr_progress=fsr_page.locator("#progressText").inner_text()
+                    fsr_progress_storage=fsr_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    fsr_complete_visible=fsr_page.locator("#completeButton").is_visible()
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-force')?.value==='300'
+                          &&canvas?.dataset.lessonFsrMode==='pointer-press'
+                          &&canvas.dataset.lessonFsrValue==='300'
+                          &&canvas.dataset.lessonFsrPadCount==='1';
+                    }""",timeout=5000)
+                    fsr_initial=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_initial_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    check("post-v16-lesson15-fsr-native-range-and-tagged-scene-pad-ready",
+                          lesson15_fsr_state_agrees(fsr_initial,300)
+                          and fsr_initial_pixel["insideFrustum"]
+                          and fsr_initial_pixel["insideCanvas"]
+                          and fsr_initial_pixel["onScreen"]
+                          and fsr_initial_pixel["canvasUncovered"]
+                          and "Đĩa FSR 3D bài 15" in fsr_initial["canvasLabel"],
+                          json.dumps({"state":fsr_initial,
+                                      "pixel":fsr_initial_pixel},ensure_ascii=False))
+
+                    # Native HTML range remains the keyboard authority and keeps
+                    # the full authored 0..1023 clamp independent of canvas input.
+                    fsr_slider.focus()
+                    fsr_slider.press("Home")
+                    fsr_home=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_slider.press("End")
+                    fsr_end=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-native-keyboard-home-end-cover-0-1023",
+                          lesson15_fsr_state_agrees(fsr_home,0)
+                          and fsr_home["focused"] is True
+                          and lesson15_fsr_state_agrees(fsr_end,1023)
+                          and fsr_end["focused"] is True
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress)
+                    fsr_page.locator("#resetButton").click()
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#control-force')?.value==='300'
+                        &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrValue==='300'
+                    """,timeout=3000)
+
+                    # Genuine Playwright mouse press/drag. Pointerdown previews
+                    # +96 ADC only; dragging DOWN adds 5 ADC per CSS pixel.
+                    fsr_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_box=fsr_canvas.bounding_box()
+                    if fsr_box is None:
+                        raise AssertionError("Lesson15 FSR canvas has no browser box")
+                    mouse_down_room=fsr_box["y"]+fsr_box["height"]-12-fsr_pixel["y"]
+                    if mouse_down_room<48:
+                        raise AssertionError(
+                            f"Lesson15 FSR pad lacks 48px downward drag room: {mouse_down_room}")
+                    fsr_page.mouse.move(fsr_pixel["x"],fsr_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_mouse_pressed=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-mouse-down-previews-plus96-without-host-write",
+                          fsr_mouse_pressed["gesture"]=="pressed"
+                          and fsr_mouse_pressed["value"]==300
+                          and fsr_mouse_pressed["sceneValue"]=="300"
+                          and fsr_mouse_pressed["previewValue"]=="396")
+                    fsr_page.mouse.move(
+                        fsr_pixel["x"],fsr_pixel["y"]+48,steps=8)
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonFsrGesture==='squeezing'
+                          &&canvas.dataset.lessonFsrPreviewValue==='636';
+                    }""",timeout=3000)
+                    fsr_mouse_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-mouse-drag-down-preview-is-host-readonly",
+                          fsr_mouse_preview["value"]==300
+                          and fsr_mouse_preview["sceneValue"]=="300"
+                          and fsr_mouse_preview["previewValue"]=="636"
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress)
+                    fsr_page.mouse.up()
+                    fsr_page.wait_for_function("""expected => {
+                        const input=document.querySelector('#control-force');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value===String(expected)
+                          &&canvas?.dataset.lessonFsrValue===String(expected)
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",arg=636,timeout=3000)
+                    fsr_mouse_commit=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-mouse-release-commits-preview-through-native-range",
+                          lesson15_fsr_state_agrees(fsr_mouse_commit,636)
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress)
+
+                    # A real value-changing keyboard action must supersede an
+                    # older held 3D squeeze. Home establishes 0; End then changes
+                    # the native range to 1023 while the canvas pointer is still
+                    # held. The later mouseup cannot replay the stale preview.
+                    fsr_slider.focus()
+                    fsr_slider.press("Home")
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#control-force')?.value==='0'
+                    """,timeout=3000)
+                    stale_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(stale_pixel["x"],stale_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_page.mouse.move(stale_pixel["x"],stale_pixel["y"]+20,steps=5)
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='squeezing'
+                    """,timeout=3000)
+                    fsr_native_supersede_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_slider.focus()
+                    fsr_slider.press("End")
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-force')?.value==='1023'
+                          &&canvas?.dataset.lessonFsrValue==='1023'
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_page.mouse.up()
+                    fsr_native_supersede_after=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-native-value-change-revokes-stale-mouse",
+                          fsr_native_supersede_preview["value"]==0
+                          and fsr_native_supersede_preview["previewValue"]=="196"
+                          and lesson15_fsr_state_agrees(fsr_native_supersede_after,1023))
+
+                    # At the upper boundary, pointerdown preview clamps to the
+                    # same 1023 value. A genuine no-move release is therefore a
+                    # semantic no-op: no host change or progress write may occur.
+                    fsr_noop_progress=fsr_page.locator("#progressText").inner_text()
+                    fsr_noop_storage=fsr_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    noop_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(noop_pixel["x"],noop_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_noop_pressed=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_page.mouse.up()
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-force')?.value==='1023'
+                          &&canvas?.dataset.lessonFsrValue==='1023'
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_noop_after=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-pointer-noop-at-1023-does-not-write-change-or-progress",
+                          fsr_noop_pressed["gesture"]=="pressed"
+                          and fsr_noop_pressed["value"]==1023
+                          and fsr_noop_pressed["previewValue"]=="1023"
+                          and lesson15_fsr_state_agrees(fsr_noop_after,1023)
+                          and fsr_page.locator("#progressText").inner_text()==fsr_noop_progress
+                          and fsr_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==fsr_noop_storage)
+
+                    fsr_page.locator("#resetButton").click()
+                    fsr_page.wait_for_function(
+                        "() => document.querySelector('#control-force')?.value==='300'",
+                        timeout=3000)
+
+                    # Run/Pause is a host ownership boundary for a held FSR
+                    # squeeze. Keep the real mouse down on the pad, then activate
+                    # the native HTML Run button with Enter. Both Run and Pause
+                    # must retire the old proposal before re-arming current 300;
+                    # the eventual canvas mouseup cannot replay that proposal.
+                    transition_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(transition_pixel["x"],transition_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_page.mouse.move(
+                        transition_pixel["x"],transition_pixel["y"]+20,steps=5)
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonFsrGesture==='squeezing'
+                          &&canvas.dataset.lessonFsrPreviewValue==='496'
+                          &&document.querySelector('#control-force')?.value==='300';
+                    }""",timeout=3000)
+                    fsr_transition_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_run_button=fsr_page.locator("#runButton")
+                    fsr_run_button.focus()
+                    fsr_page.keyboard.press("Enter")
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-force')?.value==='300'
+                          &&canvas?.dataset.lessonFsrMode==='pointer-press'
+                          &&canvas.dataset.lessonFsrValue==='300'
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_transition_running=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_page.keyboard.press("Enter")
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-force')?.value==='300'
+                          &&canvas?.dataset.lessonFsrMode==='pointer-press'
+                          &&canvas.dataset.lessonFsrValue==='300'
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_transition_paused=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_page.mouse.up()
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-force')?.value==='300'
+                          &&canvas?.dataset.lessonFsrValue==='300'
+                          &&canvas.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_transition_after_mouseup=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          fsr_transition_preview["value"]==300
+                          and fsr_transition_preview["previewValue"]=="496"
+                          and lesson15_fsr_state_agrees(fsr_transition_running,300)
+                          and lesson15_fsr_state_agrees(fsr_transition_paused,300)
+                          and lesson15_fsr_state_agrees(fsr_transition_after_mouseup,300)
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress
+                          and fsr_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==fsr_progress_storage)
+
+                    # Chrome input-domain touch/pen creates real browser pointer
+                    # events. Touch cancel must discard preview; a separate touch
+                    # drag UP reaches the lower clamp and commits only on release.
+                    fsr_input=fsr_context.new_cdp_session(fsr_page)
+                    touch_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    touch_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":81,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_cancel_move={
+                        **touch_start,"x":touch_pixel["x"],"y":touch_pixel["y"]+24,
+                    }
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_cancel_move],
+                    })
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='squeezing'
+                    """,timeout=3000)
+                    fsr_touch_cancel_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue==='';
+                    }""",timeout=3000)
+                    fsr_touch_cancel=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-touchcancel-discards-preview-without-commit",
+                          fsr_touch_cancel_preview["value"]==300
+                          and fsr_touch_cancel_preview["previewValue"]=="516"
+                          and lesson15_fsr_state_agrees(fsr_touch_cancel,300))
+
+                    touch_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    touch_up_room=touch_pixel["y"]-fsr_box["y"]-12
+                    if touch_up_room<90:
+                        raise AssertionError(
+                            f"Lesson15 FSR pad lacks 90px upward clamp room: {touch_up_room}")
+                    touch_low_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":82,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={
+                        **touch_low_start,
+                        "x":touch_pixel["x"],"y":touch_pixel["y"]-90,
+                    }
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low_start],
+                    })
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrPreviewValue==='0'
+                    """,timeout=3000)
+                    fsr_touch_low_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#control-force')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='none'
+                    """,timeout=3000)
+                    fsr_touch_low=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-touch-drag-up-clamps-and-commits-zero",
+                          fsr_touch_low_preview["value"]==300
+                          and fsr_touch_low_preview["previewValue"]=="0"
+                          and lesson15_fsr_state_agrees(fsr_touch_low,0))
+
+                    fsr_page.locator("#resetButton").click()
+                    fsr_page.wait_for_function(
+                        "() => document.querySelector('#control-force')?.value==='300'",
+                        timeout=3000)
+
+                    # Pen drag DOWN covers the upper pointer clamp. The fixture
+                    # stays within the actual canvas; no DOM PointerEvent is made.
+                    pen_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    pen_down_room=fsr_box["y"]+fsr_box["height"]-12-pen_pixel["y"]
+                    pen_delta=min(145,pen_down_room)
+                    if pen_delta<126:
+                        raise AssertionError(
+                            f"Lesson15 FSR pad lacks upper-clamp drag room: {pen_down_room}")
+                    fsr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    fsr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    fsr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"]+pen_delta,
+                        "button":"left","buttons":1,"pointerType":"pen",
+                    })
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrPreviewValue==='1023'
+                    """,timeout=3000)
+                    fsr_pen_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"],"y":pen_pixel["y"]+pen_delta,
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#control-force')?.value==='1023'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='none'
+                    """,timeout=3000)
+                    fsr_pen_commit=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-pen-drag-down-clamps-and-commits-1023",
+                          fsr_pen_preview["value"]==300
+                          and fsr_pen_preview["previewValue"]=="1023"
+                          and lesson15_fsr_state_agrees(fsr_pen_commit,1023))
+
+                    fsr_page.locator("#resetButton").click()
+                    fsr_page.wait_for_function(
+                        "() => document.querySelector('#control-force')?.value==='300'",
+                        timeout=3000)
+
+                    # Native lostpointercapture is another cancel path. Record only
+                    # public pointer ids, release the browser's real capture, then
+                    # drive one real mouse move so Chrome delivers the lost event.
+                    fsr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EFsrPointerId=null;
+                        window.__arduinoE2EFsrGotCaptureId=null;
+                        window.__arduinoE2EFsrLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EFsrPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EFsrGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EFsrLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_page.mouse.move(lost_pixel["x"],lost_pixel["y"]+20,steps=4)
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EFsrPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2EFsrGotCaptureId===id
+                          &&canvas.dataset.lessonFsrGesture==='squeezing';
+                    }""",timeout=3000)
+                    fsr_lost_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EFsrPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson15 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    fsr_page.mouse.move(lost_pixel["x"]+.5,lost_pixel["y"]+20.5)
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonFsrGesture==='none'
+                          &&canvas.dataset.lessonFsrPreviewValue===''
+                          &&window.__arduinoE2EFsrLostCaptureId===
+                             window.__arduinoE2EFsrPointerId;
+                    }""",timeout=3000)
+                    fsr_page.mouse.up()
+                    fsr_lost_after=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-native-lostcapture-discards-preview-without-commit",
+                          fsr_lost_preview["value"]==300
+                          and fsr_lost_preview["previewValue"]=="496"
+                          and lesson15_fsr_state_agrees(fsr_lost_after,300))
+
+                    # Exercise a genuine tab switch without synthesizing a
+                    # visibilitychange event. Some headless Chrome builds keep
+                    # *every* tab document.visible even after bring_to_front;
+                    # do not claim the hidden lifecycle was exercised if the
+                    # browser itself never reports document.hidden=true.
+                    visibility_peer=fsr_context.new_page()
+                    visibility_peer.goto("about:blank")
+                    fsr_page.bring_to_front()
+                    fsr_page.wait_for_function("() => document.hidden===false",timeout=3000)
+                    visibility_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(visibility_pixel["x"],visibility_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_page.mouse.move(
+                        visibility_pixel["x"],visibility_pixel["y"]+20,steps=4)
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='squeezing'
+                    """,timeout=3000)
+                    fsr_visibility_preview=lesson15_fsr_acceptance_state(fsr_page)
+                    visibility_peer.bring_to_front()
+                    actual_hidden=fsr_page.evaluate("document.hidden===true")
+                    if actual_hidden:
+                        # Poll via a real timer, not requestAnimationFrame:
+                        # hidden tabs may suspend animation frames entirely.
+                        fsr_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='off'
+                        """,polling=100,timeout=5000)
+                    else:
+                        # No visibility event occurred. Preserve and inspect
+                        # that exact browser limitation rather than fabricating
+                        # an event or treating it as visibility coverage.
+                        fsr_page.wait_for_function("""() =>
+                            document.hidden===false
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='squeezing'
+                        """,timeout=3000)
+                    fsr_page.bring_to_front()
+                    if not actual_hidden:
+                        # Native keyboard Reset safely retires the held
+                        # gesture in a headless environment where switching
+                        # tabs did NOT deliver a browser visibility transition.
+                        # This is real HTML activation, not a synthetic event.
+                        fsr_page.locator("#resetButton").focus()
+                        fsr_page.keyboard.press("Enter")
+                    fsr_page.wait_for_function("""() =>
+                        document.hidden===false
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='pointer-press'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrPreviewValue===''
+                          &&document.querySelector('#control-force')?.value==='300'
+                    """,timeout=5000)
+                    fsr_page.mouse.up()
+                    fsr_visibility_after=lesson15_fsr_acceptance_state(fsr_page)
+                    visibility_peer.close()
+                    check("post-v16-lesson15-fsr-real-tab-switch-respects-visibility-capability-and-cancels-safely",
+                          fsr_visibility_preview["value"]==300
+                          and fsr_visibility_preview["previewValue"]=="496"
+                          and lesson15_fsr_state_agrees(fsr_visibility_after,300)
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress,
+                          json.dumps({"browserSignaledHidden":actual_hidden,
+                                      "fallback":"native-keyboard-reset" if not actual_hidden
+                                      else "native-visibilitychange"},ensure_ascii=False))
+
+                    # Real WebGL loss while a mouse squeeze is active revokes the
+                    # host binding. Restore may re-arm only current Lesson15 value.
+                    loss_pixel=lesson15_scene_fsr_pixel(fsr_page)
+                    fsr_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    fsr_page.mouse.down()
+                    fsr_page.mouse.move(loss_pixel["x"],loss_pixel["y"]+20,steps=4)
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrGesture==='squeezing'
+                    """,timeout=3000)
+                    fsr_pre_loss=lesson15_fsr_acceptance_state(fsr_page)
+                    fsr_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EFsrGL=gl;
+                        window.__arduinoE2EFsrLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EFsrGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonFsrMode==='off'
+                          &&canvas.dataset.lessonFsrGesture==='none';
+                    }""",timeout=10000)
+                    fsr_lost_context=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-webgl-loss-revokes-preview-without-host-write",
+                          fsr_pre_loss["value"]==300
+                          and fsr_pre_loss["previewValue"]=="496"
+                          and fsr_lost_context["mode"]=="off"
+                          and fsr_lost_context["gesture"]=="none"
+                          and fsr_lost_context["previewValue"]==""
+                          and fsr_lost_context["value"]==300
+                          and fsr_lost_context["canvasBusy"]=="true")
+                    fsr_page.mouse.up()
+                    fsr_page.evaluate("window.__arduinoE2EFsrLoseExtension.restoreContext()")
+                    fsr_page.wait_for_function("""expected => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EFsrGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonFsrMode==='pointer-press'
+                          &&canvas.dataset.lessonFsrValue===String(expected)
+                          &&canvas.dataset.lessonFsrGesture==='none';
+                    }""",arg=300,timeout=10000)
+                    fsr_restored=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-real-webgl-restore-rearms-current-value-only",
+                          lesson15_fsr_state_agrees(fsr_restored,300)
+                          and fsr_restored["canvasBusy"] is None)
+
+                    # Stage and Lab-edit ownership revoke FSR scene input while
+                    # preserving the canonical native value; return re-arms it.
+                    fsr_page.locator("#stageTabWiring").click()
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='off'
+                    """,timeout=3000)
+                    check("post-v16-lesson15-fsr-wiring-stage-revokes-scene-authority",
+                          fsr_canvas.get_attribute("data-lesson-fsr-mode")=="off"
+                          and int(fsr_slider.input_value())==300)
+                    fsr_page.locator("#stageTab3d").click()
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='pointer-press'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrValue==='300'
+                    """,timeout=3000)
+                    check("post-v16-lesson15-fsr-return-3d-rearms-current-native-value",
+                          lesson15_fsr_state_agrees(
+                              lesson15_fsr_acceptance_state(fsr_page),300))
+
+                    fsr_page.locator("#labEditToggle").click()
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='off'
+                    """,timeout=5000)
+                    check("post-v16-lesson15-fsr-lab-edit-revokes-scene-authority",
+                          fsr_page.locator("#labEditToggle").get_attribute("aria-pressed")=="true"
+                          and int(fsr_slider.input_value())==300)
+                    fsr_page.locator("#labEditToggle").click()
+                    fsr_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrMode==='pointer-press'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonFsrValue==='300'
+                    """,timeout=5000)
+                    check("post-v16-lesson15-fsr-exit-lab-edit-rearms-current-native-value",
+                          lesson15_fsr_state_agrees(
+                              lesson15_fsr_acceptance_state(fsr_page),300))
+
+                    # Exact lesson ownership clears the pad API. Returning to 15
+                    # restores the authored native default 300 without stale preview.
+                    fsr_page.locator('.lesson-link[data-lesson="14"]').click()
+                    check("post-v16-lesson15-fsr-lesson-switch-revokes-old-pad-authority",
+                          fsr_canvas.get_attribute("data-lesson-fsr-mode")=="off"
+                          and fsr_canvas.get_attribute("data-lesson-fsr-pad-count")=="0"
+                          and fsr_page.locator("#control-force").count()==0
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress)
+                    fsr_page.locator('.lesson-link[data-lesson="15"]').click()
+                    fsr_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-force')?.value==='300'
+                          &&canvas?.dataset.lessonFsrMode==='pointer-press'
+                          &&canvas.dataset.lessonFsrValue==='300'
+                          &&canvas.dataset.lessonFsrPadCount==='1';
+                    }""",timeout=5000)
+                    fsr_return_lesson=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-return-restores-authored-300-default",
+                          lesson15_fsr_state_agrees(fsr_return_lesson,300)
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress)
+
+                    # Native range stays keyboard operable and 44px high at the
+                    # mobile acceptance width, with no horizontal page overflow.
+                    fsr_page.set_viewport_size({"width":375,"height":812})
+                    fsr_slider=fsr_page.locator("#control-force")
+                    fsr_slider.scroll_into_view_if_needed()
+                    fsr_mobile_rect=fsr_slider.bounding_box()
+                    fsr_slider.focus()
+                    fsr_mobile=lesson15_fsr_acceptance_state(fsr_page)
+                    check("post-v16-lesson15-fsr-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          fsr_mobile_rect is not None
+                          and fsr_mobile_rect["width"]>=44
+                          and fsr_mobile_rect["height"]>=44
+                          and fsr_mobile["focused"] is True
+                          and fsr_mobile["labelCount"]==1
+                          and fsr_mobile["labelFor"]=="control-force"
+                          and "Chỉ số FSR" in fsr_mobile["label"]
+                          and "Đĩa FSR 3D bài 15" in fsr_mobile["canvasLabel"]
+                          and fsr_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+                    fsr_page.set_viewport_size({"width":1280,"height":820})
+                    fsr_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # FSR interactions remain simulation inputs only. Inspect the
+                    # canonical learner wiring/history surface last to prove no
+                    # edge, activation, completion or persisted progress appeared.
+                    fsr_page.locator("#stageTabWiring").click()
+                    fsr_undo=fsr_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    fsr_redo=fsr_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson15-fsr-no-electrical-graph-history-or-progress-write",
+                          fsr_page.locator("#viewport .wiring-view.is-interactive").count()==1
+                          and fsr_page.locator(".wiring-view .wire-connected").count()==0
+                          and fsr_page.locator(".wire-activate").get_attribute("aria-pressed")=="false"
+                          and fsr_undo.count()==1 and fsr_undo.is_disabled()
+                          and fsr_redo.count()==1 and fsr_redo.is_disabled()
+                          and fsr_canvas.get_attribute("data-lesson-fsr-mode")=="off"
+                          and fsr_page.locator("#progressText").inner_text()==fsr_progress
+                          and fsr_page.locator("#completeButton").is_visible()==fsr_complete_visible
+                          and fsr_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==fsr_progress_storage)
+                finally:
+                    fsr_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

@@ -80,7 +80,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
     /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
     !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
   check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners",
-    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\)\?"none":""/.test(apiSource) &&
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
   check("exact-knob-hit-is-nonrecursive-and-current-only",
@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -514,7 +514,7 @@ export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
     /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
     /b\.type="button"/.test(renderControlsSource));
   check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -726,7 +726,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
     /resetLessonServoActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonServoActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-servo-pointer-drag",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("servo-visual-is-transient-preview-over-latest-simulator-snapshot-with-explicit-diagnostics",
     /const gesture=drag\?\.kind==="lesson-servo-actuator"\?drag:null/.test(apiSource) &&
     /const preview=gesture&&moved\?gesture\.previewAngle:null/.test(apiSource) &&
@@ -743,7 +743,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
   check("canvas-keyboard-path-is-not-hijacked-by-servo-actuation",
     !/lessonServo|servo-horn-grip|setLessonServoActuation/.test(onKeySource));
   check("public-controller-exports-servo-api-after-existing-button-potentiometer-and-piano-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
   check("lesson12-native-range-is-authored-zero-to-180-step-one-default-90-and-rendered-as-keyboard-capable-range",
     /id: 12,[\s\S]*controls: \[slider\("angle", "Góc servo", 0, 180, 90, "°"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -867,6 +867,285 @@ export async function runScene3DLessonServoRaycastContracts() {
     firstHitAt(new T.Vector3(5.15, .95, .10)) === null);
 
   for (const mesh of grips) mesh.geometry.dispose();
+  material.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lessonsSource, simulatorSource, appCssSource) {
+  for (const [name, value] of Object.entries({sceneSource, appSource, lessonsSource, simulatorSource, appCssSource})) {
+    if (typeof value !== "string" || !value) throw new TypeError(name + " text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson15 FSR source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonFsrVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const touchActionStart = sceneSource.indexOf("function syncSceneOwnedTouchAction");
+  const touchActionEnd = sceneSource.indexOf("function lessonPotentiometerActuationStatus", touchActionStart);
+  const touchActionSource = sceneSource.slice(touchActionStart, touchActionEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const onKeyStart = sceneSource.indexOf("const onKey=", visibilityEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=", onKeyStart);
+  const onKeySource = sceneSource.slice(onKeyStart, contextLostStart);
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const controlsInputStart = appSource.indexOf("function onControlsInput(event)");
+  const controlsInputEnd = appSource.indexOf("function setButtonPress", controlsInputStart);
+  const controlsInputSource = appSource.slice(controlsInputStart, controlsInputEnd);
+  const startPauseStart = appSource.indexOf("function startPause()");
+  const startPauseEnd = appSource.indexOf("function resetSimulation", startPauseStart);
+  const startPauseSource = appSource.slice(startPauseStart, startPauseEnd);
+  const appFsrStart = appSource.indexOf("function revokeSceneLessonFsrActuation");
+  const appFsrEnd = appSource.indexOf("function playNote", appFsrStart);
+  const appFsrSource = appSource.slice(appFsrStart, appFsrEnd);
+  const simulatorFsrStart = simulatorSource.indexOf("case 15:");
+  const simulatorFsrEnd = simulatorSource.indexOf("case 16:", simulatorFsrStart);
+  const simulatorFsrSource = simulatorSource.slice(simulatorFsrStart, simulatorFsrEnd);
+
+  check("lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad",
+    /const LESSON_FSR_SOURCE_ID = "lesson-15-fsr-pad"/.test(sceneSource) &&
+    /fsrPad:null/.test(moduleSource) &&
+    /case "force":/.test(moduleSource) &&
+    /const disk=cylinder\(module,\.71,\.71,\.22,[\s\S]*\[0,\.45,0\],32\)/.test(moduleSource) &&
+    /disk\.userData=\{\.\.\.disk\.userData,kind:"fsr-press-pad",lessonId:15,[\s\S]*sourceId:LESSON_FSR_SOURCE_ID,physicalVerified:false,[\s\S]*electricalAuthority:false,calibratedForce:false\}/.test(moduleSource) &&
+    /state\.fsrPad=disk/.test(moduleSource));
+  check("fsr-conceptual-press-and-drag-constants-are-exact",
+    /const LESSON_FSR_TAP_STEP = 96;/.test(sceneSource) &&
+    /const LESSON_FSR_DRAG_ADC_PER_PX = 5;/.test(sceneSource));
+  check("public-fsr-api-is-exact-four-field-enabled-shape-with-idempotent-safe-off",
+    /function setLessonFsrActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonFsrActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","value","onValueChange"\]/.test(apiSource));
+  check("enabled-fsr-path-is-exactly-lesson15-integer-zero-to-1023-with-function-callback",
+    /options\.lessonId!==15\|\|currentLessonId!==15/.test(apiSource) &&
+    /!Number\.isInteger\(options\.value\)\|\|options\.value<0\|\|options\.value>1023/.test(apiSource) &&
+    /typeof options\.onValueChange!=="function"/.test(apiSource));
+  check("fsr-actuator-fails-closed-on-context-layout-edit-hidden-or-noncanonical-pad",
+    /!lessonFsrActuation\.enabled\|\|disposed\|\|contextLost/.test(apiSource) &&
+    /labEdit\.enabled\|\|activeLabLayout/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /pad\?\.isMesh!==true\|\|pad\.parent!==activeModule\.module/.test(apiSource) &&
+    /pad\.userData\?\.kind!=="fsr-press-pad"/.test(apiSource) &&
+    /pad\.userData\.sourceId!==LESSON_FSR_SOURCE_ID/.test(apiSource) &&
+    /pad\.userData\.physicalVerified!==false/.test(apiSource) &&
+    /pad\.userData\.electricalAuthority!==false/.test(apiSource) &&
+    /pad\.userData\.calibratedForce!==false/.test(apiSource));
+  check("fsr-status-is-frozen-with-preview-pad-count-and-explicit-no-physical-electrical-force-authority",
+    /function lessonFsrStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonFsrActuator\(\)!==null,[\s\S]*previewValue:[\s\S]*padCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false,calibratedForce:false/.test(apiSource));
+  check("scene-fsr-api-never-mutates-host-controls-electrical-graph-progress-or-avr",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|setWiring\(|complete|mastery|progress|avr/i.test(apiSource));
+  check("fsr-hit-test-raycasts-only-current-pad-nonrecursively",
+    /function lessonFsrHit\(event\)/.test(apiSource) &&
+    /const current=currentLessonFsrActuator\(\)/.test(apiSource) &&
+    /raycaster\.intersectObject\(current\.pad,false\)/.test(apiSource) &&
+    /return hit\?\.object===current\.pad/.test(apiSource));
+  const fsrDownStart = downSource.indexOf("const fsrHit=lessonFsrHit(event)");
+  const fsrDownEnd = downSource.indexOf("if(labEdit.enabled&&activeLabLayout)", fsrDownStart);
+  const fsrDownSource = downSource.slice(fsrDownStart, fsrDownEnd);
+  check("pointerdown-fsr-priority-precedes-lab-and-captures-stable-source-host-value-callback-and-plus96-preview-without-emitting",
+    fsrDownStart >= 0 && fsrDownEnd > fsrDownStart &&
+    downSource.indexOf("const servoHit=lessonServoHit(event)") < fsrDownStart &&
+    /kind:"lesson-fsr-actuator",lessonId:15/.test(fsrDownSource) &&
+    /sourceId:fsrHit\.sourceId,sourceObject:fsrHit\.pad/.test(fsrDownSource) &&
+    /startHostValue:fsrHit\.value/.test(fsrDownSource) &&
+    /previewValue:Math\.min\(1023,fsrHit\.value\+LESSON_FSR_TAP_STEP\)/.test(fsrDownSource) &&
+    /onValueChange:fsrHit\.onValueChange/.test(fsrDownSource) &&
+    !/emitLessonFsrValue/.test(fsrDownSource));
+  const fsrMoveStart = moveSource.indexOf('drag.kind==="lesson-fsr-actuator"');
+  const fsrMoveEnd = moveSource.indexOf('}else if(drag.kind==="lab-component")', fsrMoveStart);
+  const fsrMoveSource = moveSource.slice(fsrMoveStart, fsrMoveEnd);
+  check("pointermove-owns-fsr-gesture-without-camera-layout-or-host-callback",
+    fsrMoveStart >= 0 && fsrMoveEnd > fsrMoveStart &&
+    /event\.preventDefault\(\)/.test(fsrMoveSource) &&
+    /updateLessonFsrDrag\(event\)/.test(fsrMoveSource) &&
+    !/theta|phi|setLabVisualTransform|emitLessonFsrValue/.test(fsrMoveSource));
+  check("fsr-preview-is-bounded-base-plus96-plus-five-adc-per-downward-screen-pixel",
+    /const deltaY=event\.clientY-drag\.startClientY/.test(apiSource) &&
+    /drag\.previewValue=Math\.max\(0,Math\.min\(1023,[\s\S]*Math\.round\(drag\.startHostValue\+LESSON_FSR_TAP_STEP\+[\s\S]*deltaY\*LESSON_FSR_DRAG_ADC_PER_PX\)\)\)/.test(apiSource));
+  check("pointerup-folds-final-fsr-release-displacement-before-clearing-owned-drag",
+    /if\(select&&drag\.kind==="lesson-fsr-actuator"&&[\s\S]*event\.clientX!==drag\.x\|\|event\.clientY!==drag\.y[\s\S]*const original=drag;[\s\S]*updateLessonFsrDrag\(event\)[\s\S]*if\(drag!==original\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonFsrDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("pointerup-commit-requires-current-pad-source-host-value-callback-and-new-bounded-preview",
+    /finished\.kind==="lesson-fsr-actuator"/.test(finishSource) &&
+    /current\.pad===finished\.sourceObject/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.value===finished\.startHostValue/.test(finishSource) &&
+    /current\.onValueChange===finished\.onValueChange/.test(finishSource) &&
+    /if\(select&&stillCurrent&&Number\.isInteger\(finished\.previewValue\)&&[\s\S]*finished\.previewValue>=0&&finished\.previewValue<=1023&&[\s\S]*finished\.previewValue!==finished\.startHostValue\)[\s\S]*emitLessonFsrValue\(finished\.previewValue,finished\.pointerType,[\s\S]*finished\.onValueChange\)/.test(finishSource));
+  check("fsr-host-callback-meta-is-frozen-pointer-change-only-and-physical-unverified",
+    /callback\(value,Object\.freeze\(\{[\s\S]*lessonId:15,source:"pointer",pointerType,phase:"change",[\s\S]*physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("pointercancel-and-lostcapture-share-fsr-noncommit-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("hidden-document-cancels-fsr-preview-without-host-change",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonFsrGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonFsrValue/.test(visibilitySource));
+  check("layout-edit-lesson-context-loss-and-dispose-reset-fsr-actuation",
+    /resetLessonFsrActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonFsrActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonFsrActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonFsrActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonFsrActuation\(false\)/.test(publicSource));
+  check("scene-owned-touch-action-covers-fsr-pointer-press-and-squeeze",
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\)\?"none":""/.test(touchActionSource));
+  check("canvas-accessibility-explains-plus96-five-per-pixel-keyboard-fallback-and-no-newton-electrical-claim",
+    /Đĩa FSR 3D bài 15:[\s\S]*tăng 96 điểm ADC khái niệm,[\s\S]*kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel,[\s\S]*thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML[\s\S]*Có thể dùng bàn phím trên thanh trượt[\s\S]*không phải lực newton/.test(sceneSource));
+  check("fsr-diagnostics-expose-host-value-preview-gesture-single-pad-and-no-authority",
+    /dataset\.lessonFsrMode=lessonFsrActuation\.enabled\?"pointer-press":"off"/.test(apiSource) &&
+    /dataset\.lessonFsrValue=lessonFsrActuation\.enabled/.test(apiSource) &&
+    /dataset\.lessonFsrPreviewValue=preview===null\?"":String\(preview\)/.test(apiSource) &&
+    /dataset\.lessonFsrGesture=gesture\?\(moved\?"squeezing":"pressed"\):"none"/.test(apiSource) &&
+    /dataset\.lessonFsrPadCount=activeModule\?\.fsrPad\?"1":"0"/.test(apiSource) &&
+    /dataset\.lessonFsrPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonFsrElectricalAuthority="false"/.test(apiSource) &&
+    /dataset\.lessonFsrCalibratedForce="false"/.test(apiSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-fsr-actuation",
+    !/lessonFsr|fsr-press-pad|setLessonFsrActuation/.test(onKeySource));
+  check("public-controller-exports-fsr-api-after-existing-button-potentiometer-piano-and-servo-apis",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent/.test(publicSource));
+  check("lesson15-native-range-is-authored-zero-to-1023-step-one-default300-adc-and-rendered-as-keyboard-capable-range",
+    /id: 15,[\s\S]*controls: \[slider\("force", "Chỉ số FSR", 0, 1023, 300, "ADC"\)\]/.test(lessonsSource) &&
+    /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
+    /input\.type="range";input\.id=`control-\$\{config\.key\}`;input\.dataset\.control=config\.key/.test(renderControlsSource) &&
+    /Object\.assign\(input,\{min:config\.min,max:config\.max,step:config\.step,value:state\.controls\[config\.key\]\}\)/.test(renderControlsSource));
+  check("lesson15-native-force-range-has-44px-keyboard-fallback-target-and-focus-ring",
+    /\.control-field input#control-force\[type=range\] \{ min-height: 44px; height: 44px; \}/.test(appCssSource) &&
+    /\.control-field input#control-force\[type=range\]:focus-visible \{ outline: 3px solid #0b8b7b; outline-offset: 2px; \}/.test(appCssSource));
+  check("lesson15-simulator-clamps-adc-zero-to-1023-uses-strict650-threshold-and-gates-led-output-on-running",
+    /const raw = Math\.round\(clamp\(c\.force, 0, 1023\)\)/.test(simulatorFsrSource) &&
+    /const alert = raw > 650/.test(simulatorFsrSource) &&
+    /kind: "force", led: running && alert, brightness: running && alert \? 1 : 0/.test(simulatorFsrSource) &&
+    /value: `FSR: \$\{raw\} ADC`/.test(simulatorFsrSource) &&
+    /serial: `FSR ADC=\$\{raw\}; D13=\$\{running && alert \? "HIGH" : "LOW"\}`/.test(simulatorFsrSource) &&
+    /pins: \[\["A0", String\(raw\)\], \["D13", running && alert \? "HIGH" : "LOW"\]\]/.test(simulatorFsrSource));
+  check("host-revoke-retires-fsr-binding-and-safe-offs-scene-without-changing-force",
+    /function revokeSceneLessonFsrActuation\(\)\{[\s\S]*const binding=state\.sceneFsrActuation;[\s\S]*if\(binding\)binding\.active=false;[\s\S]*state\.sceneFsrActuation=null;[\s\S]*setLessonFsrActuation\?\.\(\{enabled:false\}\)/.test(appFsrSource) &&
+    !/state\.controls\.force\s*=/.test(appFsrSource.slice(0, appFsrSource.indexOf("function syncSceneLessonFsrActuation"))));
+  check("host-sync-requires-exact-current-connected-enabled-lesson15-native-force-range-and-valid-stage",
+    /function syncSceneLessonFsrActuation\(\)/.test(appFsrSource) &&
+    /if\(!scene\?\.setLessonFsrActuation\)return/.test(appFsrSource) &&
+    /find\(item=>item\.key==="force"\)/.test(appFsrSource) &&
+    /const value=state\.controls\.force/.test(appFsrSource) &&
+    /const slider=\$\("control-force"\)/.test(appFsrSource) &&
+    /state\.lessonId===15&&config\?\.type==="slider"&&[\s\S]*config\.min===0&&config\.max===1023&&config\.step===1/.test(appFsrSource) &&
+    /Number\.isInteger\(value\)&&value>=0&&value<=1023/.test(appFsrSource) &&
+    /slider\?\.tagName==="INPUT"&&slider\.type==="range"&&[\s\S]*slider\.dataset\.control==="force"&&[\s\S]*slider\.min==="0"&&slider\.max==="1023"&&slider\.step==="1"&&[\s\S]*!slider\.disabled&&slider\.isConnected/.test(appFsrSource) &&
+    /if\(!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\)/.test(appFsrSource));
+  check("host-scene-fsr-callback-requires-current-binding-bounded-value-and-exact-frozen-five-field-meta",
+    /binding\.onValueChange=\(proposed,meta\)=>\{[\s\S]*binding!==state\.sceneFsrActuation\|\|!binding\.active\|\|[\s\S]*state\.lessonId!==15\|\|state\.stageTab!=="3d"\|\|document\.hidden\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\|\|[\s\S]*!Number\.isInteger\(proposed\)\|\|proposed<0\|\|proposed>1023/.test(appFsrSource) &&
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|[\s\S]*Object\.getPrototypeOf\(meta\)!==Object\.prototype\|\|[\s\S]*Reflect\.ownKeys\(meta\)\.length!==5/.test(appFsrSource) &&
+    /const fields=\["lessonId","source","pointerType","phase","physicalVerified"\]/.test(appFsrSource) &&
+    /values\.lessonId!==15\|\|values\.source!=="pointer"\|\|[\s\S]*!\["mouse","touch","pen"\]\.includes\(values\.pointerType\)\|\|[\s\S]*values\.phase!=="change"\|\|values\.physicalVerified!==false/.test(appFsrSource));
+  check("accepted-scene-fsr-change-reuses-native-change-path-and-requires-nonauthoritative-single-pad-receipt",
+    /const native=\$\("control-force"\)/.test(appFsrSource) &&
+    /native!==slider\|\|native\?\.tagName!=="INPUT"\|\|native\.type!=="range"\|\|[\s\S]*native\.dataset\.control!=="force"\|\|native\.min!=="0"\|\|[\s\S]*native\.max!=="1023"\|\|native\.step!=="1"\|\|[\s\S]*native\.disabled\|\|!native\.isConnected/.test(appFsrSource) &&
+    /native\.value=String\(proposed\);[\s\S]*onControlsInput\(\{target:native,type:"change",source:"scene"\}\);[\s\S]*return true/.test(appFsrSource) &&
+    /scene\.setLessonFsrActuation\(\{[\s\S]*enabled:true,lessonId:15,value,onValueChange:binding\.onValueChange,[\s\S]*\}\)/.test(appFsrSource) &&
+    /receipt\?\.active!==true\|\|receipt\?\.padCount!==1\|\|[\s\S]*receipt\?\.physicalVerified!==false\|\|receipt\?\.electricalAuthority!==false\|\|[\s\S]*receipt\?\.calibratedForce!==false/.test(appFsrSource));
+  check("native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward",
+    /if\(key==="force"&&state\.lessonId===15&&config\.type==="slider"&&[\s\S]*event\.source!=="scene"\)[\s\S]*revokeSceneLessonFsrActuation\(\)/.test(controlsInputSource) &&
+    /if\(key==="force"&&state\.lessonId===15&&config\.type==="slider"\)[\s\S]*syncSceneLessonFsrActuation\(\)/.test(controlsInputSource));
+  check("start-pause-revokes-stale-fsr-preview-before-run-state-change-and-finally-rearms",
+    /const rearmFsr=state\.lessonId===15;[\s\S]*if\(rearmFsr\)revokeSceneLessonFsrActuation\(\);[\s\S]*try\{/.test(startPauseSource) &&
+    /\}finally\{[\s\S]*if\(rearmFsr\)syncSceneLessonFsrActuation\(\);[\s\S]*\}\s*\}/.test(startPauseSource));
+  check("host-stage-reset-lesson-visibility-focus-edit-layout-webgl-and-initial-mount-own-fsr-lifecycle",
+    /function renderStage\(\)[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /function resetSimulation\(\)[\s\S]*revokeSceneLessonFsrActuation\(\)[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /function setLesson\(id,replaceHash=true\)[\s\S]*revokeSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /document\.addEventListener\("visibilitychange",\(\)=>\{[\s\S]*revokeSceneLessonFsrActuation\(\)[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("blur",\(\)=>\{[\s\S]*revokeSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("focus",\(\)=>\{[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /onEditModeChange\(\)\{[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /onLayoutChange\(\)\{[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource) &&
+    /state\.scene=mountScene[\s\S]*syncSceneLessonFsrActuation\(\)/.test(appSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonFsrRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson15 FSR raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const module = new T.Group();
+  module.position.set(5.15, .55, .10);
+  const material = new T.MeshBasicMaterial();
+  const pad = new T.Mesh(new T.CylinderGeometry(.71, .71, .22, 32), material);
+  pad.position.set(0, .45, 0);
+  pad.userData = {
+    kind: "fsr-press-pad", lessonId: 15, sourceId: "lesson-15-fsr-pad",
+    physicalVerified: false, electricalAuthority: false, calibratedForce: false,
+  };
+  module.add(pad);
+  module.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const firstHitAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObject(pad, false)[0]?.object ?? null;
+  };
+  check("exactly-one-native-three-fsr-pad-is-the-raycast-surface",
+    module.children.filter(child=>child.userData?.kind==="fsr-press-pad").length===1 &&
+    pad.isMesh===true && pad.parent===module && pad.children.length===0 &&
+    pad.userData.lessonId===15 && pad.userData.sourceId==="lesson-15-fsr-pad" &&
+    pad.userData.physicalVerified===false && pad.userData.electricalAuthority===false &&
+    pad.userData.calibratedForce===false);
+  check("default-view-fsr-pad-center-hits-exact-pad",
+    firstHitAt(new T.Vector3(5.15, 1.00, .10))===pad);
+  check("nearby-off-pad-region-does-not-hit-fsr-pad",
+    firstHitAt(new T.Vector3(6.20, 1.00, .10))===null);
+
+  pad.geometry.dispose();
   material.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -1256,6 +1535,8 @@ export async function runScene3DContracts() {
   const sceneSource = await fetch(new URL("../src/scene3d.js", import.meta.url)).then(response => response.text());
   const appSource = await fetch(new URL("../src/app.js", import.meta.url)).then(response => response.text());
   const lessonsSource = await fetch(new URL("../src/lessons.js", import.meta.url)).then(response => response.text());
+  const simulatorSource = await fetch(new URL("../src/simulator.js", import.meta.url)).then(response => response.text());
+  const appCssSource = await fetch(new URL("../styles/app.css", import.meta.url)).then(response => response.text());
   const lessonPotSourceContracts = runScene3DLessonPotentiometerSourceContracts(sceneSource);
   for (const name of lessonPotSourceContracts.checks) check("lesson-pot-source-"+name,true);
   const lessonPotRaycastContracts = await runScene3DLessonPotentiometerRaycastContracts();
@@ -1272,6 +1553,11 @@ export async function runScene3DContracts() {
   for (const name of lessonServoSourceContracts.checks) check("lesson-servo-source-"+name,true);
   const lessonServoRaycastContracts = await runScene3DLessonServoRaycastContracts();
   for (const name of lessonServoRaycastContracts.checks) check("lesson-servo-raycast-"+name,true);
+  const lessonFsrSourceContracts = runScene3DLessonFsrSourceContracts(
+    sceneSource, appSource, lessonsSource, simulatorSource, appCssSource);
+  for (const name of lessonFsrSourceContracts.checks) check("lesson-fsr-source-"+name,true);
+  const lessonFsrRaycastContracts = await runScene3DLessonFsrRaycastContracts();
+  for (const name of lessonFsrRaycastContracts.checks) check("lesson-fsr-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);

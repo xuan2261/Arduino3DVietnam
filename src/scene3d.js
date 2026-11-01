@@ -30,6 +30,9 @@ const LESSON_POT_ANGLE_MIN_RADIUS_PX = 10;
 const LESSON_PIANO_LABELS = Object.freeze(NOTES.map(([label])=>label));
 const LESSON_PIANO_SOURCE_ID = "lesson-9-piano-keys";
 const LESSON_SERVO_SOURCE_ID = "lesson-12-servo-horn";
+const LESSON_FSR_SOURCE_ID = "lesson-15-fsr-pad";
+const LESSON_FSR_TAP_STEP = 96; // Purely conceptual ADC increment, not newtons.
+const LESSON_FSR_DRAG_ADC_PER_PX = 5;
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1007,7 +1010,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[] };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1055,7 +1058,15 @@ function createModule(scene, kind, shared) {
         const track=box(module,[.85,.03,.09],0x3b3c2e,[0,.58,0]);track.rotation.y=-.4;
         box(module,[.05,.035,.84],0x3b3c2e,[0,.59,0]);
       }else if(kind==="temperature"){canvasLabel(module,"°C",0,.58,0,.85,77,"#fff");
-      }else{canvasLabel(module,"FSR",0,.58,0,.95,62,"#edf6eb");}
+      }else{
+        canvasLabel(module,"FSR",0,.58,0,.95,62,"#edf6eb");
+        // This one semantic press surface is a conceptual ADC input only.
+        // The existing electrical graph and the separate FSR label stay passive.
+        disk.userData={...disk.userData,kind:"fsr-press-pad",lessonId:15,
+          sourceId:LESSON_FSR_SOURCE_ID,physicalVerified:false,
+          electricalAuthority:false,calibratedForce:false};
+        state.fsrPad=disk;
+      }
       led(.26);state.led.position.set(1.35,.43,0);
       break;
     }
@@ -1176,6 +1187,8 @@ export function mountScene(host, onSelect = () => {}) {
   // During drag, scene shows a local preview; only pointerup may notify host.
   let lessonServoActuation={enabled:false,lessonId:null,angle:null,onAngleChange:null};
   let lastServoSnapshotAngle=90;
+  // Host-owned Lesson15 ADC input: the scene only previews a press/squeeze.
+  let lessonFsrActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1381,6 +1394,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonServoActuation.enabled){
       parts.push("Tay servo 3D bài 12 cho xem trước góc đặt 0–180 khi kéo; thả chuột/chạm/bút mới ghi vào thanh trượt HTML. Khi mô phỏng dừng, tay trở về góc đầu ra 90 độ; góc đặt vẫn được giữ trong HTML. Không xác minh servo vật lý, nguồn, điện áp, mô-men hoặc AVR.");
     }
+    if(lessonFsrActuation.enabled){
+      parts.push("Đĩa FSR 3D bài 15: nhấn để xem trước tăng 96 điểm ADC khái niệm, kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel, thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML. Hủy nhấn không đổi giá trị. Có thể dùng bàn phím trên thanh trượt. Đây không phải lực newton, cảm biến đo thực tế, điện áp, dây hoặc AVR.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1520,6 +1536,14 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonServoGripCount="0";
   canvas.dataset.lessonServoPhysicalVerified="false";
   canvas.dataset.lessonServoElectricalAuthority="false";
+  canvas.dataset.lessonFsrMode="off";
+  canvas.dataset.lessonFsrValue="";
+  canvas.dataset.lessonFsrPreviewValue="";
+  canvas.dataset.lessonFsrGesture="none";
+  canvas.dataset.lessonFsrPadCount="0";
+  canvas.dataset.lessonFsrPhysicalVerified="false";
+  canvas.dataset.lessonFsrElectricalAuthority="false";
+  canvas.dataset.lessonFsrCalibratedForce="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2770,6 +2794,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
+    resetLessonFsrActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -3476,6 +3501,158 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonFsrVisual(){
+    const gesture=drag?.kind==="lesson-fsr-actuator"?drag:null;
+    const preview=gesture?gesture.previewValue:null;
+    const value=preview??lessonFsrActuation.value;
+    // Compression is a deliberately schematic press cue, not physical travel.
+    if(activeModule?.fsrPad&&currentLessonId===15){
+      const fraction=Number.isInteger(value)?value/1023:0;
+      const visualScale=1-fraction*.20;
+      activeModule.fsrPad.scale.y=visualScale;
+      activeModule.fsrPad.position.y=.45-.11*(1-visualScale);
+    }
+    canvas.dataset.lessonFsrMode=lessonFsrActuation.enabled?"pointer-press":"off";
+    canvas.dataset.lessonFsrValue=lessonFsrActuation.enabled
+      ?String(lessonFsrActuation.value):"";
+    canvas.dataset.lessonFsrPreviewValue=preview===null?"":String(preview);
+    canvas.dataset.lessonFsrGesture=gesture?(moved?"squeezing":"pressed"):"none";
+    canvas.dataset.lessonFsrPadCount=activeModule?.fsrPad?"1":"0";
+    canvas.dataset.lessonFsrPhysicalVerified="false";
+    canvas.dataset.lessonFsrElectricalAuthority="false";
+    canvas.dataset.lessonFsrCalibratedForce="false";
+  }
+  function currentLessonFsrActuator(){
+    if(!lessonFsrActuation.enabled||disposed||contextLost||
+       currentLessonId!==15||lessonFsrActuation.lessonId!==15||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonFsrActuation.value)||
+       lessonFsrActuation.value<0||lessonFsrActuation.value>1023||
+       typeof lessonFsrActuation.onValueChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const pad=activeModule?.fsrPad;
+    if(pad?.isMesh!==true||pad.parent!==activeModule.module||
+       pad.userData?.kind!=="fsr-press-pad"||
+       pad.userData.sourceId!==LESSON_FSR_SOURCE_ID||
+       pad.userData.lessonId!==15||
+       pad.userData.physicalVerified!==false||
+       pad.userData.electricalAuthority!==false||
+       pad.userData.calibratedForce!==false)return null;
+    return {pad,lessonId:15,sourceId:LESSON_FSR_SOURCE_ID,
+      value:lessonFsrActuation.value,onValueChange:lessonFsrActuation.onValueChange};
+  }
+  function lessonFsrStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonFsrActuation.enabled,
+      active:currentLessonFsrActuator()!==null,
+      lessonId:lessonFsrActuation.lessonId,
+      value:lessonFsrActuation.enabled?lessonFsrActuation.value:null,
+      previewValue:drag?.kind==="lesson-fsr-actuator"?drag.previewValue:null,
+      padCount:activeModule?.fsrPad?1:0,
+      mode:lessonFsrActuation.enabled?"pointer-press":"off",
+      physicalVerified:false,electricalAuthority:false,calibratedForce:false});
+  }
+  function cancelLessonFsrGesture(redraw=false){
+    if(drag?.kind!=="lesson-fsr-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonFsrVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonFsrActuation(redraw=false){
+    cancelLessonFsrGesture(false);
+    lessonFsrActuation={enabled:false,lessonId:null,value:null,onValueChange:null};
+    syncLessonFsrVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonFsrStatus(true);
+  }
+  function setLessonFsrActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,value:null,previewValue:null,padCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,calibratedForce:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson FSR options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonFsrActuation(true);
+    const required=["enabled","lessonId","value","onValueChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const d=Object.getOwnPropertyDescriptor(options,key);
+         return !d||!("value" in d);
+       }))throw new RangeError("FSR enabled phải có đúng enabled/lessonId/value/onValueChange");
+    if(options.lessonId!==15||currentLessonId!==15){
+      throw new RangeError("Đĩa FSR chỉ được điều khiển trong bài 15");
+    }
+    if(!Number.isInteger(options.value)||options.value<0||options.value>1023){
+      throw new RangeError("Chỉ số ADC FSR phải là số nguyên 0–1023");
+    }
+    if(typeof options.onValueChange!=="function"){
+      throw new TypeError("onValueChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.fsrPad?.userData?.sourceId!==LESSON_FSR_SOURCE_ID){
+      throw new RangeError("Đĩa FSR không khả dụng trong scene/edit/layout hiện tại");
+    }
+    const same=lessonFsrActuation.enabled&&lessonFsrActuation.lessonId===15;
+    if(!same){
+      resetLessonFsrActuation(false);
+    }else if(drag?.kind==="lesson-fsr-actuator"&&
+      (options.value!==lessonFsrActuation.value||
+       options.onValueChange!==lessonFsrActuation.onValueChange)){
+      cancelLessonFsrGesture(false);
+    }
+    lessonFsrActuation={enabled:true,lessonId:15,
+      value:options.value,onValueChange:options.onValueChange};
+    syncLessonFsrVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonFsrStatus(true);
+  }
+  function lessonFsrHit(event){
+    const current=currentLessonFsrActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.pad,false)[0]??null;
+    return hit?.object===current.pad?{...current,pointerType}:null;
+  }
+  function updateLessonFsrDrag(event){
+    if(drag?.kind!=="lesson-fsr-actuator")return false;
+    const current=currentLessonFsrActuator();
+    if(!current||current.pad!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.value!==drag.startHostValue||
+       current.onValueChange!==drag.onValueChange){
+      cancelLessonFsrGesture(true);
+      return false;
+    }
+    // Downward squeeze raises the conceptual ADC index (R4 reference UX),
+    // but the rate is locally authored and NOT any force calibration.
+    const deltaY=event.clientY-drag.startClientY;
+    drag.previewValue=Math.max(0,Math.min(1023,
+      Math.round(drag.startHostValue+LESSON_FSR_TAP_STEP+
+        deltaY*LESSON_FSR_DRAG_ADC_PER_PX)));
+    syncLessonFsrVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonFsrValue(value,pointerType,callback){
+    if(!Number.isInteger(value)||value<0||value>1023||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(value,Object.freeze({
+        lessonId:15,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -3492,7 +3669,8 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function syncSceneOwnedTouchAction(){
     canvas.style.touchAction=(labEdit.enabled||lessonPotentiometerActuation.enabled||
-      lessonPianoActuation.enabled||lessonServoActuation.enabled)?"none":"";
+      lessonPianoActuation.enabled||lessonServoActuation.enabled||
+      lessonFsrActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -3714,6 +3892,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonPotentiometerActuation(false);
     if(nextEditEnabled)resetLessonPianoActuation(false);
     if(nextEditEnabled)resetLessonServoActuation(false);
+    if(nextEditEnabled)resetLessonFsrActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -4340,6 +4519,21 @@ export function mountScene(host, onSelect = () => {}) {
         return;
       }
     }
+    const fsrHit=lessonFsrHit(event);
+    if(fsrHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-fsr-actuator",lessonId:15,
+        sourceId:fsrHit.sourceId,sourceObject:fsrHit.pad,
+        startHostValue:fsrHit.value,
+        previewValue:Math.min(1023,fsrHit.value+LESSON_FSR_TAP_STEP),
+        onValueChange:fsrHit.onValueChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonFsrVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -4480,6 +4674,9 @@ export function mountScene(host, onSelect = () => {}) {
     }else if(drag.kind==="lesson-servo-actuator"){
       event.preventDefault();
       if(moved)updateLessonServoDrag(event);
+    }else if(drag.kind==="lesson-fsr-actuator"){
+      event.preventDefault();
+      updateLessonFsrDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -4548,6 +4745,12 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&drag.kind==="lesson-fsr-actuator"&&
+       (event.clientX!==drag.x||event.clientY!==drag.y)){
+      const original=drag;
+      updateLessonFsrDrag(event); // Include actual final pointerup displacement.
+      if(drag!==original||event.pointerId!==drag.pointerId)return;
+    }
     if(select&&drag.kind==="lesson-servo-actuator"){
       const deltaX=event.clientX-drag.startClientX;
       const deltaY=event.clientY-drag.startClientY;
@@ -4654,6 +4857,23 @@ export function mountScene(host, onSelect = () => {}) {
          finished.previewAngle!==finished.startVisualAngle&&
          finished.previewAngle!==finished.startHostAngle){
         emitLessonServoAngle(finished.previewAngle,finished.pointerType,finished.onAngleChange);
+      }
+      invalidate();
+      return;
+    }
+    if(finished.kind==="lesson-fsr-actuator"){
+      const current=currentLessonFsrActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===15&&
+        current.pad===finished.sourceObject&&
+        current.sourceId===finished.sourceId&&
+        current.value===finished.startHostValue&&
+        current.onValueChange===finished.onValueChange);
+      syncLessonFsrVisual(); // Remove local press/squeeze preview first.
+      if(select&&stillCurrent&&Number.isInteger(finished.previewValue)&&
+         finished.previewValue>=0&&finished.previewValue<=1023&&
+         finished.previewValue!==finished.startHostValue){
+        emitLessonFsrValue(finished.previewValue,finished.pointerType,
+          finished.onValueChange);
       }
       invalidate();
       return;
@@ -4777,6 +4997,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonPotentiometerGesture(false);
       cancelLessonPianoGesture(false);
       cancelLessonServoGesture(false);
+      cancelLessonFsrGesture(false);
       return;
     }
     invalidate();
@@ -4845,6 +5066,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
+    resetLessonFsrActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -4903,6 +5125,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
+    resetLessonFsrActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -4914,6 +5137,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonPotentiometerVisualDataset();
     syncLessonPianoVisual();
     syncLessonServoVisual();
+    syncLessonFsrVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -4994,6 +5218,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonPotentiometerVisualDataset();
     syncLessonPianoVisual();
     syncLessonServoVisual();
+    syncLessonFsrVisual();
     invalidate();
   }
   function control(action){
@@ -5011,7 +5236,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -5020,6 +5245,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonPotentiometerActuation(false);
     resetLessonPianoActuation(false);
     resetLessonServoActuation(false);
+    resetLessonFsrActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

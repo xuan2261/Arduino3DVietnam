@@ -1104,9 +1104,9 @@ class ReleaseContractTests(unittest.TestCase):
     def test_lesson12_servo_doc_release_is_exact_and_offline(self):
         expected = ["docs/THREE_D_LESSON12_SERVO.md"]
         self.assertEqual(build_site.LESSON12_SERVO_RELEASE_FILES, expected)
-        self.assertEqual(build_site.FILES[150:], expected)
-        self.assertEqual(len(build_site.FILES), 151)
-        self.assertEqual(len(set(build_site.FILES)), 151)
+        self.assertEqual(build_site.FILES[150:151], expected)
+        self.assertEqual(len(build_site.FILES), 152)
+        self.assertEqual(len(set(build_site.FILES)), 152)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1131,6 +1131,44 @@ class ReleaseContractTests(unittest.TestCase):
                 (output / expected[0]).read_bytes(),
                 (fixture_root / expected[0]).read_bytes(),
                 "Lesson 12 servo documentation bytes changed during packaging",
+            )
+            output_files = {
+                path.relative_to(output).as_posix()
+                for path in output.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
+    def test_lesson15_fsr_doc_release_is_exact_and_offline(self):
+        expected = ["docs/THREE_D_LESSON15_FSR.md"]
+        self.assertEqual(build_site.LESSON15_FSR_RELEASE_FILES, expected)
+        self.assertEqual(build_site.FILES[151:], expected)
+        self.assertEqual(len(build_site.FILES), 152)
+        self.assertEqual(len(set(build_site.FILES)), 152)
+
+        source = build_site._release_source(expected[0])
+        self.assertTrue(source.is_file())
+        self.assertFalse(source.is_symlink())
+        self.assertGreater(source.stat().st_size, 100)
+        self.assertEqual(
+            build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
+            "Lesson 15 FSR documentation must be precached in exact release order",
+        )
+
+        with tempfile.TemporaryDirectory(prefix="arduino3d-lesson15-fsr-release-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                output = build_site.build()
+            self.assertEqual(
+                (output / expected[0]).read_bytes(),
+                (fixture_root / expected[0]).read_bytes(),
+                "Lesson 15 FSR documentation bytes changed during packaging",
             )
             output_files = {
                 path.relative_to(output).as_posix()
