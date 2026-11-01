@@ -9043,10 +9043,18 @@ def main() -> None:
                           and lesson15_fsr_state_agrees(fsr_touch_cancel,300))
 
                     touch_pixel=lesson15_scene_fsr_pixel(fsr_page)
-                    touch_up_room=touch_pixel["y"]-fsr_box["y"]-12
-                    if touch_up_room<90:
+                    # The browser's real pointer capture deliberately owns the
+                    # squeeze even when the finger leaves the canvas. Ubuntu
+                    # font/layout metrics can position this pad only ~23px
+                    # below the canvas top; requiring the whole 90px drag to
+                    # remain inside that canvas incorrectly rejects a valid
+                    # captured gesture. Keep the full 300 -> 0 clamp test,
+                    # but require the *actual viewport* to contain the touch.
+                    touch_up_viewport_room=touch_pixel["y"]-8
+                    if touch_up_viewport_room<90:
                         raise AssertionError(
-                            f"Lesson15 FSR pad lacks 90px upward clamp room: {touch_up_room}")
+                            "Lesson15 FSR captured touch drag would leave the viewport: "
+                            f"available={touch_up_viewport_room}, pad={touch_pixel}, canvas={fsr_box}")
                     touch_low_start={
                         "x":touch_pixel["x"],"y":touch_pixel["y"],"id":82,
                         "radiusX":1,"radiusY":1,"force":1,
