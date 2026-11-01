@@ -1105,8 +1105,8 @@ class ReleaseContractTests(unittest.TestCase):
         expected = ["docs/THREE_D_LESSON12_SERVO.md"]
         self.assertEqual(build_site.LESSON12_SERVO_RELEASE_FILES, expected)
         self.assertEqual(build_site.FILES[150:151], expected)
-        self.assertEqual(len(build_site.FILES), 155)
-        self.assertEqual(len(set(build_site.FILES)), 155)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1143,8 +1143,8 @@ class ReleaseContractTests(unittest.TestCase):
         expected = ["docs/THREE_D_LESSON15_FSR.md"]
         self.assertEqual(build_site.LESSON15_FSR_RELEASE_FILES, expected)
         self.assertEqual(build_site.FILES[151:152], expected)
-        self.assertEqual(len(build_site.FILES), 155)
-        self.assertEqual(len(set(build_site.FILES)), 155)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1181,8 +1181,8 @@ class ReleaseContractTests(unittest.TestCase):
         expected = ["docs/THREE_D_LESSON07_ULTRASONIC.md"]
         self.assertEqual(build_site.LESSON07_ULTRASONIC_RELEASE_FILES, expected)
         self.assertEqual(build_site.FILES[152:153], expected)
-        self.assertEqual(len(build_site.FILES), 155)
-        self.assertEqual(len(set(build_site.FILES)), 155)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1219,8 +1219,8 @@ class ReleaseContractTests(unittest.TestCase):
         expected = ["docs/THREE_D_LESSON06_LDR.md"]
         self.assertEqual(build_site.LESSON06_LDR_RELEASE_FILES, expected)
         self.assertEqual(build_site.FILES[153:154], expected)
-        self.assertEqual(len(build_site.FILES), 155)
-        self.assertEqual(len(set(build_site.FILES)), 155)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1256,9 +1256,9 @@ class ReleaseContractTests(unittest.TestCase):
     def test_lesson11_temperature_doc_release_is_exact_and_offline(self):
         expected = ["docs/THREE_D_LESSON11_TEMPERATURE.md"]
         self.assertEqual(build_site.LESSON11_TEMPERATURE_RELEASE_FILES, expected)
-        self.assertEqual(build_site.FILES[154:], expected)
-        self.assertEqual(len(build_site.FILES), 155)
-        self.assertEqual(len(set(build_site.FILES)), 155)
+        self.assertEqual(build_site.FILES[154:155], expected)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
 
         source = build_site._release_source(expected[0])
         self.assertTrue(source.is_file())
@@ -1283,6 +1283,44 @@ class ReleaseContractTests(unittest.TestCase):
                 (output / expected[0]).read_bytes(),
                 (fixture_root / expected[0]).read_bytes(),
                 "Lesson 11 temperature documentation bytes changed during packaging",
+            )
+            output_files = {
+                path.relative_to(output).as_posix()
+                for path in output.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(output_files, set(build_site.FILES) | {build_site.MARKER})
+
+    def test_lesson05_rgb_doc_release_is_exact_and_offline(self):
+        expected = ["docs/THREE_D_LESSON05_RGB.md"]
+        self.assertEqual(build_site.LESSON05_RGB_RELEASE_FILES, expected)
+        self.assertEqual(build_site.FILES[155:], expected)
+        self.assertEqual(len(build_site.FILES), 156)
+        self.assertEqual(len(set(build_site.FILES)), 156)
+
+        source = build_site._release_source(expected[0])
+        self.assertTrue(source.is_file())
+        self.assertFalse(source.is_symlink())
+        self.assertGreater(source.stat().st_size, 100)
+        self.assertEqual(
+            build_site._service_worker_assets((ROOT / "sw.js").read_text(encoding="utf-8")),
+            ["./", *["./" + path for path in build_site.FILES if path != "sw.js"]],
+            "Lesson 05 RGB documentation must be precached in exact release order",
+        )
+
+        with tempfile.TemporaryDirectory(prefix="arduino3d-lesson05-rgb-release-") as temporary:
+            fixture_root = (Path(temporary) / "site").resolve()
+            fixture_root.mkdir()
+            copy_release_sources(fixture_root)
+            fixture_dist = (fixture_root / "dist").resolve()
+            with mock.patch.object(build_site, "ROOT", fixture_root), mock.patch.object(
+                build_site, "DIST", fixture_dist
+            ):
+                output = build_site.build()
+            self.assertEqual(
+                (output / expected[0]).read_bytes(),
+                (fixture_root / expected[0]).read_bytes(),
+                "Lesson 05 RGB documentation bytes changed during packaging",
             )
             output_files = {
                 path.relative_to(output).as_posix()

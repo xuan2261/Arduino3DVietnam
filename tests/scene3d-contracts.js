@@ -80,7 +80,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
     /else if\(gestureActive\)\{[\s\S]*lessonPotentiometerActuation=\{\.\.\.lessonPotentiometerActuation,value:options\.value\}[\s\S]*if\(options\.value!==drag\.lastValue\)\{[\s\S]*drag\.valueFloat=options\.value[\s\S]*drag\.lastValue=options\.value/.test(apiSource) &&
     !/else if\(gestureActive\)\{[\s\S]{0,240}onValueChange:options\.onValueChange/.test(apiSource));
   check("pot-actuation-owns-canvas-touch-action-before-pointerdown-and-shares-lab-edit-piano-servo-owners",
-    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(apiSource) &&
+    /function syncSceneOwnedTouchAction\(\)\{[\s\S]*canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\);[\s\S]*syncLessonPotentiometerDatasets\(\)/.test(apiSource) &&
     /syncSceneOwnedTouchAction\(\)/.test(setLabEditSource));
   check("exact-knob-hit-is-nonrecursive-and-current-only",
@@ -156,7 +156,7 @@ export function runScene3DLessonPotentiometerSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-potentiometer-api",
-    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -323,7 +323,7 @@ export function runScene3DLessonButtonActuationSourceContracts(sceneSource) {
       sceneSource.slice(sceneSource.indexOf("const onKey="), contextLostStart)
     ));
   check("public-controller-exports-actuation-api",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -514,7 +514,7 @@ export function runScene3DLessonPianoSourceContracts(sceneSource, appSource) {
     /exp\.addEventListener\("click",event=>\{[\s\S]*closest\("\[data-note\]"\)[\s\S]*choosePianoNote\(note\.dataset\.note\)/.test(appSource) &&
     /b\.type="button"/.test(renderControlsSource));
   check("public-controller-exports-button-potentiometer-and-piano-apis-in-order",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
 
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
@@ -726,7 +726,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
     /resetLessonServoActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonServoActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-servo-pointer-drag",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("servo-visual-is-transient-preview-over-latest-simulator-snapshot-with-explicit-diagnostics",
     /const gesture=drag\?\.kind==="lesson-servo-actuator"\?drag:null/.test(apiSource) &&
     /const preview=gesture&&moved\?gesture\.previewAngle:null/.test(apiSource) &&
@@ -743,7 +743,7 @@ export function runScene3DLessonServoSourceContracts(sceneSource, appSource, les
   check("canvas-keyboard-path-is-not-hijacked-by-servo-actuation",
     !/lessonServo|servo-horn-grip|setLessonServoActuation/.test(onKeySource));
   check("public-controller-exports-servo-api-after-existing-button-potentiometer-and-piano-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
   check("lesson12-native-range-is-authored-zero-to-180-step-one-default-90-and-rendered-as-keyboard-capable-range",
     /id: 12,[\s\S]*controls: \[slider\("angle", "Góc servo", 0, 180, 90, "°"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1018,7 +1018,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
     /resetLessonFsrActuation\(false\)/.test(contextLostSource) &&
     /disposed=true;[\s\S]*resetLessonFsrActuation\(false\)/.test(publicSource));
   check("scene-owned-touch-action-covers-fsr-pointer-press-and-squeeze",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-plus96-five-per-pixel-keyboard-fallback-and-no-newton-electrical-claim",
     /Đĩa FSR 3D bài 15:[\s\S]*tăng 96 điểm ADC khái niệm,[\s\S]*kéo xuống tăng và kéo lên giảm 5 điểm ADC mỗi pixel,[\s\S]*thả mới áp dụng chỉ số 0–1023 vào thanh trượt HTML[\s\S]*Có thể dùng bàn phím trên thanh trượt[\s\S]*không phải lực newton/.test(sceneSource));
   check("fsr-diagnostics-expose-host-value-preview-gesture-single-pad-and-no-authority",
@@ -1033,7 +1033,7 @@ export function runScene3DLessonFsrSourceContracts(sceneSource, appSource, lesso
   check("canvas-keyboard-path-is-not-hijacked-by-fsr-actuation",
     !/lessonFsr|fsr-press-pad|setLessonFsrActuation/.test(onKeySource));
   check("public-controller-exports-fsr-api-after-existing-button-potentiometer-piano-and-servo-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
   check("lesson15-native-range-is-authored-zero-to-1023-step-one-default300-adc-and-rendered-as-keyboard-capable-range",
     /id: 15,[\s\S]*controls: \[slider\("force", "Chỉ số FSR", 0, 1023, 300, "ADC"\)\]/.test(lessonsSource) &&
     /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
@@ -1311,7 +1311,7 @@ export function runScene3DLessonUltrasonicSourceContracts(sceneSource, appSource
     /syncLessonUltrasonicVisual\(\)/.test(updateSource) &&
     !/emitLessonUltrasonicDistance|onControlsInput/.test(updateSource));
   check("scene-owned-touch-action-covers-ultrasonic-pointer-slide",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-two-per-pixel-rightward-slide-release-keyboard-and-no-real-sonar-claim",
     /Vật cản 3D khái niệm bài 7:[\s\S]*kéo sang phải để tăng hoặc sang trái để giảm khoảng cách đặt 2–400 cm,[\s\S]*hai đơn vị khoảng cách giả lập cho mỗi pixel;[\s\S]*thả mới cập nhật thanh trượt HTML\.[\s\S]*Có thể dùng bàn phím trên thanh trượt\.[\s\S]*không phải cm đo thực, xung Echo vật lý, kết nối điện hay AVR/.test(sceneSource));
   check("ultrasonic-diagnostics-expose-host-distance-preview-gesture-single-target-and-no-authority",
@@ -1326,7 +1326,7 @@ export function runScene3DLessonUltrasonicSourceContracts(sceneSource, appSource
   check("canvas-keyboard-path-is-not-hijacked-by-ultrasonic-actuation",
     !/lessonUltrasonic|ultrasonic-obstacle-target|setLessonUltrasonicActuation/.test(onKeySource));
   check("public-controller-exports-ultrasonic-api-after-existing-button-potentiometer-piano-servo-and-fsr-apis",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
   check("lesson07-native-range-is-authored-two-to-400-step-one-default70-centimeters-and-rendered-as-keyboard-capable-range",
     /id: 7,[\s\S]*controls: \[slider\("distance", "Khoảng cách", 2, 400, 70, "cm"\)\]/.test(lessonsSource) &&
     /insight: "Mô phỏng cảnh báo khi khoảng cách dưới 20 cm; khoảng đo sử dụng ở đây chỉ là tham số giả lập\."/.test(lessonsSource) &&
@@ -1611,7 +1611,7 @@ export function runScene3DLessonLdrSourceContracts(sceneSource, appSource, lesso
     /syncLessonLdrVisual\(\)/.test(updateSource) &&
     !/emitLessonLdrLight|onControlsInput/.test(updateSource));
   check("scene-owned-touch-action-covers-ldr-pointer-slide",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-rightward-decrease-minus-five-release-keyboard-and-no-lux-voltage-photoresistance-claim",
     /Nguồn sáng 3D khái niệm bài 6:[\s\S]*kéo sang phải làm giảm chỉ số ánh sáng A0,[\s\S]*kéo sang trái làm tăng,[\s\S]*năm điểm ADC mỗi pixel;[\s\S]*thả mới cập nhật thanh trượt HTML 0–1023\.[\s\S]*Bàn phím dùng thanh trượt HTML\.[\s\S]*không đo lux, điện áp, độ rọi, điện trở/.test(sceneSource));
   check("ldr-diagnostics-expose-host-light-preview-gesture-single-target-and-no-authority",
@@ -1626,7 +1626,7 @@ export function runScene3DLessonLdrSourceContracts(sceneSource, appSource, lesso
   check("canvas-keyboard-path-is-not-hijacked-by-ldr-actuation",
     !/lessonLdr|ldr-light-source-target|setLessonLdrActuation/.test(onKeySource));
   check("public-controller-exports-ldr-api-after-existing-ultrasonic-owner",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
   check("lesson06-native-range-is-authored-zero-to-1023-step-one-default650-adc-and-rendered-as-keyboard-capable-range",
     /id: 6,[\s\S]*controls: \[slider\("light", "Mức ánh sáng", 0, 1023, 650\)\]/.test(lessonsSource) &&
     /insight: "Trong sơ đồ bài này, ADC thấp đại diện ánh sáng yếu; nếu ADC < 400, LED bật\."/.test(lessonsSource) &&
@@ -1921,7 +1921,7 @@ export function runScene3DLessonTemperatureSourceContracts(sceneSource, appSourc
     /syncLessonTemperatureVisual\(\)/.test(updateSource) &&
     !/emitLessonTemperatureValue|onControlsInput/.test(updateSource));
   check("scene-owned-touch-action-covers-temperature-pointer-slide",
-    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\)\?"none":""/.test(touchActionSource));
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
   check("canvas-accessibility-explains-rightward-increase-one-per-five-release-keyboard-and-no-real-temperature-voltage-avr-claim",
     /Tay kéo mức nhiệt 3D khái niệm bài 11:[\s\S]*kéo sang phải để tăng và sang trái để giảm nhiệt độ mô phỏng 0–60 °C,[\s\S]*một độ cho mỗi năm pixel;[\s\S]*kéo chỉ xem trước,[\s\S]*thả mới cập nhật thanh trượt HTML\.[\s\S]*Dùng bàn phím trên thanh trượt tương đương\.[\s\S]*không phải nhiệt độ LM35 thực,[\s\S]*nguồn nhiệt vật lý,[\s\S]*ADC\/điện áp[\s\S]*AVR/.test(sceneSource));
   check("temperature-diagnostics-expose-host-temp-preview-gesture-single-target-and-no-authority",
@@ -1936,7 +1936,7 @@ export function runScene3DLessonTemperatureSourceContracts(sceneSource, appSourc
   check("canvas-keyboard-path-is-not-hijacked-by-temperature-actuation",
     !/lessonTemperature|temperature-heat-source-target|setLessonTemperatureActuation/.test(onKeySource));
   check("public-controller-exports-temperature-api-after-existing-ldr-owner",
-    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,focusLabComponent/.test(publicSource));
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
   check("lesson11-native-range-is-authored-zero-to-60-step-one-default25-degrees-and-rendered-as-keyboard-capable-range",
     /id: 11,[\s\S]*controls: \[slider\("temp", "Nhiệt độ", 0, 60, 25, "°C"\)\]/.test(lessonsSource) &&
     /insight: "Chọn nhiệt độ trên 30 °C để kích hoạt đèn cảnh báo\.[\s\S]*"/.test(lessonsSource) &&
@@ -2062,6 +2062,342 @@ export async function runScene3DLessonTemperatureRaycastContracts() {
   sensor.geometry.dispose();
   targetMaterial.dispose();
   sensorMaterial.dispose();
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export function runScene3DLessonRgbSourceContracts(sceneSource, appSource, lessonsSource, simulatorSource, appCssSource) {
+  for (const [name, value] of Object.entries({sceneSource, appSource, lessonsSource, simulatorSource, appCssSource})) {
+    if (typeof value !== "string" || !value) throw new TypeError(name + " text is required");
+  }
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson05 RGB source contract: " + name);
+    checks.push(name);
+  };
+  const moduleStart = sceneSource.indexOf("function createModule");
+  const moduleEnd = sceneSource.indexOf("export function mountScene", moduleStart);
+  const moduleSource = sceneSource.slice(moduleStart, moduleEnd);
+  const apiStart = sceneSource.indexOf("function syncLessonRgbVisual");
+  const apiEnd = sceneSource.indexOf("function syncLessonPotentiometerDatasets", apiStart);
+  const apiSource = sceneSource.slice(apiStart, apiEnd);
+  const touchActionStart = sceneSource.indexOf("function syncSceneOwnedTouchAction");
+  const touchActionEnd = sceneSource.indexOf("function lessonPotentiometerActuationStatus", touchActionStart);
+  const touchActionSource = sceneSource.slice(touchActionStart, touchActionEnd);
+  const downStart = sceneSource.indexOf("function down(event)");
+  const moveStart = sceneSource.indexOf("function move(event)", downStart);
+  const finishStart = sceneSource.indexOf("function finishPointer", moveStart);
+  const upStart = sceneSource.indexOf("const up=", finishStart);
+  const downSource = sceneSource.slice(downStart, moveStart);
+  const moveSource = sceneSource.slice(moveStart, finishStart);
+  const finishSource = sceneSource.slice(finishStart, upStart);
+  const visibilityStart = sceneSource.indexOf("const onVisibility=");
+  const visibilityEnd = sceneSource.indexOf("const onKey=", visibilityStart);
+  const visibilitySource = sceneSource.slice(visibilityStart, visibilityEnd);
+  const onKeyStart = sceneSource.indexOf("const onKey=", visibilityEnd);
+  const contextLostStart = sceneSource.indexOf("const onContextLost=", onKeyStart);
+  const onKeySource = sceneSource.slice(onKeyStart, contextLostStart);
+  const contextRestoredStart = sceneSource.indexOf("const onContextRestored=", contextLostStart);
+  const contextLostSource = sceneSource.slice(contextLostStart, contextRestoredStart);
+  const setLabLayoutStart = sceneSource.indexOf("function setLabLayout");
+  const setLabLayoutEnd = sceneSource.indexOf("function validateLabEditCallback", setLabLayoutStart);
+  const setLabLayoutSource = sceneSource.slice(setLabLayoutStart, setLabLayoutEnd);
+  const setLabEditStart = sceneSource.indexOf("function setLabEdit");
+  const setLabEditEnd = sceneSource.indexOf("function clampLabTarget", setLabEditStart);
+  const setLabEditSource = sceneSource.slice(setLabEditStart, setLabEditEnd);
+  const setLessonStart = sceneSource.indexOf("function setLesson(lesson)");
+  const setLessonEnd = sceneSource.indexOf("function setWiring", setLessonStart);
+  const setLessonSource = sceneSource.slice(setLessonStart, setLessonEnd);
+  const updateStart = sceneSource.indexOf("function update(snapshot)");
+  const updateEnd = sceneSource.indexOf("function control(action)", updateStart);
+  const updateSource = sceneSource.slice(updateStart, updateEnd);
+  const publicStart = sceneSource.indexOf("return {setLesson");
+  const publicSource = sceneSource.slice(publicStart);
+  const renderControlsStart = appSource.indexOf("function renderControls()");
+  const renderControlsEnd = appSource.indexOf("function highlightArduino", renderControlsStart);
+  const renderControlsSource = appSource.slice(renderControlsStart, renderControlsEnd);
+  const controlsInputStart = appSource.indexOf("function onControlsInput(event)");
+  const controlsInputEnd = appSource.indexOf("function setButtonPress", controlsInputStart);
+  const controlsInputSource = appSource.slice(controlsInputStart, controlsInputEnd);
+  const startPauseStart = appSource.indexOf("function startPause()");
+  const startPauseEnd = appSource.indexOf("function resetSimulation", startPauseStart);
+  const startPauseSource = appSource.slice(startPauseStart, startPauseEnd);
+  const appRgbStart = appSource.indexOf("function revokeSceneLessonRgbActuation");
+  const appRgbEnd = appSource.indexOf("function playNote", appRgbStart);
+  const appRgbSource = appSource.slice(appRgbStart, appRgbEnd);
+  const simulatorRgbStart = simulatorSource.indexOf("case 5:");
+  const simulatorRgbEnd = simulatorSource.indexOf("case 6:", simulatorRgbStart);
+  const simulatorRgbSource = simulatorSource.slice(simulatorRgbStart, simulatorRgbEnd);
+  const rgbCssStart = appCssSource.indexOf("control-red");
+  const rgbCssEnd = appCssSource.indexOf(".control-field select", rgbCssStart);
+  const rgbCssSource = appCssSource.slice(rgbCssStart, rgbCssEnd);
+
+  check("lesson05-creates-three-first-party-tagged-channel-handles-with-exact-authorized-geometry-and-no-authority",
+    /const LESSON_RGB_SOURCE_ID = "lesson-5-rgb-faders";/.test(sceneSource) &&
+    /const LESSON_RGB_CHANNELS = Object\.freeze\(\["red","green","blue"\]\);/.test(sceneSource) &&
+    /\{channel:"red",value:220,z:-1\.25,[\s\S]*\{channel:"green",value:100,z:0,[\s\S]*\{channel:"blue",value:50,z:1\.25,/.test(moduleSource) &&
+    /const handle=box\(module,\[\.66,\.67,\.62\],[\s\S]*\[LESSON_RGB_HANDLE_MIN_X\+\(value\/255\)\*LESSON_RGB_HANDLE_SPAN,\.91,z\]\)/.test(moduleSource) &&
+    /kind:"rgb-fader-handle",lessonId:5,sourceId:LESSON_RGB_SOURCE_ID,[\s\S]*channel,physicalVerified:false,electricalAuthority:false,[\s\S]*measuredDutyCycle:false/.test(moduleSource) &&
+    /state\.rgbFaders\.push\(handle\)/.test(moduleSource));
+  check("rgb-conceptual-horizontal-drag-and-fader-travel-constants-are-exact",
+    /const LESSON_RGB_DRAG_PWM_PER_PX = 2; \/\/ Teaching input units, not a measured duty cycle\./.test(sceneSource) &&
+    /const LESSON_RGB_HANDLE_SPAN = 1\.25; \/\/ Conceptual UI travel, not mm or electrical travel\./.test(sceneSource) &&
+    /const LESSON_RGB_HANDLE_MIN_X = -2\.55;/.test(sceneSource) &&
+    /handle\.position\.x=LESSON_RGB_HANDLE_MIN_X\+[\s\S]*\(values\[channel\]\/255\)\*LESSON_RGB_HANDLE_SPAN/.test(apiSource));
+  check("rgb-datasets-initialize-off-empty-zero-and-explicitly-unverified",
+    /dataset\.lessonRgbMode="off"/.test(sceneSource) &&
+    /dataset\.lessonRgbRed=""/.test(sceneSource) &&
+    /dataset\.lessonRgbGreen=""/.test(sceneSource) &&
+    /dataset\.lessonRgbBlue=""/.test(sceneSource) &&
+    /dataset\.lessonRgbPreviewChannel=""/.test(sceneSource) &&
+    /dataset\.lessonRgbPreviewValue=""/.test(sceneSource) &&
+    /dataset\.lessonRgbGesture="none"/.test(sceneSource) &&
+    /dataset\.lessonRgbHandleCount="0"/.test(sceneSource) &&
+    /dataset\.lessonRgbPhysicalVerified="false"/.test(sceneSource) &&
+    /dataset\.lessonRgbElectricalAuthority="false"/.test(sceneSource) &&
+    /dataset\.lessonRgbMeasuredDutyCycle="false"/.test(sceneSource));
+  check("public-rgb-api-is-exact-six-field-enabled-shape-with-idempotent-safe-off",
+    /function setLessonRgbActuation\(options=\{enabled:false\}\)/.test(apiSource) &&
+    /if\(options\.enabled!==true\)return resetLessonRgbActuation\(true\)/.test(apiSource) &&
+    /const required=\["enabled","lessonId","red","green","blue","onChannelChange"\]/.test(apiSource) &&
+    /Object\.getPrototypeOf\(options\)!==Object\.prototype/.test(apiSource));
+  check("enabled-rgb-path-is-exactly-lesson05-with-three-integer-zero-to-255-values-and-function-callback",
+    /options\.lessonId!==5\|\|currentLessonId!==5/.test(apiSource) &&
+    /LESSON_RGB_CHANNELS\.some\(channel=>[\s\S]*!Number\.isInteger\(options\[channel\]\)[\s\S]*options\[channel\]<0\|\|options\[channel\]>255/.test(apiSource) &&
+    /typeof options\.onChannelChange!=="function"/.test(apiSource));
+  check("rgb-actuator-fails-closed-on-context-layout-edit-hidden-or-any-noncanonical-handle",
+    /!lessonRgbActuation\.enabled\|\|disposed\|\|contextLost/.test(apiSource) &&
+    /labEdit\.enabled\|\|activeLabLayout/.test(apiSource) &&
+    /activeModule\?\.module\?\.visible===false/.test(apiSource) &&
+    /!Array\.isArray\(handles\)\|\|handles\.length!==3/.test(apiSource) &&
+    /handle\?\.isMesh!==true\|\|handle\.parent!==activeModule\.module/.test(apiSource) &&
+    /handle\.userData\?\.kind!=="rgb-fader-handle"/.test(apiSource) &&
+    /handle\.userData\.lessonId!==5/.test(apiSource) &&
+    /handle\.userData\.sourceId!==LESSON_RGB_SOURCE_ID/.test(apiSource) &&
+    /handle\.userData\.channel!==LESSON_RGB_CHANNELS\[index\]/.test(apiSource) &&
+    /handle\.userData\.physicalVerified!==false/.test(apiSource) &&
+    /handle\.userData\.electricalAuthority!==false/.test(apiSource) &&
+    /handle\.userData\.measuredDutyCycle!==false/.test(apiSource));
+  check("rgb-status-is-frozen-with-three-host-values-preview-handle-count-mode-and-no-authority",
+    /function lessonRgbStatus\(ok=true\)[\s\S]*return Object\.freeze\(\{[\s\S]*active:currentLessonRgbActuator\(\)!==null,[\s\S]*red:[\s\S]*green:[\s\S]*blue:[\s\S]*previewChannel:[\s\S]*previewValue:[\s\S]*handleCount:[\s\S]*mode:[\s\S]*physicalVerified:false,electricalAuthority:false,measuredDutyCycle:false/.test(apiSource));
+  check("scene-rgb-api-never-mutates-host-controls-electrical-graph-progress-storage-avr-or-led-material",
+    !/state\.controls|recordPracticeAction|connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|markCompleted|quizSolved|localStorage|avr|\.led\.material|emissive/i.test(apiSource));
+  check("rgb-hit-test-raycasts-only-current-exact-handles-nonrecursively-and-returns-channel-from-hit-object",
+    /function lessonRgbHit\(event\)/.test(apiSource) &&
+    /const current=currentLessonRgbActuator\(\)/.test(apiSource) &&
+    /scene\.updateMatrixWorld\(true\)/.test(apiSource) &&
+    /raycaster\.intersectObjects\(current\.handles,false\)\[0\]\?\?null/.test(apiSource) &&
+    /if\(!current\.handles\.includes\(handle\)\)return null/.test(apiSource) &&
+    /const channel=handle\.userData\.channel/.test(apiSource));
+  const rgbDownStart = downSource.indexOf("const rgbHit=lessonRgbHit(event)");
+  const rgbDownEnd = downSource.indexOf("if(labEdit.enabled&&activeLabLayout)", rgbDownStart);
+  const rgbDownSource = downSource.slice(rgbDownStart, rgbDownEnd);
+  check("pointerdown-rgb-owner-precedes-lab-and-captures-channel-object-all-host-values-and-callback-without-host-write",
+    rgbDownStart >= 0 && rgbDownEnd > rgbDownStart &&
+    /kind:"lesson-rgb-actuator",lessonId:5/.test(rgbDownSource) &&
+    /channel:rgbHit\.channel/.test(rgbDownSource) &&
+    /sourceId:rgbHit\.sourceId,sourceObject:rgbHit\.handle/.test(rgbDownSource) &&
+    /startHostValues:Object\.freeze\(\{[\s\S]*red:rgbHit\.red,green:rgbHit\.green,blue:rgbHit\.blue,[\s\S]*\}\)/.test(rgbDownSource) &&
+    /previewValue:rgbHit\.value/.test(rgbDownSource) &&
+    /onChannelChange:rgbHit\.onChannelChange/.test(rgbDownSource) &&
+    /canvas\.setPointerCapture\?\.\(event\.pointerId\)/.test(rgbDownSource) &&
+    !/emitLessonRgbChannel|onControlsInput|state\.controls/.test(rgbDownSource));
+  const rgbMoveStart = moveSource.indexOf('drag.kind==="lesson-rgb-actuator"');
+  const rgbMoveEnd = moveSource.indexOf('}else if(drag.kind==="lab-component")', rgbMoveStart);
+  const rgbMoveSource = moveSource.slice(rgbMoveStart, rgbMoveEnd);
+  check("pointermove-owns-rgb-handle-preview-without-camera-layout-host-callback-or-led-color-preview",
+    rgbMoveStart >= 0 && rgbMoveEnd > rgbMoveStart &&
+    /event\.preventDefault\(\)/.test(rgbMoveSource) &&
+    /if\(moved\)updateLessonRgbDrag\(event\)/.test(rgbMoveSource) &&
+    !/theta|phi|setLabVisualTransform|emitLessonRgbChannel|onControlsInput|\.led|emissive|\.color\.set/.test(rgbMoveSource));
+  check("rgb-preview-is-bounded-start-plus-two-command-units-per-rightward-css-pixel",
+    /const deltaX=event\.clientX-drag\.startClientX/.test(apiSource) &&
+    /drag\.previewValue=Math\.max\(0,Math\.min\(255,[\s\S]*Math\.round\(drag\.startHostValues\[drag\.channel\]\+deltaX\*LESSON_RGB_DRAG_PWM_PER_PX\)\)\)/.test(apiSource));
+  check("pointerup-folds-final-rgb-release-displacement-before-clearing-owned-drag",
+    /if\(select&&drag\.kind==="lesson-rgb-actuator"\)[\s\S]*const deltaX=event\.clientX-drag\.startClientX;[\s\S]*Math\.hypot\(deltaX,deltaY\)>drag\.tapThreshold[\s\S]*const original=drag;[\s\S]*updateLessonRgbDrag\(event\)[\s\S]*if\(drag!==original\|\|event\.pointerId!==drag\.pointerId\)return/.test(finishSource) &&
+    finishSource.indexOf("updateLessonRgbDrag(event)") < finishSource.indexOf("const finished=drag"));
+  check("pointerup-rgb-commit-requires-current-channel-object-source-all-host-values-callback-move-and-new-bounded-preview",
+    /finished\.kind==="lesson-rgb-actuator"/.test(finishSource) &&
+    /const index=LESSON_RGB_CHANNELS\.indexOf\(finished\.channel\)/.test(finishSource) &&
+    /current\.handles\[index\]===finished\.sourceObject/.test(finishSource) &&
+    /current\.sourceId===finished\.sourceId/.test(finishSource) &&
+    /current\.onChannelChange===finished\.onChannelChange/.test(finishSource) &&
+    /LESSON_RGB_CHANNELS\.every\(channel=>[\s\S]*current\[channel\]===finished\.startHostValues\[channel\]\)/.test(finishSource) &&
+    /if\(select&&moved&&stillCurrent&&[\s\S]*Number\.isInteger\(finished\.previewValue\)&&[\s\S]*finished\.previewValue>=0&&finished\.previewValue<=255&&[\s\S]*finished\.previewValue!==finished\.startHostValues\[finished\.channel\]\)[\s\S]*emitLessonRgbChannel/.test(finishSource));
+  check("rgb-host-callback-meta-is-frozen-exact-five-field-pointer-change-and-physical-unverified-with-separate-channel",
+    /callback\(channel,value,Object\.freeze\(\{[\s\S]*lessonId:5,source:"pointer",pointerType,phase:"change",[\s\S]*physicalVerified:false,[\s\S]*\}\)\)===true/.test(apiSource) &&
+    /LESSON_RGB_CHANNELS\.includes\(channel\)/.test(apiSource) &&
+    /catch\{return false;\}/.test(apiSource));
+  check("pointercancel-and-lostcapture-share-rgb-noncommit-finish-path",
+    /const cancel=event=>\{[^}]*finishPointer\(event,false\)/.test(sceneSource) &&
+    /addEventListener\("pointercancel",cancel\)/.test(sceneSource) &&
+    /addEventListener\("lostpointercapture",cancel\)/.test(sceneSource));
+  check("hidden-document-cancels-rgb-preview-without-host-change",
+    /if\(document\.hidden\)\{[\s\S]*cancelLessonRgbGesture\(false\);[\s\S]*return;/.test(visibilitySource) &&
+    !/emitLessonRgbChannel/.test(visibilitySource));
+  check("layout-edit-lesson-context-loss-and-dispose-reset-rgb-actuation",
+    /resetLessonRgbActuation\(false\)/.test(setLabLayoutSource) &&
+    /if\(nextEditEnabled\)resetLessonRgbActuation\(false\)/.test(setLabEditSource) &&
+    /resetLessonRgbActuation\(false\)/.test(setLessonSource) &&
+    /resetLessonRgbActuation\(false\)/.test(contextLostSource) &&
+    /disposed=true;[\s\S]*resetLessonRgbActuation\(false\)/.test(publicSource));
+  check("scene-update-resyncs-rgb-fader-visuals-without-emitting-input-or-reading-led-color-as-control",
+    /syncLessonRgbVisual\(\)/.test(updateSource) &&
+    !/emitLessonRgbChannel|onControlsInput/.test(updateSource) &&
+    !/lessonRgbActuation\.[\s\S]*\.led\.material|lessonRgbActuation\.[\s\S]*emissive/.test(updateSource));
+  check("scene-owned-touch-action-covers-rgb-fader-owner-after-temperature",
+    /canvas\.style\.touchAction=\(labEdit\.enabled\|\|lessonPotentiometerActuation\.enabled\|\|[\s\S]*lessonPianoActuation\.enabled\|\|lessonServoActuation\.enabled\|\|[\s\S]*lessonFsrActuation\.enabled\|\|lessonUltrasonicActuation\.enabled\|\|[\s\S]*lessonLdrActuation\.enabled\|\|[\s\S]*lessonTemperatureActuation\.enabled\|\|[\s\S]*lessonRgbActuation\.enabled\)\?"none":""/.test(touchActionSource));
+  check("canvas-accessibility-explains-three-channels-plus-two-preview-release-keyboard-and-no-duty-current-color-or-avr-truth",
+    /Ba tay gạt R G B 3D khái niệm bài 5:[\s\S]*kéo từng tay sang phải tăng,[\s\S]*sang trái giảm hai điểm PWM mô phỏng mỗi pixel,[\s\S]*0–255[\s\S]*Chỉ xem trước vị trí tay gạt;[\s\S]*thả mới cập nhật đúng thanh trượt HTML đỏ, xanh lá hoặc xanh dương[\s\S]*Bàn phím dùng ba thanh trượt HTML riêng[\s\S]*không chứng minh duty cycle, điện áp, dòng, màu quang học hay dây\/AVR vật lý/.test(sceneSource));
+  check("rgb-diagnostics-expose-three-host-values-preview-channel-value-gesture-three-handles-and-no-authority",
+    /dataset\.lessonRgbMode=lessonRgbActuation\.enabled\?"pointer-slide":"off"/.test(apiSource) &&
+    /dataset\[key\]=lessonRgbActuation\.enabled\?String\(lessonRgbActuation\[channel\]\):""/.test(apiSource) &&
+    /dataset\.lessonRgbPreviewChannel=preview===null\?"":gesture\.channel/.test(apiSource) &&
+    /dataset\.lessonRgbPreviewValue=preview===null\?"":String\(preview\)/.test(apiSource) &&
+    /dataset\.lessonRgbGesture=gesture\?\(moved\?"dragging":"grabbed"\):"none"/.test(apiSource) &&
+    /dataset\.lessonRgbHandleCount=String\(activeModule\?\.rgbFaders\?\.length\?\?0\)/.test(apiSource) &&
+    /dataset\.lessonRgbPhysicalVerified="false"/.test(apiSource) &&
+    /dataset\.lessonRgbElectricalAuthority="false"/.test(apiSource) &&
+    /dataset\.lessonRgbMeasuredDutyCycle="false"/.test(apiSource));
+  check("canvas-keyboard-path-is-not-hijacked-by-rgb-actuation",
+    !/lessonRgb|rgb-fader-handle|setLessonRgbActuation/.test(onKeySource));
+  check("public-controller-exports-rgb-api-after-temperature-and-before-focus",
+    /setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,focusLabComponent/.test(publicSource));
+  check("lesson05-authors-three-independent-native-ranges-zero-to-255-step-one-with-exact-defaults",
+    /id: 5,[\s\S]*controls: \[slider\("red", "Đỏ \(R\)", 0, 255, 220\), slider\("green", "Xanh \(G\)", 0, 255, 100\), slider\("blue", "Lam \(B\)", 0, 255, 50\)\]/.test(lessonsSource) &&
+    /if\(config\.type==="slider"\)/.test(renderControlsSource) &&
+    /input\.type="range";input\.id=`control-\$\{config\.key\}`;input\.dataset\.control=config\.key/.test(renderControlsSource) &&
+    /Object\.assign\(input,\{min:config\.min,max:config\.max,step:config\.step,value:state\.controls\[config\.key\]\}\)/.test(renderControlsSource));
+  check("lesson05-native-rgb-ranges-have-44px-keyboard-targets-and-focus-rings",
+    rgbCssStart >= 0 && rgbCssEnd > rgbCssStart &&
+    /control-red/.test(rgbCssSource) && /control-green/.test(rgbCssSource) && /control-blue/.test(rgbCssSource) &&
+    /min-height:\s*44px/.test(rgbCssSource) && /height:\s*44px/.test(rgbCssSource) &&
+    /focus-visible/.test(rgbCssSource) && /outline:\s*3px solid #0b8b7b/.test(rgbCssSource));
+  check("lesson05-simulator-clamps-all-three-channel-commands-and-keeps-rgb-render-value-synthetic",
+    /const values = \["red", "green", "blue"\]\.map\(key => Math\.round\(clamp\(c\[key\], 0, 255\)\)\)/.test(simulatorRgbSource) &&
+    /const color = "#" \+ values\.map\(v => v\.toString\(16\)\.padStart\(2, "0"\)\)\.join\(""\)/.test(simulatorRgbSource) &&
+    /kind: "rgb", led: running && intensity > 0/.test(simulatorRgbSource) &&
+    /rgb: color, rgbIntensity: running \? intensity : 0, brightness: running \? intensity : 0/.test(simulatorRgbSource) &&
+    /serial: `D9\/D10\/D11 = \$\{values\.join\(" \/ "\)\}`/.test(simulatorRgbSource) &&
+    /pins: \[\["D9", String\(values\[0\]\)\], \["D10", String\(values\[1\]\)\], \["D11", String\(values\[2\]\)\]\]/.test(simulatorRgbSource));
+  check("host-revoke-retires-whole-rgb-binding-and-safe-offs-scene-without-changing-channel-state",
+    /function revokeSceneLessonRgbActuation\(\)\{[\s\S]*const binding=state\.sceneRgbActuation;[\s\S]*if\(binding\)binding\.active=false;[\s\S]*state\.sceneRgbActuation=null;[\s\S]*setLessonRgbActuation\?\.\(\{enabled:false\}\)/.test(appRgbSource) &&
+    !/state\.controls\.(?:red|green|blue)\s*=/.test(appRgbSource.slice(0, appRgbSource.indexOf("function syncSceneLessonRgbActuation"))));
+  check("host-sync-requires-exact-current-connected-enabled-three-native-rgb-ranges-and-valid-stage",
+    /function syncSceneLessonRgbActuation\(\)/.test(appRgbSource) &&
+    /if\(!scene\?\.setLessonRgbActuation\)return/.test(appRgbSource) &&
+    /const channels=\["red","green","blue"\]/.test(appRgbSource) &&
+    /state\.lessonId===5/.test(appRgbSource) &&
+    /config\?\.type==="slider"&&config\.min===0&&[\s\S]*config\.max===255&&config\.step===1/.test(appRgbSource) &&
+    /nativeInputs\[channel\]=\$\("control-"\+channel\)/.test(appRgbSource) &&
+    /values\[channel\]=state\.controls\[channel\]/.test(appRgbSource) &&
+    /Number\.isInteger\(value\)&&value>=0&&value<=255/.test(appRgbSource) &&
+    /native\?\.tagName==="INPUT"&&native\.type==="range"&&[\s\S]*native\.dataset\.control===channel&&native\.min==="0"&&[\s\S]*native\.max==="255"&&native\.step==="1"&&[\s\S]*!native\.disabled&&native\.isConnected/.test(appRgbSource) &&
+    /if\(!supported\|\|document\.hidden\|\|state\.stageTab!=="3d"\|\|[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)\)/.test(appRgbSource));
+  check("host-scene-rgb-callback-requires-current-binding-exact-channel-bounded-value-and-frozen-five-field-meta",
+    /binding\.onChannelChange=\(channel,proposed,meta\)=>\{[\s\S]*binding!==state\.sceneRgbActuation[\s\S]*!binding\.active[\s\S]*state\.lessonId!==5[\s\S]*state\.stageTab!=="3d"[\s\S]*document\.hidden[\s\S]*state\.labEditorUI\?\.isEditingIn3D\?\.\(\)[\s\S]*!channels\.includes\(channel\)[\s\S]*!Number\.isInteger\(proposed\)[\s\S]*proposed<0\|\|proposed>255/.test(appRgbSource) &&
+    /!meta\|\|!Object\.isFrozen\(meta\)\|\|[\s\S]*Object\.getPrototypeOf\(meta\)!==Object\.prototype\|\|[\s\S]*Reflect\.ownKeys\(meta\)\.length!==5/.test(appRgbSource) &&
+    /const fields=\["lessonId","source","pointerType","phase","physicalVerified"\]/.test(appRgbSource) &&
+    /metadata\.lessonId!==5\|\|metadata\.source!=="pointer"\|\|[\s\S]*!\["mouse","touch","pen"\]\.includes\(metadata\.pointerType\)\|\|[\s\S]*metadata\.phase!=="change"\|\|metadata\.physicalVerified!==false/.test(appRgbSource));
+  check("accepted-scene-rgb-change-writes-only-exact-channel-native-range-reuses-change-path-and-requires-three-handle-unmeasured-receipt",
+    /if\(!channels\.every\(key=>\{[\s\S]*const native=\$\("control-"\+key\);[\s\S]*native===binding\.nativeInputs\[key\][\s\S]*state\.controls\[key\]===binding\.values\[key\][\s\S]*\}\)\)return false/.test(appRgbSource) &&
+    /const native=binding\.nativeInputs\[channel\]/.test(appRgbSource) &&
+    /native\.value=String\(proposed\);[\s\S]*onControlsInput\(\{target:native,type:"change",source:"scene"\}\);[\s\S]*return state\.controls\[channel\]===proposed/.test(appRgbSource) &&
+    /scene\.setLessonRgbActuation\(\{[\s\S]*enabled:true,lessonId:5,[\s\S]*red:values\.red,green:values\.green,blue:values\.blue,[\s\S]*onChannelChange:binding\.onChannelChange,[\s\S]*\}\)/.test(appRgbSource) &&
+    /receipt\?\.active!==true\|\|receipt\?\.handleCount!==3\|\|[\s\S]*receipt\?\.physicalVerified!==false\|\|receipt\?\.electricalAuthority!==false\|\|[\s\S]*receipt\?\.measuredDutyCycle!==false/.test(appRgbSource) &&
+    !/connectCircuit\(|disconnectCircuit\(|applyCanonicalCircuit|markCompleted|quizSolved|mastery/.test(appRgbSource));
+  check("any-real-native-rgb-input-revokes-whole-held-preview-before-host-change-and-resyncs-afterward",
+    /if\(\["red","green","blue"\]\.includes\(key\)&&state\.lessonId===5&&[\s\S]*config\.type==="slider"&&[\s\S]*event\.source!=="scene"\)[\s\S]*revokeSceneLessonRgbActuation\(\)/.test(controlsInputSource) &&
+    /if\(\["red","green","blue"\]\.includes\(key\)&&state\.lessonId===5&&[\s\S]*config\.type==="slider"\)[\s\S]*syncSceneLessonRgbActuation\(\)/.test(controlsInputSource));
+  check("start-pause-revokes-stale-rgb-preview-before-run-state-change-and-finally-rearms",
+    /const rearmRgb=state\.lessonId===5;[\s\S]*if\(rearmRgb\)revokeSceneLessonRgbActuation\(\);[\s\S]*try\{/.test(startPauseSource) &&
+    /\}finally\{[\s\S]*if\(rearmRgb\)syncSceneLessonRgbActuation\(\);[\s\S]*\}\s*\}/.test(startPauseSource));
+  check("host-stage-reset-lesson-visibility-focus-edit-layout-reconcile-webgl-beforeunload-and-initial-mount-own-rgb-lifecycle",
+    /function renderStage\(\)[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /function resetSimulation\(\)[\s\S]*revokeSceneLessonRgbActuation\(\)[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /function setLesson\(id,replaceHash=true\)[\s\S]*revokeSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /document\.addEventListener\("visibilitychange",\(\)=>\{[\s\S]*revokeSceneLessonRgbActuation\(\)[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("blur",\(\)=>\{[\s\S]*revokeSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("focus",\(\)=>\{[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /window\.addEventListener\("beforeunload",\(\)=>\{[\s\S]*revokeSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /onEditModeChange\(\)\{[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /onLayoutChange\(\)\{[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /onSceneReconciled\(layout,meta,lessonId\)\{[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextlost",[\s\S]*revokeSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /addEventListener\("webglcontextrestored",[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource) &&
+    /state\.scene=mountScene[\s\S]*syncSceneLessonRgbActuation\(\)/.test(appSource));
+
+  return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
+}
+
+export async function runScene3DLessonRgbRaycastContracts() {
+  const T = await import("../assets/vendor/three.module.min.js");
+  const checks = [];
+  const check = (name, condition) => {
+    if (!condition) throw new Error("scene3d lesson05 RGB raycast contract: " + name);
+    checks.push(name);
+  };
+  const width = 640, height = 360, aspect = width / height;
+  const camera = new T.PerspectiveCamera(38, aspect, .1, 100);
+  const theta = .48, phi = .94;
+  const fitted = Math.max(16.7, 18.5 /
+    (2 * Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * Math.max(.45, aspect)));
+  const radius = Math.min(48, Math.max(8, fitted));
+  camera.position.set(
+    radius * Math.sin(phi) * Math.sin(theta),
+    radius * Math.cos(phi) + 5,
+    radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(1.15, .35, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const module = new T.Group();
+  module.position.set(5.15, .55, .10);
+  const channels = [
+    { channel: "red", value: 220, z: -1.25 },
+    { channel: "green", value: 100, z: 0 },
+    { channel: "blue", value: 50, z: 1.25 },
+  ];
+  const handles = channels.map(({channel,value,z}) => {
+    const material = new T.MeshBasicMaterial();
+    const handle = new T.Mesh(new T.BoxGeometry(.66, .67, .62), material);
+    handle.position.set(-2.55 + (value / 255) * 1.25, .91, z);
+    handle.userData = {
+      kind: "rgb-fader-handle", lessonId: 5, sourceId: "lesson-5-rgb-faders", channel,
+      physicalVerified: false, electricalAuthority: false, measuredDutyCycle: false,
+    };
+    module.add(handle);
+    return handle;
+  });
+  const ledMaterial = new T.MeshBasicMaterial();
+  const passiveLed = new T.Mesh(new T.CylinderGeometry(.75, .75, .47, 32), ledMaterial);
+  passiveLed.position.set(0, .48, 0);
+  module.add(passiveLed);
+  module.updateMatrixWorld(true);
+  const raycaster = new T.Raycaster();
+  const hitHandleAt = worldPoint => {
+    const projected = worldPoint.clone().project(camera);
+    raycaster.setFromCamera(new T.Vector2(projected.x, projected.y), camera);
+    return raycaster.intersectObjects(handles, false)[0]?.object ?? null;
+  };
+
+  check("exactly-three-native-three-rgb-fader-handles-have-unique-channels-shared-source-and-no-authority",
+    handles.length===3 &&
+    new Set(handles.map(handle=>handle.userData.channel)).size===3 &&
+    handles.every((handle,index)=>handle.isMesh===true&&handle.parent===module&&handle.children.length===0&&
+      handle.userData.kind==="rgb-fader-handle"&&handle.userData.lessonId===5&&
+      handle.userData.sourceId==="lesson-5-rgb-faders"&&handle.userData.channel===channels[index].channel&&
+      handle.userData.physicalVerified===false&&handle.userData.electricalAuthority===false&&
+      handle.userData.measuredDutyCycle===false));
+  check("default-view-projected-centers-raycast-to-their-own-rgb-handles-without-cross-channel-occlusion",
+    handles.every(handle=>hitHandleAt(handle.getWorldPosition(new T.Vector3()))===handle));
+  const ledCenter = passiveLed.getWorldPosition(new T.Vector3());
+  const offTarget = module.localToWorld(new T.Vector3(-3.65, .60, 2.45));
+  check("passive-rgb-output-led-and-off-target-region-do-not-hit-any-rgb-fader-handle",
+    hitHandleAt(ledCenter)===null && hitHandleAt(offTarget)===null);
+
+  for(const handle of handles){handle.geometry.dispose();handle.material.dispose();}
+  passiveLed.geometry.dispose();ledMaterial.dispose();
   return Object.freeze({ total: checks.length, passed: checks.length, failed: 0, checks: Object.freeze(checks) });
 }
 
@@ -2488,6 +2824,11 @@ export async function runScene3DContracts() {
   for (const name of lessonTemperatureSourceContracts.checks) check("lesson-temperature-source-"+name,true);
   const lessonTemperatureRaycastContracts = await runScene3DLessonTemperatureRaycastContracts();
   for (const name of lessonTemperatureRaycastContracts.checks) check("lesson-temperature-raycast-"+name,true);
+  const lessonRgbSourceContracts = runScene3DLessonRgbSourceContracts(
+    sceneSource, appSource, lessonsSource, simulatorSource, appCssSource);
+  for (const name of lessonRgbSourceContracts.checks) check("lesson-rgb-source-"+name,true);
+  const lessonRgbRaycastContracts = await runScene3DLessonRgbRaycastContracts();
+  for (const name of lessonRgbRaycastContracts.checks) check("lesson-rgb-raycast-"+name,true);
   const committedWireRepairSourceContracts = runScene3DCommittedWireRepairSourceContracts(sceneSource);
   for (const name of committedWireRepairSourceContracts.checks) check("committed-wire-repair-source-"+name,true);
   const holeLinkSourceContracts = runScene3DHoleLinkSourceContracts(sceneSource);

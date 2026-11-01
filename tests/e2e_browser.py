@@ -1025,6 +1025,153 @@ def main() -> None:
             and actual.get("sceneContext") == "ready"
         )
 
+    def lesson05_scene_rgb_fader_pixels(page):
+        """Project all three current Lesson05 RGB fader boxes for real pointer QA.
+
+        Only the first-party module transform, authored fader geometry and initial
+        camera are duplicated. Production Three.js raycasting remains the owner
+        of channel selection for every genuine browser pointer event.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async () => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson05 3D canvas missing');
+            const channels=[
+              {channel:'red',z:-1.25},
+              {channel:'green',z:0},
+              {channel:'blue',z:1.25},
+            ];
+            const previewChannel=canvas.dataset.lessonRgbPreviewChannel||'';
+            const previewValue=canvas.dataset.lessonRgbPreviewValue||'';
+            const values={
+              red:Number(canvas.dataset.lessonRgbRed),
+              green:Number(canvas.dataset.lessonRgbGreen),
+              blue:Number(canvas.dataset.lessonRgbBlue),
+            };
+            if(previewChannel&&previewValue!=='')values[previewChannel]=Number(previewValue);
+            if(channels.some(({channel})=>
+              !Number.isInteger(values[channel])||values[channel]<0||values[channel]>255)){
+              throw new Error('Lesson05 canonical RGB values missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const screenPoint=world=>{
+              const projected=world.clone().project(camera);
+              return {
+                x:rect.left+(projected.x+1)*rect.width/2,
+                y:rect.top+(1-projected.y)*rect.height/2,
+                z:projected.z,
+                ndcX:projected.x,ndcY:projected.y,
+              };
+            };
+            return channels.map(({channel,z})=>{
+              const localX=-2.55+(values[channel]/255)*1.25;
+              const centerWorld=new T.Vector3(5.15+localX,.55+.91,.10+z);
+              const center=screenPoint(centerWorld);
+              const corners=[];
+              for(const dx of [-.33,.33])for(const dy of [-.335,.335])
+                for(const dz of [-.31,.31]){
+                  corners.push(screenPoint(new T.Vector3(
+                    centerWorld.x+dx,centerWorld.y+dy,centerWorld.z+dz)));
+                }
+              const xs=corners.map(point=>point.x),ys=corners.map(point=>point.y);
+              return Object.freeze({
+                channel,value:values[channel],x:center.x,y:center.y,
+                projectedWidth:Math.max(...xs)-Math.min(...xs),
+                projectedHeight:Math.max(...ys)-Math.min(...ys),
+                insideFrustum:center.z>=-1&&center.z<=1,
+                insideCanvas:Math.abs(center.ndcX)<1&&Math.abs(center.ndcY)<1,
+                onScreen:center.x>=0&&center.x<innerWidth&&center.y>=0&&center.y<innerHeight,
+                canvasUncovered:document.elementFromPoint(center.x,center.y)===canvas,
+              });
+            });
+        }""")
+
+    def lesson05_rgb_acceptance_state(page):
+        """Read canonical Lesson05 ranges and public RGB scene diagnostics only."""
+        return page.evaluate("""() => {
+            const canvas=document.querySelector('#sceneMount canvas');
+            const channels=['red','green','blue'];
+            if(!canvas)throw new Error('Lesson05 RGB canvas missing');
+            const inputs={};
+            for(const channel of channels){
+              const input=document.querySelector('#control-'+channel);
+              if(!(input instanceof HTMLInputElement)||input.type!=='range'){
+                throw new Error('Lesson05 canonical '+channel+' range missing');
+              }
+              const output=input.closest('.control-field')?.querySelector('output');
+              const label=input.labels?.[0]??null;
+              inputs[channel]=Object.freeze({
+                value:Number(input.value),min:input.min,max:input.max,step:input.step,
+                control:input.dataset.control||'',output:output?.textContent||'',
+                label:label?.textContent||'',labelFor:label?.htmlFor||'',
+                labelCount:input.labels?.length??0,
+                focused:document.activeElement===input,
+              });
+            }
+            return Object.freeze({
+              inputs:Object.freeze(inputs),
+              mode:canvas.dataset.lessonRgbMode||'',
+              red:canvas.dataset.lessonRgbRed||'',
+              green:canvas.dataset.lessonRgbGreen||'',
+              blue:canvas.dataset.lessonRgbBlue||'',
+              previewChannel:canvas.dataset.lessonRgbPreviewChannel||'',
+              previewValue:canvas.dataset.lessonRgbPreviewValue||'',
+              gesture:canvas.dataset.lessonRgbGesture||'',
+              handleCount:Number(canvas.dataset.lessonRgbHandleCount||0),
+              physicalVerified:canvas.dataset.lessonRgbPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonRgbElectricalAuthority||'',
+              measuredDutyCycle:canvas.dataset.lessonRgbMeasuredDutyCycle||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson05_rgb_state_agrees(actual: dict[str, object], expected: dict[str, int]) -> bool:
+        labels={"red":"Đỏ (R)","green":"Xanh (G)","blue":"Lam (B)"}
+        inputs=actual.get("inputs") or {}
+        return (
+            set(expected)=={"red","green","blue"}
+            and all(isinstance(expected[channel],int) and 0<=expected[channel]<=255
+                    for channel in expected)
+            and all(
+                isinstance(inputs.get(channel),dict)
+                and inputs[channel].get("value")==expected[channel]
+                and inputs[channel].get("min")=="0"
+                and inputs[channel].get("max")=="255"
+                and inputs[channel].get("step")=="1"
+                and inputs[channel].get("control")==channel
+                and inputs[channel].get("output")==str(expected[channel])
+                and inputs[channel].get("labelFor")==f"control-{channel}"
+                and inputs[channel].get("labelCount")==1
+                and labels[channel] in str(inputs[channel].get("label"))
+                for channel in ("red","green","blue")
+            )
+            and actual.get("mode")=="pointer-slide"
+            and actual.get("red")==str(expected["red"])
+            and actual.get("green")==str(expected["green"])
+            and actual.get("blue")==str(expected["blue"])
+            and actual.get("previewChannel")==""
+            and actual.get("previewValue")==""
+            and actual.get("gesture")=="none"
+            and actual.get("handleCount")==3
+            and actual.get("physicalVerified")=="false"
+            and actual.get("electricalAuthority")=="false"
+            and actual.get("measuredDutyCycle")=="false"
+            and actual.get("sceneContext")=="ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1528,7 +1675,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 627
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 664
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -1576,6 +1723,12 @@ def main() -> None:
                       and "lesson-temperature-source-scene-temperature-api-never-mutates-host-controls-electrical-graph-progress-storage-or-avr" in
                           scene_lifecycle_names
                       and "lesson-temperature-raycast-default-view-temperature-heat-source-center-hits-exact-target" in
+                          scene_lifecycle_names
+                      and "lesson-rgb-source-pointercancel-and-lostcapture-share-rgb-noncommit-finish-path" in
+                          scene_lifecycle_names
+                      and "lesson-rgb-source-scene-rgb-api-never-mutates-host-controls-electrical-graph-progress-storage-avr-or-led-material" in
+                          scene_lifecycle_names
+                      and "lesson-rgb-raycast-default-view-projected-centers-raycast-to-their-own-rgb-handles-without-cross-channel-occlusion" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
@@ -11858,6 +12011,843 @@ def main() -> None:
                               temperature_progress_storage)
                 finally:
                     temperature_context.close()
+
+                # Lesson05 RGB: three first-party fader meshes are optional 3D
+                # input surfaces for the three existing host-owned native ranges.
+                # The scene previews handle position only; release may request one
+                # bounded native channel change and never recolors the RGB LED by
+                # itself or claims an electrical/physical PWM measurement.
+                rgb_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    rgb_page=rgb_context.new_page()
+                    capture_console(rgb_page)
+                    rgb_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(rgb_page)
+                    rgb_page.locator('.lesson-link[data-lesson="5"]').click()
+                    rgb_canvas=rgb_page.locator("#sceneMount canvas")
+                    rgb_progress=rgb_page.locator("#progressText").inner_text()
+                    rgb_progress_storage=rgb_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    rgb_complete_visible=rgb_page.locator("#completeButton").is_visible()
+                    rgb_initial_output=rgb_page.locator("#simOutput").inner_text()
+                    rgb_default={"red":220,"green":100,"blue":50}
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-red')?.value==='220'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                          &&canvas?.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbRed==='220'
+                          &&canvas.dataset.lessonRgbGreen==='100'
+                          &&canvas.dataset.lessonRgbBlue==='50'
+                          &&canvas.dataset.lessonRgbHandleCount==='3';
+                    }""",timeout=5000)
+                    rgb_initial=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_initial_pixels=lesson05_scene_rgb_fader_pixels(rgb_page)
+                    check("post-v16-lesson05-rgb-native-three-ranges-and-three-faders-ready",
+                          lesson05_rgb_state_agrees(rgb_initial,rgb_default)
+                          and [item["channel"] for item in rgb_initial_pixels]==
+                              ["red","green","blue"]
+                          and all(item["insideFrustum"] and item["insideCanvas"]
+                                  and item["onScreen"] and item["canvasUncovered"]
+                                  and item["projectedWidth"]>0
+                                  and item["projectedHeight"]>0
+                                  for item in rgb_initial_pixels)
+                          and "ba tay gạt r g b 3d" in rgb_initial["canvasLabel"].lower()
+                          and "không chứng minh duty cycle" in
+                              rgb_initial["canvasLabel"].lower(),
+                          json.dumps({"state":rgb_initial,
+                                      "pixels":rgb_initial_pixels},ensure_ascii=False))
+
+                    # Every authored native range remains a complete keyboard
+                    # fallback. Home/End must cover the exact 0..255 interval for
+                    # each channel without changing lesson progress.
+                    rgb_keyboard=[]
+                    for channel in ("red","green","blue"):
+                        slider=rgb_page.locator(f"#control-{channel}")
+                        slider.focus()
+                        slider.press("Home")
+                        home=lesson05_rgb_acceptance_state(rgb_page)
+                        slider.press("End")
+                        end=lesson05_rgb_acceptance_state(rgb_page)
+                        rgb_keyboard.append({
+                            "channel":channel,
+                            "home":home["inputs"][channel],
+                            "end":end["inputs"][channel],
+                            "homeScene":home[channel],
+                            "endScene":end[channel],
+                        })
+                    check("post-v16-lesson05-rgb-native-keyboard-home-end-covers-zero-to-255-per-channel",
+                          len(rgb_keyboard)==3
+                          and all(row["home"]["value"]==0
+                                  and row["home"]["focused"] is True
+                                  and row["homeScene"]=="0"
+                                  and row["end"]["value"]==255
+                                  and row["end"]["focused"] is True
+                                  and row["endScene"]=="255"
+                                  for row in rgb_keyboard)
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress)
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#control-red')?.value==='220'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                    """,timeout=3000)
+
+                    # A no-move click on the real red fader only grabs/releases;
+                    # it never changes the canonical host triplet.
+                    red_pixel=next(item for item in
+                                   lesson05_scene_rgb_fader_pixels(rgb_page)
+                                   if item["channel"]=="red")
+                    rgb_page.mouse.move(red_pixel["x"],red_pixel["y"])
+                    rgb_page.mouse.down()
+                    rgb_tap_pressed=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.mouse.up()
+                    rgb_tap_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-mouse-red-click-is-noop",
+                          rgb_tap_pressed["gesture"]=="grabbed"
+                          and rgb_tap_pressed["previewChannel"]==""
+                          and rgb_tap_pressed["previewValue"]==""
+                          and lesson05_rgb_state_agrees(rgb_tap_after,rgb_default))
+
+                    # Genuine red mouse drag: +10 CSS px => +20 command units,
+                    # so 220 previews 240 while every native value stays unchanged.
+                    red_pixel=next(item for item in
+                                   lesson05_scene_rgb_fader_pixels(rgb_page)
+                                   if item["channel"]=="red")
+                    rgb_page.mouse.move(red_pixel["x"],red_pixel["y"])
+                    rgb_page.mouse.down()
+                    rgb_mouse_grab=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-mouse-red-down-grabs-without-preview-or-host-write",
+                          rgb_mouse_grab["gesture"]=="grabbed"
+                          and rgb_mouse_grab["previewChannel"]==""
+                          and rgb_mouse_grab["previewValue"]==""
+                          and rgb_mouse_grab["inputs"]["red"]["value"]==220
+                          and rgb_mouse_grab["inputs"]["green"]["value"]==100
+                          and rgb_mouse_grab["inputs"]["blue"]["value"]==50)
+                    rgb_page.mouse.move(red_pixel["x"]+10,red_pixel["y"],steps=5)
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonRgbGesture==='dragging'
+                          &&canvas.dataset.lessonRgbPreviewChannel==='red'
+                          &&canvas.dataset.lessonRgbPreviewValue==='240';
+                    }""",timeout=3000)
+                    rgb_mouse_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_mouse_preview_pixels=lesson05_scene_rgb_fader_pixels(rgb_page)
+                    check("post-v16-lesson05-rgb-real-mouse-red-drag-right-previews-240-only",
+                          rgb_mouse_preview["inputs"]["red"]["value"]==220
+                          and rgb_mouse_preview["inputs"]["green"]["value"]==100
+                          and rgb_mouse_preview["inputs"]["blue"]["value"]==50
+                          and rgb_mouse_preview["red"]=="220"
+                          and rgb_mouse_preview["green"]=="100"
+                          and rgb_mouse_preview["blue"]=="50"
+                          and rgb_mouse_preview["previewChannel"]=="red"
+                          and rgb_mouse_preview["previewValue"]=="240"
+                          and rgb_page.locator(
+                              "#simOutput").inner_text()==rgb_initial_output
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress)
+                    check("post-v16-lesson05-rgb-preview-never-bleeds-between-rgb-channels",
+                          {item["channel"]:item["value"]
+                           for item in rgb_mouse_preview_pixels}==
+                              {"red":240,"green":100,"blue":50}
+                          and rgb_mouse_preview["inputs"]["green"]["value"]==100
+                          and rgb_mouse_preview["inputs"]["blue"]["value"]==50)
+                    rgb_page.mouse.up()
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-red')?.value==='240'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                          &&canvas?.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewChannel===''
+                          &&canvas.dataset.lessonRgbPreviewValue==='';
+                    }""",timeout=3000)
+                    rgb_mouse_commit=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-mouse-red-release-commits-240-preserves-green-blue",
+                          lesson05_rgb_state_agrees(
+                              rgb_mouse_commit,{"red":240,"green":100,"blue":50})
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress)
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function(
+                        "() => document.querySelector('#control-red')?.value==='220'",
+                        timeout=3000)
+
+                    rgb_input=rgb_context.new_cdp_session(rgb_page)
+
+                    # Genuine touch on green: 60px LEFT is -120 units, so the
+                    # preview clamps 100→0 while red/blue and all host values stay.
+                    green_pixel=next(item for item in
+                                     lesson05_scene_rgb_fader_pixels(rgb_page)
+                                     if item["channel"]=="green")
+                    if green_pixel["x"]-60<8:
+                        raise AssertionError(
+                            "Lesson05 green fader lacks 60px leftward viewport room")
+                    green_touch={
+                        "x":green_pixel["x"],"y":green_pixel["y"],"id":151,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    green_touch_move={**green_touch,"x":green_pixel["x"]-60}
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[green_touch],
+                    })
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[green_touch_move],
+                    })
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonRgbPreviewChannel==='green'
+                          &&canvas.dataset.lessonRgbPreviewValue==='0';
+                    }""",timeout=3000)
+                    rgb_touch_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-touch-green-drag-left-clamps-zero-preview-only",
+                          rgb_touch_preview["inputs"]["red"]["value"]==220
+                          and rgb_touch_preview["inputs"]["green"]["value"]==100
+                          and rgb_touch_preview["inputs"]["blue"]["value"]==50
+                          and rgb_touch_preview["previewChannel"]=="green"
+                          and rgb_touch_preview["previewValue"]=="0")
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#control-green')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbGesture==='none'
+                    """,timeout=3000)
+                    rgb_touch_commit=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-touch-green-release-commits-zero-preserves-red-blue",
+                          lesson05_rgb_state_agrees(
+                              rgb_touch_commit,{"red":220,"green":0,"blue":50}))
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function(
+                        "() => document.querySelector('#control-green')?.value==='100'",
+                        timeout=3000)
+
+                    # Genuine pen release-only displacement exercises final
+                    # pointerup folding: blue 50 + (103px * 2) clamps to 255.
+                    blue_pixel=next(item for item in
+                                    lesson05_scene_rgb_fader_pixels(rgb_page)
+                                    if item["channel"]=="blue")
+                    if blue_pixel["x"]+103>1272:
+                        raise AssertionError(
+                            "Lesson05 blue fader lacks 103px rightward viewport room")
+                    rgb_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":blue_pixel["x"],"y":blue_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    rgb_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":blue_pixel["x"],"y":blue_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    rgb_pen_grab=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":blue_pixel["x"]+103,"y":blue_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#control-blue')?.value==='255'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbGesture==='none'
+                    """,timeout=3000)
+                    rgb_pen_commit=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-pen-blue-release-only-displacement-clamps-and-commits-255",
+                          rgb_pen_grab["gesture"]=="grabbed"
+                          and rgb_pen_grab["previewChannel"]==""
+                          and rgb_pen_grab["inputs"]["blue"]["value"]==50
+                          and lesson05_rgb_state_agrees(
+                              rgb_pen_commit,{"red":220,"green":100,"blue":255}))
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function(
+                        "() => document.querySelector('#control-blue')?.value==='50'",
+                        timeout=3000)
+
+                    # Same-channel native authority: an actual Home event changes
+                    # red 220→0, revokes the held red preview, and makes late up inert.
+                    stale_red=next(item for item in
+                                   lesson05_scene_rgb_fader_pixels(rgb_page)
+                                   if item["channel"]=="red")
+                    rgb_page.mouse.move(stale_red["x"],stale_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(stale_red["x"]+10,stale_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_same_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.locator("#control-red").focus()
+                    rgb_page.locator("#control-red").press("Home")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-red')?.value==='0'
+                          &&canvas?.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewValue==='';
+                    }""",timeout=3000)
+                    rgb_page.mouse.up()
+                    rgb_same_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-native-red-value-change-revokes-stale-red-preview",
+                          rgb_same_preview["previewChannel"]=="red"
+                          and rgb_same_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(
+                              rgb_same_after,{"red":0,"green":100,"blue":50}))
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function(
+                        "() => document.querySelector('#control-red')?.value==='220'",
+                        timeout=3000)
+
+                    # Cross-channel authority is equally stale-sensitive because
+                    # every pointer captures the complete starting host RGB triplet.
+                    stale_red=next(item for item in
+                                   lesson05_scene_rgb_fader_pixels(rgb_page)
+                                   if item["channel"]=="red")
+                    rgb_page.mouse.move(stale_red["x"],stale_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(stale_red["x"]+10,stale_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_cross_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.locator("#control-green").focus()
+                    rgb_page.locator("#control-green").press("End")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-green')?.value==='255'
+                          &&canvas?.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewValue==='';
+                    }""",timeout=3000)
+                    rgb_page.mouse.up()
+                    rgb_cross_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-native-green-change-revokes-held-red-preview-without-red-replay",
+                          rgb_cross_preview["previewChannel"]=="red"
+                          and rgb_cross_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(
+                              rgb_cross_after,{"red":220,"green":255,"blue":50}))
+                    rgb_page.locator("#resetButton").click()
+                    rgb_page.wait_for_function(
+                        "() => document.querySelector('#control-green')?.value==='100'",
+                        timeout=3000)
+
+                    # Genuine touchCancel maps to pointercancel and must discard a
+                    # green preview without committing any channel.
+                    green_pixel=next(item for item in
+                                     lesson05_scene_rgb_fader_pixels(rgb_page)
+                                     if item["channel"]=="green")
+                    cancel_touch={
+                        "x":green_pixel["x"],"y":green_pixel["y"],"id":152,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    # A touch move must exceed the actual 12px tap threshold.
+                    # At exactly 12px the product correctly stays in grabbed
+                    # mode, so use 16px for a genuine preview before cancel.
+                    cancel_move={**cancel_touch,"x":green_pixel["x"]+16}
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[cancel_touch],
+                    })
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[cancel_move],
+                    })
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewChannel==='green'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='132'
+                    """,timeout=3000)
+                    rgb_cancel_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewChannel===''
+                          &&canvas.dataset.lessonRgbPreviewValue==='';
+                    }""",timeout=3000)
+                    rgb_cancel_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-touchcancel-discards-green-preview-without-commit",
+                          rgb_cancel_preview["previewChannel"]=="green"
+                          and rgb_cancel_preview["previewValue"]=="132"
+                          and lesson05_rgb_state_agrees(rgb_cancel_after,rgb_default))
+
+                    # Native lostpointercapture is a second non-commit cancel path.
+                    rgb_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2ERgbPointerId=null;
+                        window.__arduinoE2ERgbGotCaptureId=null;
+                        window.__arduinoE2ERgbLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2ERgbPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2ERgbGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2ERgbLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_red=next(item for item in
+                                  lesson05_scene_rgb_fader_pixels(rgb_page)
+                                  if item["channel"]=="red")
+                    rgb_page.mouse.move(lost_red["x"],lost_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(lost_red["x"]+10,lost_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ERgbPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2ERgbGotCaptureId===id
+                          &&canvas.dataset.lessonRgbPreviewChannel==='red'
+                          &&canvas.dataset.lessonRgbPreviewValue==='240';
+                    }""",timeout=3000)
+                    rgb_lost_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2ERgbPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson05 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    rgb_page.mouse.move(lost_red["x"]+10.5,lost_red["y"]+.5)
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewValue===''
+                          &&window.__arduinoE2ERgbLostCaptureId===
+                             window.__arduinoE2ERgbPointerId;
+                    }""",timeout=3000)
+                    rgb_page.mouse.up()
+                    rgb_lost_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-native-lostcapture-discards-red-preview-without-commit",
+                          rgb_lost_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(rgb_lost_after,rgb_default))
+
+                    # Run/Pause via the real HTML control retires the complete RGB
+                    # pointer binding before changing simulation state.
+                    run_red=next(item for item in
+                                 lesson05_scene_rgb_fader_pixels(rgb_page)
+                                 if item["channel"]=="red")
+                    rgb_page.mouse.move(run_red["x"],run_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(run_red["x"]+10,run_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_run_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_run_button=rgb_page.locator("#runButton")
+                    rgb_run_button.focus()
+                    rgb_page.keyboard.press("Enter")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&canvas?.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbRed==='220';
+                    }""",timeout=3000)
+                    rgb_run_state=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.keyboard.press("Enter")
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                    """,timeout=3000)
+                    rgb_page.mouse.up()
+                    rgb_late_run_up=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-keyboard-run-pause-cancels-held-fader-without-stale-replay",
+                          rgb_run_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(rgb_run_state,rgb_default)
+                          and lesson05_rgb_state_agrees(rgb_late_run_up,rgb_default)
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress)
+
+                    # Browser tab switching may yield visibilitychange, blur, or
+                    # neither under headless Chromium; observe the native capability
+                    # and require fail-closed cancellation whenever it occurs.
+                    rgb_page.evaluate("""() => {
+                        window.__arduinoE2ERgbBlurCount=0;
+                        window.__arduinoE2ERgbFocusCount=0;
+                        window.addEventListener('blur',()=>window.__arduinoE2ERgbBlurCount+=1);
+                        window.addEventListener('focus',()=>window.__arduinoE2ERgbFocusCount+=1);
+                    }""")
+                    rgb_visibility_peer=rgb_context.new_page()
+                    rgb_visibility_peer.goto("about:blank")
+                    rgb_page.bring_to_front()
+                    rgb_page.wait_for_function("() => document.hidden===false",timeout=3000)
+                    visibility_red=next(item for item in
+                                        lesson05_scene_rgb_fader_pixels(rgb_page)
+                                        if item["channel"]=="red")
+                    rgb_page.mouse.move(visibility_red["x"],visibility_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(
+                        visibility_red["x"]+10,visibility_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_visibility_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_visibility_peer.bring_to_front()
+                    rgb_background_capability=rgb_page.evaluate("""() => ({
+                        hidden:document.hidden===true,
+                        blurCount:window.__arduinoE2ERgbBlurCount||0,
+                    })""")
+                    if rgb_background_capability["hidden"]:
+                        rgb_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='off'
+                        """,polling=100,timeout=5000)
+                    elif rgb_background_capability["blurCount"]>0:
+                        rgb_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='off'
+                        """,polling=100,timeout=5000)
+                    rgb_background_state=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.bring_to_front()
+                    if (not rgb_background_capability["hidden"] and
+                            rgb_background_capability["blurCount"]==0 and
+                            rgb_background_state["gesture"]!="none"):
+                        rgb_page.locator("#resetButton").focus()
+                        rgb_page.keyboard.press("Enter")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.hidden===false
+                          &&document.querySelector('#control-red')?.value==='220'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                          &&canvas?.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbGesture==='none'
+                          &&canvas.dataset.lessonRgbPreviewValue==='';
+                    }""",timeout=5000)
+                    rgb_page.mouse.up()
+                    rgb_visibility_after=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_focus_count=rgb_page.evaluate(
+                        "window.__arduinoE2ERgbFocusCount||0")
+                    rgb_visibility_peer.close()
+                    check("post-v16-lesson05-rgb-real-tab-switch-respects-visibility-blur-capability-and-cancels-safely",
+                          rgb_visibility_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(
+                              rgb_visibility_after,rgb_default)
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress,
+                          json.dumps({
+                              **rgb_background_capability,
+                              "focusCount":rgb_focus_count,
+                              "backgroundMode":rgb_background_state["mode"],
+                              "backgroundGesture":rgb_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL context loss revokes a held red preview and cannot
+                    # write the host triplet. Restore may only re-arm current values.
+                    loss_red=next(item for item in
+                                  lesson05_scene_rgb_fader_pixels(rgb_page)
+                                  if item["channel"]=="red")
+                    rgb_page.mouse.move(loss_red["x"],loss_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(loss_red["x"]+10,loss_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_pre_loss=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2ERgbGL=gl;
+                        window.__arduinoE2ERgbLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ERgbGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonRgbMode==='off'
+                          &&canvas.dataset.lessonRgbGesture==='none';
+                    }""",timeout=10000)
+                    rgb_lost_context=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-webgl-loss-revokes-preview-without-host-write",
+                          rgb_pre_loss["previewValue"]=="240"
+                          and rgb_lost_context["mode"]=="off"
+                          and rgb_lost_context["gesture"]=="none"
+                          and rgb_lost_context["previewValue"]==""
+                          and rgb_lost_context["inputs"]["red"]["value"]==220
+                          and rgb_lost_context["inputs"]["green"]["value"]==100
+                          and rgb_lost_context["inputs"]["blue"]["value"]==50
+                          and rgb_lost_context["measuredDutyCycle"]=="false"
+                          and rgb_lost_context["canvasBusy"]=="true")
+                    rgb_page.mouse.up()
+                    rgb_page.wait_for_timeout(500)
+                    rgb_page.evaluate(
+                        "window.__arduinoE2ERgbLoseExtension.restoreContext()")
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2ERgbGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbRed==='220'
+                          &&canvas.dataset.lessonRgbGreen==='100'
+                          &&canvas.dataset.lessonRgbBlue==='50'
+                          &&canvas.dataset.lessonRgbGesture==='none';
+                    }""",timeout=10000)
+                    rgb_restored=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-webgl-restore-rearms-three-current-native-values",
+                          lesson05_rgb_state_agrees(rgb_restored,rgb_default)
+                          and rgb_restored["canvasBusy"] is None)
+
+                    # Stage and 3D Lab layout lifecycles must revoke the scene owner
+                    # without mutating any channel, then re-arm the same host triplet.
+                    rgb_page.locator("#stageTabWiring").click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='off'
+                    """,timeout=3000)
+                    rgb_stage_off=rgb_canvas.get_attribute("data-lesson-rgb-mode")
+                    rgb_page.locator("#stageTab3d").click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='pointer-slide'
+                    """,timeout=3000)
+                    check("post-v16-lesson05-rgb-stage-roundtrip-revokes-and-rearms-three-current-native-values",
+                          rgb_stage_off=="off"
+                          and lesson05_rgb_state_agrees(
+                              lesson05_rgb_acceptance_state(rgb_page),rgb_default))
+                    rgb_page.locator("#labEditToggle").click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='off'
+                    """,timeout=5000)
+                    rgb_edit_off=rgb_canvas.get_attribute("data-lesson-rgb-mode")
+                    rgb_page.locator("#labEditToggle").click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbMode==='pointer-slide'
+                    """,timeout=5000)
+                    check("post-v16-lesson05-rgb-lab-edit-layout-roundtrip-revokes-and-rearms-three-current-native-values",
+                          rgb_edit_off=="off"
+                          and lesson05_rgb_state_agrees(
+                              lesson05_rgb_acceptance_state(rgb_page),rgb_default))
+
+                    # Exact lesson ownership removes the faders and native RGB
+                    # inputs; returning restores the authored 220/100/50 defaults.
+                    rgb_page.locator('.lesson-link[data-lesson="4"]').click()
+                    check("post-v16-lesson05-rgb-lesson-switch-revokes-old-fader-authority",
+                          rgb_canvas.get_attribute("data-lesson-rgb-mode")=="off"
+                          and rgb_canvas.get_attribute(
+                              "data-lesson-rgb-handle-count")=="0"
+                          and rgb_page.locator("#control-red").count()==0
+                          and rgb_page.locator("#control-green").count()==0
+                          and rgb_page.locator("#control-blue").count()==0
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress)
+                    rgb_page.locator('.lesson-link[data-lesson="5"]').click()
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-red')?.value==='220'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                          &&canvas?.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbHandleCount==='3';
+                    }""",timeout=5000)
+                    check("post-v16-lesson05-rgb-return-restores-authored-220-100-50-defaults",
+                          lesson05_rgb_state_agrees(
+                              lesson05_rgb_acceptance_state(rgb_page),rgb_default))
+
+                    # Native ranges remain 44px keyboard/ARIA targets at 375px.
+                    rgb_page.set_viewport_size({"width":375,"height":812})
+                    rgb_mobile_native=[]
+                    for channel,label in (
+                            ("red","Đỏ (R)"),("green","Xanh (G)"),("blue","Lam (B)")):
+                        slider=rgb_page.locator(f"#control-{channel}")
+                        slider.scroll_into_view_if_needed()
+                        rect=slider.bounding_box()
+                        slider.focus()
+                        focused=lesson05_rgb_acceptance_state(rgb_page)[
+                            "inputs"][channel]["focused"]
+                        rgb_mobile_native.append({
+                            "channel":channel,"label":label,"rect":rect,
+                            "focused":focused,
+                            "roleCount":rgb_page.get_by_role(
+                                "slider",name=label).count(),
+                        })
+                    check("post-v16-lesson05-rgb-mobile-375-three-native-ranges-44px-focus-aria-no-overflow",
+                          len(rgb_mobile_native)==3
+                          and all(row["rect"] is not None
+                                  and row["rect"]["width"]>=44
+                                  and row["rect"]["height"]>=44
+                                  and row["focused"] is True
+                                  and row["roleCount"]==1
+                                  for row in rgb_mobile_native)
+                          and rgb_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+
+                    # Re-project after responsive resize. Three separate genuine
+                    # mobile touch grabs/moves must identify red/green/blue through
+                    # production raycasting; every touch is cancelled, not committed.
+                    rgb_mobile_pixels=lesson05_scene_rgb_fader_pixels(rgb_page)
+                    rgb_mobile_hits=[]
+                    for index,item in enumerate(rgb_mobile_pixels):
+                        if item["x"]+16>=367:
+                            raise AssertionError(
+                                f"Lesson05 {item['channel']} mobile fader lacks 16px rightward room")
+                        touch={
+                            "x":item["x"],"y":item["y"],"id":160+index,
+                            "radiusX":1,"radiusY":1,"force":1,
+                        }
+                        # Mobile touch also uses a strict >12px drag threshold.
+                        # 16px is a real drag and previews +32 PWM units.
+                        moved={**touch,"x":item["x"]+16}
+                        rgb_input.send("Input.dispatchTouchEvent",{
+                            "type":"touchStart","touchPoints":[touch],
+                        })
+                        rgb_input.send("Input.dispatchTouchEvent",{
+                            "type":"touchMove","touchPoints":[moved],
+                        })
+                        expected=min(255,rgb_default[item["channel"]]+32)
+                        rgb_page.wait_for_function("""({channel,value}) => {
+                            const canvas=document.querySelector('#sceneMount canvas');
+                            return canvas?.dataset.lessonRgbPreviewChannel===channel
+                              &&canvas.dataset.lessonRgbPreviewValue===String(value);
+                        }""",arg={"channel":item["channel"],"value":expected},
+                            timeout=3000)
+                        preview=lesson05_rgb_acceptance_state(rgb_page)
+                        rgb_input.send("Input.dispatchTouchEvent",{
+                            "type":"touchCancel","touchPoints":[],
+                        })
+                        rgb_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonRgbGesture==='none'
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue===''
+                        """,timeout=3000)
+                        rgb_mobile_hits.append({
+                            "channel":item["channel"],"preview":preview["previewValue"],
+                            "inside":item["insideFrustum"] and item["insideCanvas"]
+                                and item["onScreen"] and item["canvasUncovered"],
+                            "width":item["projectedWidth"],
+                            "height":item["projectedHeight"],
+                        })
+                    rgb_mobile_after=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-mobile-375-three-fader-real-touch-hit-distinguishability",
+                          [row["channel"] for row in rgb_mobile_hits]==
+                              ["red","green","blue"]
+                          and [row["preview"] for row in rgb_mobile_hits]==
+                               ["252","132","82"]
+                          and all(row["inside"] and row["width"]>0
+                                  and row["height"]>0 for row in rgb_mobile_hits)
+                          and lesson05_rgb_state_agrees(
+                              rgb_mobile_after,rgb_default))
+                    rgb_page.set_viewport_size({"width":1280,"height":820})
+                    rgb_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # Simulator owns RGB output semantics. Stopped mode gates the
+                    # light/intensity only; requested channel pin values remain the
+                    # same educational setpoints. Running exposes the same color.
+                    rgb_simulator=rgb_page.evaluate("""async values => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const pinMap=snapshot=>Object.fromEntries(snapshot.pins);
+                        const stopped=simulate(5,values,0,false,{});
+                        const running=simulate(5,values,0,true,{});
+                        return Object.freeze({
+                          stopped:Object.freeze({
+                            led:stopped.led,brightness:stopped.brightness,
+                            intensity:stopped.rgbIntensity,rgb:stopped.rgb,
+                            value:stopped.value,pins:pinMap(stopped),
+                          }),
+                          running:Object.freeze({
+                            led:running.led,brightness:running.brightness,
+                            intensity:running.rgbIntensity,rgb:running.rgb,
+                            value:running.value,pins:pinMap(running),
+                          }),
+                        });
+                    }""",rgb_default)
+                    rgb_run_button=rgb_page.locator("#runButton")
+                    rgb_run_button.click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                    """,timeout=3000)
+                    rgb_running_ui=rgb_page.locator("#simOutput").inner_text()
+                    rgb_run_button.click()
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                    """,timeout=3000)
+                    check("post-v16-lesson05-rgb-simulator-running-gates-light-output-while-pins-hold-setpoints",
+                          rgb_simulator["stopped"]["led"] is False
+                          and rgb_simulator["stopped"]["brightness"]==0
+                          and rgb_simulator["stopped"]["intensity"]==0
+                          and rgb_simulator["stopped"]["rgb"]=="#dc6432"
+                          and rgb_simulator["stopped"]["value"]=="RGB(220, 100, 50)"
+                          and rgb_simulator["stopped"]["pins"]==
+                              {"D9":"220","D10":"100","D11":"50"}
+                          and rgb_simulator["running"]["led"] is True
+                          and rgb_simulator["running"]["brightness"]>0
+                          and rgb_simulator["running"]["intensity"]>0
+                          and rgb_simulator["running"]["rgb"]=="#dc6432"
+                          and rgb_simulator["running"]["pins"]==
+                              {"D9":"220","D10":"100","D11":"50"}
+                          and rgb_running_ui==
+                              f"{rgb_simulator['running']['value']} · Ba kênh PWM"
+                          and lesson05_rgb_state_agrees(
+                              lesson05_rgb_acceptance_state(rgb_page),rgb_default))
+
+                    # Actual reload exercises beforeunload + scene disposal while
+                    # a genuine red drag is held. Reloaded Lesson05 must start from
+                    # authored defaults and the old late mouseup cannot replay.
+                    dispose_red=next(item for item in
+                                     lesson05_scene_rgb_fader_pixels(rgb_page)
+                                     if item["channel"]=="red")
+                    rgb_page.mouse.move(dispose_red["x"],dispose_red["y"])
+                    rgb_page.mouse.down()
+                    rgb_page.mouse.move(dispose_red["x"]+10,dispose_red["y"],steps=4)
+                    rgb_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonRgbPreviewValue==='240'
+                    """,timeout=3000)
+                    rgb_dispose_preview=lesson05_rgb_acceptance_state(rgb_page)
+                    rgb_page.reload(wait_until="domcontentloaded",timeout=20000)
+                    ready(rgb_page)
+                    rgb_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-red')?.value==='220'
+                          &&document.querySelector('#control-green')?.value==='100'
+                          &&document.querySelector('#control-blue')?.value==='50'
+                          &&canvas?.dataset.lessonRgbMode==='pointer-slide'
+                          &&canvas.dataset.lessonRgbGesture==='none';
+                    }""",timeout=5000)
+                    rgb_page.mouse.up()
+                    rgb_after_dispose=lesson05_rgb_acceptance_state(rgb_page)
+                    check("post-v16-lesson05-rgb-real-reload-disposes-held-fader-without-stale-replay",
+                          rgb_dispose_preview["previewValue"]=="240"
+                          and lesson05_rgb_state_agrees(
+                              rgb_after_dispose,rgb_default)
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress
+                          and rgb_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              rgb_progress_storage)
+
+                    # RGB faders remain simulation-only and do not create learner
+                    # wiring/history, progress/mastery, AVR evidence, or a measured
+                    # physical PWM/duty-cycle claim.
+                    rgb_page.locator("#stageTabWiring").click()
+                    rgb_undo=rgb_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    rgb_redo=rgb_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson05-rgb-no-electrical-graph-history-mastery-progress-avr-or-physical-duty-write",
+                          rgb_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and rgb_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and rgb_page.locator(
+                              ".wire-activate").get_attribute(
+                                  "aria-pressed")=="false"
+                          and rgb_undo.count()==1 and rgb_undo.is_disabled()
+                          and rgb_redo.count()==1 and rgb_redo.is_disabled()
+                          and rgb_canvas.get_attribute(
+                              "data-lesson-rgb-mode")=="off"
+                          and rgb_canvas.get_attribute(
+                              "data-lesson-rgb-physical-verified")=="false"
+                          and rgb_canvas.get_attribute(
+                              "data-lesson-rgb-electrical-authority")=="false"
+                          and rgb_canvas.get_attribute(
+                              "data-lesson-rgb-measured-duty-cycle")=="false"
+                          and rgb_page.locator(
+                              "#progressText").inner_text()==rgb_progress
+                          and rgb_page.locator(
+                              "#completeButton").is_visible()==rgb_complete_visible
+                          and rgb_page.locator("#avrMetrics").is_hidden()
+                          and rgb_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              rgb_progress_storage)
+                finally:
+                    rgb_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence
