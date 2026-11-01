@@ -1289,6 +1289,137 @@ def main() -> None:
             and actual.get("sceneContext")=="ready"
         )
 
+    def lesson10_scene_motor_points(page, pwm: int | None = None):
+        """Project Lesson10's three semantic driver-panel inputs plus passive rotor."""
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedPwm => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson10 3D canvas missing');
+            const current=canvas.dataset.lessonMotorPreviewPwm!==''?
+              Number(canvas.dataset.lessonMotorPreviewPwm):Number(canvas.dataset.lessonMotorPwm);
+            const value=requestedPwm===null?current:Number(requestedPwm);
+            if(!Number.isInteger(value)||value<0||value>255){
+              throw new Error('Lesson10 canonical motor PWM missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const screenPoint=world=>{
+              const projected=world.clone().project(camera);
+              return Object.freeze({
+                x:rect.left+(projected.x+1)*rect.width/2,
+                y:rect.top+(1-projected.y)*rect.height/2,
+                z:projected.z,ndcX:projected.x,ndcY:projected.y,
+              });
+            };
+            const make=(name,world,size)=>{
+              const center=screenPoint(world),corners=[];
+              for(const dx of [-size[0]/2,size[0]/2])
+                for(const dy of [-size[1]/2,size[1]/2])
+                  for(const dz of [-size[2]/2,size[2]/2]){
+                    corners.push(screenPoint(new T.Vector3(
+                      world.x+dx,world.y+dy,world.z+dz)));
+                  }
+              const xs=corners.map(point=>point.x),ys=corners.map(point=>point.y);
+              return Object.freeze({
+                name,x:center.x,y:center.y,
+                projectedWidth:Math.max(...xs)-Math.min(...xs),
+                projectedHeight:Math.max(...ys)-Math.min(...ys),
+                insideFrustum:center.z>=-1&&center.z<=1,
+                insideCanvas:Math.abs(center.ndcX)<1&&Math.abs(center.ndcY)<1,
+                onScreen:center.x>=0&&center.x<innerWidth&&center.y>=0&&center.y<innerHeight,
+                canvasUncovered:document.elementFromPoint(center.x,center.y)===canvas,
+              });
+            };
+            const thumbX=-2.65+(value/255)*1.20;
+            return Object.freeze({
+              pwm:value,
+              thumb:make('pwm',new T.Vector3(5.15+thumbX,.55+.89,.10+1.42),[.78,.72,.70]),
+              forward:make('forward',new T.Vector3(5.15-2.57,.55+1.64,.10+1.40),[.79,.42,.64]),
+              reverse:make('reverse',new T.Vector3(5.15-1.41,.55+1.64,.10+1.40),[.79,.42,.64]),
+              rotor:make('rotor',new T.Vector3(5.15+1.36,.55+.78,.10),[.23,.11,2]),
+            });
+        }""", pwm)
+
+    def lesson10_motor_acceptance_state(page):
+        """Read native Lesson10 controls and public Motor scene diagnostics only."""
+        return page.evaluate("""() => {
+            const slider=document.querySelector('#control-motor');
+            const select=document.querySelector('#control-direction');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(slider instanceof HTMLInputElement)||slider.type!=='range'||
+               !(select instanceof HTMLSelectElement)||!canvas){
+              throw new Error('Lesson10 canonical motor UI/scene missing');
+            }
+            const sliderLabel=slider.labels?.[0]??null;
+            const selectLabel=select.labels?.[0]??null;
+            const output=slider.closest('.control-field')?.querySelector('output');
+            return Object.freeze({
+              pwm:Number(slider.value),pwmMin:slider.min,pwmMax:slider.max,pwmStep:slider.step,
+              pwmControl:slider.dataset.control||'',pwmOutput:output?.textContent||'',
+              pwmLabel:sliderLabel?.textContent||'',pwmLabelFor:sliderLabel?.htmlFor||'',
+              pwmLabelCount:slider.labels?.length??0,pwmFocused:document.activeElement===slider,
+              direction:select.value,directionControl:select.dataset.control||'',
+              directionLabel:selectLabel?.textContent||'',directionLabelFor:selectLabel?.htmlFor||'',
+              directionLabelCount:select.labels?.length??0,directionFocused:document.activeElement===select,
+              directionOptions:Array.from(select.options).map(option=>[option.value,option.textContent]),
+              mode:canvas.dataset.lessonMotorMode||'',scenePwm:canvas.dataset.lessonMotorPwm||'',
+              previewPwm:canvas.dataset.lessonMotorPreviewPwm||'',
+              sceneDirection:canvas.dataset.lessonMotorDirection||'',
+              gesture:canvas.dataset.lessonMotorGesture||'',
+              targetCount:Number(canvas.dataset.lessonMotorTargetCount||0),
+              physicalVerified:canvas.dataset.lessonMotorPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonMotorElectricalAuthority||'',
+              measuredSpeed:canvas.dataset.lessonMotorMeasuredSpeed||'',
+              measuredDirection:canvas.dataset.lessonMotorMeasuredDirection||'',
+              driverPowerModeled:canvas.dataset.lessonMotorDriverPowerModeled||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson10_motor_state_agrees(actual: dict[str, object], pwm: int, direction: str) -> bool:
+        return (
+            0 <= pwm <= 255 and direction in ("forward","reverse")
+            and actual.get("pwm")==pwm
+            and actual.get("pwmMin")=="0"
+            and actual.get("pwmMax")=="255"
+            and actual.get("pwmStep")=="1"
+            and actual.get("pwmControl")=="motor"
+            and actual.get("pwmOutput")==str(pwm)
+            and actual.get("pwmLabelFor")=="control-motor"
+            and actual.get("pwmLabelCount")==1
+            and "Tốc độ PWM" in str(actual.get("pwmLabel"))
+            and actual.get("direction")==direction
+            and actual.get("directionControl")=="direction"
+            and actual.get("directionLabelFor")=="control-direction"
+            and actual.get("directionLabelCount")==1
+            and "Chiều quay" in str(actual.get("directionLabel"))
+            and actual.get("directionOptions")==[["forward","Thuận"],["reverse","Ngược"]]
+            and actual.get("mode")=="pwm+direction"
+            and actual.get("scenePwm")==str(pwm)
+            and actual.get("previewPwm")==""
+            and actual.get("sceneDirection")==direction
+            and actual.get("gesture")=="none"
+            and actual.get("targetCount")==3
+            and actual.get("physicalVerified")=="false"
+            and actual.get("electricalAuthority")=="false"
+            and actual.get("measuredSpeed")=="false"
+            and actual.get("measuredDirection")=="false"
+            and actual.get("driverPowerModeled")=="false"
+            and actual.get("sceneContext")=="ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1792,7 +1923,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 701
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 738
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -1852,6 +1983,12 @@ def main() -> None:
                       and "lesson-stepper-source-scene-update-keeps-stepper-rotor-simulator-owned-while-resyncing-only-input-thumb-from-host-binding" in
                           scene_lifecycle_names
                       and "lesson-stepper-raycast-default-view-stepper-step-count-thumb-center-hits-exact-input-target" in
+                          scene_lifecycle_names
+                      and "lesson-motor-source-pointercancel-and-lostcapture-share-motor-noncommit-finish-path" in
+                          scene_lifecycle_names
+                      and "lesson-motor-source-scene-update-keeps-motor-rotor-simulator-owned-while-resyncing-only-input-panel" in
+                          scene_lifecycle_names
+                      and "lesson-motor-raycast-default-view-centers-hit-exact-pwm-forward-and-reverse-input-targets" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
@@ -13681,6 +13818,834 @@ def main() -> None:
                               stepper_progress_storage)
                 finally:
                     stepper_context.close()
+
+                # Lesson10 DC Motor: three first-party driver-panel input targets
+                # are optional 3D surfaces for the native PWM range and direction
+                # select. The motor rotor remains simulator output-only.
+                motor_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    motor_page=motor_context.new_page()
+                    capture_console(motor_page)
+                    motor_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(motor_page)
+                    motor_page.locator('.lesson-link[data-lesson="10"]').click()
+                    motor_canvas=motor_page.locator("#sceneMount canvas")
+                    motor_slider=motor_page.locator("#control-motor")
+                    motor_direction=motor_page.locator("#control-direction")
+                    motor_progress=motor_page.locator("#progressText").inner_text()
+                    motor_progress_storage=motor_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    motor_complete_visible=motor_page.locator(
+                        "#completeButton").is_visible()
+                    motor_initial_output=motor_page.locator("#simOutput").inner_text()
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-motor')?.value==='160'
+                          &&document.querySelector('#control-direction')?.value==='forward'
+                          &&canvas?.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorPwm==='160'
+                          &&canvas.dataset.lessonMotorDirection==='forward'
+                          &&canvas.dataset.lessonMotorTargetCount==='3';
+                    }""",timeout=5000)
+                    motor_initial=lesson10_motor_acceptance_state(motor_page)
+                    motor_points=lesson10_scene_motor_points(motor_page)
+                    check("post-v16-lesson10-motor-native-controls-and-three-driver-panel-targets-ready",
+                          lesson10_motor_state_agrees(motor_initial,160,"forward")
+                          and all(motor_points[name]["insideFrustum"]
+                                  and motor_points[name]["insideCanvas"]
+                                  and motor_points[name]["onScreen"]
+                                  and motor_points[name]["canvasUncovered"]
+                                  and motor_points[name]["projectedWidth"]>0
+                                  and motor_points[name]["projectedHeight"]>0
+                                  for name in ("thumb","forward","reverse"))
+                          and "signal-only" in motor_initial["canvasLabel"].lower()
+                          and "không kéo trục hay rotor" in
+                              motor_initial["canvasLabel"].lower(),
+                          json.dumps({"state":motor_initial,
+                                      "points":motor_points},ensure_ascii=False))
+
+                    # A real click on the passive output rotor must never become
+                    # either PWM or direction input ownership.
+                    motor_page.mouse.move(
+                        motor_points["rotor"]["x"],motor_points["rotor"]["y"])
+                    motor_page.mouse.down()
+                    motor_rotor_down=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.mouse.up()
+                    motor_rotor_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-passive-rotor-real-mouse-never-grabs-driver-input",
+                          motor_points["rotor"]["onScreen"]
+                          and motor_points["rotor"]["canvasUncovered"]
+                          and motor_rotor_down["gesture"]=="none"
+                          and motor_rotor_down["previewPwm"]==""
+                          and lesson10_motor_state_agrees(
+                              motor_rotor_after,160,"forward"))
+
+                    # Native PWM keyboard fallback covers the complete 0..255 range.
+                    motor_slider.focus()
+                    motor_slider.press("Home")
+                    motor_home=lesson10_motor_acceptance_state(motor_page)
+                    motor_slider.press("End")
+                    motor_end=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-pwm-keyboard-home-end-cover-zero-to-255",
+                          lesson10_motor_state_agrees(motor_home,0,"forward")
+                          and motor_home["pwmFocused"] is True
+                          and lesson10_motor_state_agrees(motor_end,255,"forward")
+                          and motor_end["pwmFocused"] is True
+                          and motor_page.locator(
+                              "#progressText").inner_text()==motor_progress)
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-motor')?.value==='160'
+                          &&document.querySelector('#control-direction')?.value==='forward'
+                    """,timeout=3000)
+
+                    # Native select keyboard changes direction without touching PWM.
+                    motor_direction.focus()
+                    motor_direction.press("End")
+                    motor_reverse_keyboard=lesson10_motor_acceptance_state(motor_page)
+                    motor_direction.press("Home")
+                    motor_forward_keyboard=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-direction-select-keyboard-covers-forward-reverse",
+                          lesson10_motor_state_agrees(
+                              motor_reverse_keyboard,160,"reverse")
+                          and motor_reverse_keyboard["directionFocused"] is True
+                          and lesson10_motor_state_agrees(
+                              motor_forward_keyboard,160,"forward")
+                          and motor_forward_keyboard["directionFocused"] is True)
+
+                    # A real no-move PWM click grabs/releases but cannot change host.
+                    thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(thumb["x"],thumb["y"])
+                    motor_page.mouse.down()
+                    motor_tap_pressed=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.mouse.up()
+                    motor_tap_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-pwm-click-is-noop",
+                          motor_tap_pressed["gesture"]=="grabbed"
+                          and motor_tap_pressed["previewPwm"]==""
+                          and motor_tap_pressed["pwm"]==160
+                          and lesson10_motor_state_agrees(
+                              motor_tap_after,160,"forward"))
+
+                    # Prime-smoked real mouse path: +20 CSS px => 160→preview200;
+                    # native range/output and passive simulator output wait for up.
+                    thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(thumb["x"],thumb["y"])
+                    motor_page.mouse.down()
+                    motor_mouse_grab=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-pwm-down-grabs-without-preview-or-host-write",
+                          motor_mouse_grab["gesture"]=="grabbed"
+                          and motor_mouse_grab["previewPwm"]==""
+                          and motor_mouse_grab["pwm"]==160
+                          and motor_mouse_grab["scenePwm"]=="160")
+                    motor_page.mouse.move(thumb["x"]+20,thumb["y"],steps=5)
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonMotorGesture==='dragging'
+                          &&canvas.dataset.lessonMotorPreviewPwm==='200';
+                    }""",timeout=3000)
+                    motor_mouse_preview=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-pwm-drag-right-previews-200-only",
+                          motor_mouse_preview["pwm"]==160
+                          and motor_mouse_preview["scenePwm"]=="160"
+                          and motor_mouse_preview["sceneDirection"]=="forward"
+                          and motor_mouse_preview["previewPwm"]=="200"
+                          and motor_page.locator(
+                              "#simOutput").inner_text()==motor_initial_output
+                          and motor_page.locator(
+                              "#progressText").inner_text()==motor_progress)
+                    motor_page.mouse.up()
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-motor')?.value==='200'
+                          &&canvas?.dataset.lessonMotorPwm==='200'
+                          &&canvas.dataset.lessonMotorGesture==='none'
+                          &&canvas.dataset.lessonMotorPreviewPwm==='';
+                    }""",timeout=3000)
+                    motor_mouse_commit=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-pwm-release-commits-200-through-native-range",
+                          lesson10_motor_state_agrees(
+                              motor_mouse_commit,200,"forward"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='160'",
+                        timeout=3000)
+
+                    # Direction target is tap/release semantics only. Pointerdown
+                    # on REVERSE holds intent but cannot change the native select.
+                    reverse_point=lesson10_scene_motor_points(motor_page)["reverse"]
+                    motor_page.mouse.move(reverse_point["x"],reverse_point["y"])
+                    motor_page.mouse.down()
+                    motor_reverse_down=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-reverse-down-is-held-intent-only",
+                          motor_reverse_down["gesture"]=="grabbed"
+                          and motor_reverse_down["direction"]=="forward"
+                          and motor_reverse_down["sceneDirection"]=="forward"
+                          and motor_reverse_down["previewPwm"]=="")
+                    motor_page.mouse.up()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-direction')?.value==='reverse'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorDirection==='reverse'
+                    """,timeout=3000)
+                    motor_reverse_commit=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-reverse-release-commits-through-native-select",
+                          lesson10_motor_state_agrees(
+                              motor_reverse_commit,160,"reverse"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-direction')?.value==='forward'",
+                        timeout=3000)
+
+                    # Dragging a direction target must never commit direction.
+                    reverse_point=lesson10_scene_motor_points(motor_page)["reverse"]
+                    motor_page.mouse.move(reverse_point["x"],reverse_point["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(
+                        reverse_point["x"]+14,reverse_point["y"],steps=4)
+                    motor_direction_drag=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.mouse.up()
+                    motor_direction_drag_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-mouse-direction-drag-never-commits",
+                          motor_direction_drag["gesture"]=="dragging"
+                          and motor_direction_drag["direction"]=="forward"
+                          and lesson10_motor_state_agrees(
+                              motor_direction_drag_after,160,"forward"))
+
+                    # Simulator output is running-gated while direction logic and
+                    # host setpoints remain deterministic synthetic values.
+                    motor_simulator=motor_page.evaluate("""async ({motor,direction}) => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const stopped=simulate(10,{motor,direction},0,false,{});
+                        const running=simulate(10,{motor,direction},0,true,{});
+                        return Object.freeze({
+                          stoppedSpeed:stopped.motorSpeed,runningSpeed:running.motorSpeed,
+                          stoppedDirection:stopped.motorDirection,
+                          runningDirection:running.motorDirection,
+                          stoppedPins:Object.fromEntries(stopped.pins),
+                          runningPins:Object.fromEntries(running.pins),
+                          value:running.value,status:running.status,
+                        });
+                    }""",{"motor":200,"direction":"reverse"})
+                    check("post-v16-lesson10-motor-simulator-speed-is-running-gated-and-direction-remains-synthetic",
+                          motor_simulator["stoppedSpeed"]==0
+                          and abs(motor_simulator["runningSpeed"]-200/255)<1e-12
+                          and motor_simulator["stoppedDirection"]==-1
+                          and motor_simulator["runningDirection"]==-1
+                          and motor_simulator["stoppedPins"]==
+                              {"D9":"0","D7":"LOW","D8":"HIGH"}
+                          and motor_simulator["runningPins"]==
+                              {"D9":"200","D7":"LOW","D8":"HIGH"}
+                          and motor_simulator["value"]=="PWM 200 / 255"
+                          and motor_simulator["status"]=="Đảo chiều")
+
+                    # Same-input stale supersession mirrors prime smoke: set PWM0,
+                    # hold +30 preview60, native End255 revokes and late up is inert.
+                    motor_slider.focus();motor_slider.press("Home")
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='0'",
+                        timeout=3000)
+                    stale_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(stale_thumb["x"],stale_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(stale_thumb["x"]+30,stale_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='60'
+                    """,timeout=3000)
+                    motor_same_stale_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_slider.focus();motor_slider.press("End")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-motor')?.value==='255'
+                          &&canvas?.dataset.lessonMotorGesture==='none'
+                          &&canvas.dataset.lessonMotorPreviewPwm==='';
+                    }""",timeout=3000)
+                    motor_page.mouse.up()
+                    motor_same_stale_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-pwm-change-revokes-stale-pwm-preview",
+                          motor_same_stale_preview["pwm"]==0
+                          and motor_same_stale_preview["previewPwm"]=="60"
+                          and lesson10_motor_state_agrees(
+                              motor_same_stale_after,255,"forward"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='160'",
+                        timeout=3000)
+
+                    # Cross-input stale boundary: native direction change revokes
+                    # a held PWM proposal before late mouseup can replay PWM.
+                    stale_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(stale_thumb["x"],stale_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(stale_thumb["x"]+20,stale_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='200'
+                    """,timeout=3000)
+                    motor_cross_pwm_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_direction.focus();motor_direction.press("End")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-direction')?.value==='reverse'
+                          &&canvas?.dataset.lessonMotorGesture==='none'
+                          &&canvas.dataset.lessonMotorPreviewPwm==='';
+                    }""",timeout=3000)
+                    motor_page.mouse.up()
+                    motor_cross_pwm_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-direction-change-revokes-held-pwm-preview",
+                          motor_cross_pwm_preview["previewPwm"]=="200"
+                          and lesson10_motor_state_agrees(
+                              motor_cross_pwm_after,160,"reverse"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-direction')?.value==='forward'
+                          &&document.querySelector('#control-motor')?.value==='160'
+                    """,timeout=3000)
+
+                    # Opposite cross-input case: native PWM change revokes a held
+                    # reverse button before release can switch direction.
+                    reverse_point=lesson10_scene_motor_points(motor_page)["reverse"]
+                    motor_page.mouse.move(reverse_point["x"],reverse_point["y"])
+                    motor_page.mouse.down()
+                    motor_direction_held=lesson10_motor_acceptance_state(motor_page)
+                    motor_slider.focus();motor_slider.press("Home")
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-motor')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorGesture==='none'
+                    """,timeout=3000)
+                    motor_page.mouse.up()
+                    motor_cross_direction_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-pwm-change-revokes-held-direction-tap",
+                          motor_direction_held["gesture"]=="grabbed"
+                          and motor_direction_held["direction"]=="forward"
+                          and lesson10_motor_state_agrees(
+                              motor_cross_direction_after,0,"forward"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='160'",
+                        timeout=3000)
+
+                    motor_input=motor_context.new_cdp_session(motor_page)
+
+                    # Genuine touch preview followed by touchCancel.
+                    touch_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    touch_start={
+                        "x":touch_thumb["x"],"y":touch_thumb["y"],"id":201,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_move={**touch_start,"x":touch_thumb["x"]+16}
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_move],
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='192'
+                    """,timeout=3000)
+                    motor_touch_cancel_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonMotorGesture==='none'
+                          &&canvas.dataset.lessonMotorPreviewPwm==='';
+                    }""",timeout=3000)
+                    motor_touch_cancel=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-touchcancel-discards-pwm-preview-without-commit",
+                          motor_touch_cancel_preview["pwm"]==160
+                          and motor_touch_cancel_preview["previewPwm"]=="192"
+                          and lesson10_motor_state_agrees(
+                              motor_touch_cancel,160,"forward"))
+
+                    # Real touch drag left clamps 160→0 and release commits natively.
+                    touch_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    if touch_thumb["x"]-170<8:
+                        raise AssertionError(
+                            "Lesson10 Motor thumb lacks 170px leftward viewport room")
+                    touch_low={
+                        "x":touch_thumb["x"],"y":touch_thumb["y"],"id":202,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={**touch_low,"x":touch_thumb["x"]-170}
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low],
+                    })
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='0'
+                    """,timeout=3000)
+                    motor_touch_low_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-motor')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorGesture==='none'
+                    """,timeout=3000)
+                    motor_touch_low=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-touch-pwm-drag-left-clamps-and-commits-zero",
+                          motor_touch_low_preview["pwm"]==160
+                          and motor_touch_low_preview["previewPwm"]=="0"
+                          and lesson10_motor_state_agrees(
+                              motor_touch_low,0,"forward"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='160'",
+                        timeout=3000)
+
+                    # Genuine pen release-only displacement folds the final up into
+                    # the PWM preview and clamps 160→255.
+                    pen_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    if pen_thumb["x"]+100>1272:
+                        raise AssertionError(
+                            "Lesson10 Motor thumb lacks 100px rightward viewport room")
+                    motor_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_thumb["x"],"y":pen_thumb["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    motor_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_thumb["x"],"y":pen_thumb["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    motor_pen_grab=lesson10_motor_acceptance_state(motor_page)
+                    motor_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_thumb["x"]+100,"y":pen_thumb["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#control-motor')?.value==='255'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorGesture==='none'
+                    """,timeout=3000)
+                    motor_pen_commit=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-pen-release-only-pwm-clamps-and-commits-255",
+                          motor_pen_grab["gesture"]=="grabbed"
+                          and motor_pen_grab["previewPwm"]==""
+                          and motor_pen_grab["pwm"]==160
+                          and lesson10_motor_state_agrees(
+                              motor_pen_commit,255,"forward"))
+                    motor_page.locator("#resetButton").click()
+                    motor_page.wait_for_function(
+                        "() => document.querySelector('#control-motor')?.value==='160'",
+                        timeout=3000)
+
+                    # Browser-native lostpointercapture is a noncommit cancel path.
+                    motor_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EMotorPointerId=null;
+                        window.__arduinoE2EMotorGotCaptureId=null;
+                        window.__arduinoE2EMotorLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EMotorPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EMotorGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EMotorLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(lost_thumb["x"],lost_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(lost_thumb["x"]+20,lost_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EMotorPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2EMotorGotCaptureId===id
+                          &&canvas.dataset.lessonMotorPreviewPwm==='200';
+                    }""",timeout=3000)
+                    motor_lost_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EMotorPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson10 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    motor_page.mouse.move(lost_thumb["x"]+20.5,lost_thumb["y"]+.5)
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonMotorGesture==='none'
+                          &&canvas.dataset.lessonMotorPreviewPwm===''
+                          &&window.__arduinoE2EMotorLostCaptureId===
+                             window.__arduinoE2EMotorPointerId;
+                    }""",timeout=3000)
+                    motor_page.mouse.up()
+                    motor_lost_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-native-lostcapture-discards-pwm-preview-without-commit",
+                          motor_lost_preview["previewPwm"]=="200"
+                          and lesson10_motor_state_agrees(
+                              motor_lost_after,160,"forward"))
+
+                    # Run/Pause retires held panel ownership before simulator rotor
+                    # state changes; the eventual old pointerup remains inert.
+                    run_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(run_thumb["x"],run_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(run_thumb["x"]+20,run_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='200'
+                    """,timeout=3000)
+                    motor_run_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_run_button=motor_page.locator("#runButton")
+                    motor_run_button.focus();motor_page.keyboard.press("Enter")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-motor')?.value==='160'
+                          &&canvas?.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorGesture==='none';
+                    }""",timeout=3000)
+                    motor_run_state=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.keyboard.press("Enter")
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                    """,timeout=3000)
+                    motor_page.mouse.up()
+                    motor_late_run_up=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-keyboard-run-pause-cancels-held-pwm-without-stale-replay",
+                          motor_run_preview["previewPwm"]=="200"
+                          and lesson10_motor_state_agrees(
+                              motor_run_state,160,"forward")
+                          and lesson10_motor_state_agrees(
+                              motor_late_run_up,160,"forward"))
+
+                    # Real tab switching may report hidden, blur only, or neither
+                    # in headless builds; observe capability and fail closed when delivered.
+                    motor_page.evaluate("""() => {
+                        window.__arduinoE2EMotorBlurCount=0;
+                        window.__arduinoE2EMotorFocusCount=0;
+                        window.addEventListener('blur',()=>window.__arduinoE2EMotorBlurCount+=1);
+                        window.addEventListener('focus',()=>window.__arduinoE2EMotorFocusCount+=1);
+                    }""")
+                    motor_visibility_peer=motor_context.new_page()
+                    motor_visibility_peer.goto("about:blank")
+                    motor_page.bring_to_front()
+                    motor_page.wait_for_function("() => document.hidden===false",timeout=3000)
+                    visibility_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(visibility_thumb["x"],visibility_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(
+                        visibility_thumb["x"]+20,visibility_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='200'
+                    """,timeout=3000)
+                    motor_visibility_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_visibility_peer.bring_to_front()
+                    motor_background_capability=motor_page.evaluate("""() => ({
+                        hidden:document.hidden===true,
+                        blurCount:window.__arduinoE2EMotorBlurCount||0,
+                    })""")
+                    if motor_background_capability["hidden"]:
+                        motor_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='off'
+                        """,polling=100,timeout=5000)
+                    elif motor_background_capability["blurCount"]>0:
+                        motor_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='off'
+                        """,polling=100,timeout=5000)
+                    motor_background_state=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.bring_to_front()
+                    if (not motor_background_capability["hidden"] and
+                            motor_background_capability["blurCount"]==0 and
+                            motor_background_state["gesture"]!="none"):
+                        motor_page.locator("#resetButton").focus()
+                        motor_page.keyboard.press("Enter")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.hidden===false
+                          &&document.querySelector('#control-motor')?.value==='160'
+                          &&document.querySelector('#control-direction')?.value==='forward'
+                          &&canvas?.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorGesture==='none';
+                    }""",timeout=5000)
+                    motor_page.mouse.up()
+                    motor_visibility_after=lesson10_motor_acceptance_state(motor_page)
+                    motor_focus_count=motor_page.evaluate(
+                        "window.__arduinoE2EMotorFocusCount||0")
+                    motor_visibility_peer.close()
+                    check("post-v16-lesson10-motor-real-tab-switch-respects-visibility-blur-capability-and-cancels-safely",
+                          motor_visibility_preview["previewPwm"]=="200"
+                          and lesson10_motor_state_agrees(
+                              motor_visibility_after,160,"forward"),
+                          json.dumps({
+                              **motor_background_capability,
+                              "focusCount":motor_focus_count,
+                              "backgroundMode":motor_background_state["mode"],
+                              "backgroundGesture":motor_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL loss revokes a held PWM proposal; restore can only
+                    # re-arm current native PWM/direction with no physical claims.
+                    loss_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(loss_thumb["x"],loss_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(loss_thumb["x"]+20,loss_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='200'
+                    """,timeout=3000)
+                    motor_pre_loss=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EMotorGL=gl;
+                        window.__arduinoE2EMotorLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EMotorGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonMotorMode==='off'
+                          &&canvas.dataset.lessonMotorGesture==='none';
+                    }""",timeout=10000)
+                    motor_lost_context=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-webgl-loss-revokes-preview-without-host-write",
+                          motor_pre_loss["previewPwm"]=="200"
+                          and motor_lost_context["mode"]=="off"
+                          and motor_lost_context["gesture"]=="none"
+                          and motor_lost_context["previewPwm"]==""
+                          and motor_lost_context["pwm"]==160
+                          and motor_lost_context["direction"]=="forward"
+                          and motor_lost_context["measuredSpeed"]=="false"
+                          and motor_lost_context["measuredDirection"]=="false"
+                          and motor_lost_context["driverPowerModeled"]=="false"
+                          and motor_lost_context["canvasBusy"]=="true")
+                    motor_page.mouse.up()
+                    motor_page.wait_for_timeout(500)
+                    motor_page.evaluate(
+                        "window.__arduinoE2EMotorLoseExtension.restoreContext()")
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EMotorGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorPwm==='160'
+                          &&canvas.dataset.lessonMotorDirection==='forward';
+                    }""",timeout=10000)
+                    motor_restored=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-webgl-restore-rearms-current-native-inputs-only",
+                          lesson10_motor_state_agrees(
+                              motor_restored,160,"forward")
+                          and motor_restored["canvasBusy"] is None)
+
+                    # Stage and Lab edit/layout lifecycles revoke panel ownership
+                    # but preserve host PWM/direction on re-arm.
+                    motor_page.locator("#stageTabWiring").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='off'
+                    """,timeout=3000)
+                    motor_stage_off=motor_canvas.get_attribute("data-lesson-motor-mode")
+                    motor_page.locator("#stageTab3d").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='pwm+direction'
+                    """,timeout=3000)
+                    check("post-v16-lesson10-motor-stage-roundtrip-revokes-and-rearms-current-native-inputs",
+                          motor_stage_off=="off"
+                          and lesson10_motor_state_agrees(
+                              lesson10_motor_acceptance_state(motor_page),160,"forward"))
+                    motor_page.locator("#labEditToggle").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='off'
+                    """,timeout=5000)
+                    motor_edit_off=motor_canvas.get_attribute("data-lesson-motor-mode")
+                    motor_page.locator("#labEditToggle").click()
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorMode==='pwm+direction'
+                    """,timeout=5000)
+                    check("post-v16-lesson10-motor-lab-edit-layout-roundtrip-revokes-and-rearms-current-inputs",
+                          motor_edit_off=="off"
+                          and lesson10_motor_state_agrees(
+                              lesson10_motor_acceptance_state(motor_page),160,"forward"))
+
+                    # Exact lesson ownership removes native controls and three
+                    # scene targets; returning restores authored defaults.
+                    motor_page.locator('.lesson-link[data-lesson="9"]').click()
+                    motor_switched=(
+                        motor_canvas.get_attribute("data-lesson-motor-mode")=="off"
+                        and motor_canvas.get_attribute("data-lesson-motor-target-count")=="0"
+                        and motor_page.locator("#control-motor").count()==0
+                        and motor_page.locator("#control-direction").count()==0)
+                    motor_page.locator('.lesson-link[data-lesson="10"]').click()
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-motor')?.value==='160'
+                          &&document.querySelector('#control-direction')?.value==='forward'
+                          &&canvas?.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorTargetCount==='3';
+                    }""",timeout=5000)
+                    check("post-v16-lesson10-motor-lesson-switch-revokes-and-return-restores-authored-defaults",
+                          motor_switched
+                          and lesson10_motor_state_agrees(
+                              lesson10_motor_acceptance_state(motor_page),160,"forward")
+                          and motor_page.locator(
+                              "#progressText").inner_text()==motor_progress)
+
+                    # Mobile navigation uses first-party hash because the 375px
+                    # drawer is intentionally closed. Both native controls are 44px.
+                    motor_page.set_viewport_size({"width":375,"height":812})
+                    motor_page.goto(base+"#bai-10",wait_until="domcontentloaded",timeout=20000)
+                    ready(motor_page)
+                    motor_slider=motor_page.locator("#control-motor")
+                    motor_direction=motor_page.locator("#control-direction")
+                    motor_slider.scroll_into_view_if_needed()
+                    motor_slider_rect=motor_slider.bounding_box()
+                    motor_slider.focus()
+                    motor_slider_focused=lesson10_motor_acceptance_state(motor_page)["pwmFocused"]
+                    motor_direction.scroll_into_view_if_needed()
+                    motor_direction_rect=motor_direction.bounding_box()
+                    motor_direction.focus()
+                    motor_select_focused=lesson10_motor_acceptance_state(motor_page)["directionFocused"]
+                    check("post-v16-lesson10-motor-mobile-375-native-range-select-44px-focus-aria-no-overflow",
+                          motor_slider_rect is not None
+                          and motor_slider_rect["width"]>=44
+                          and motor_slider_rect["height"]>=44
+                          and motor_direction_rect is not None
+                          and motor_direction_rect["width"]>=44
+                          and motor_direction_rect["height"]>=44
+                          and motor_slider_focused is True
+                          and motor_select_focused is True
+                          and motor_page.get_by_role(
+                              "slider",name="Tốc độ PWM").count()==1
+                          and motor_page.get_by_role(
+                              "combobox",name="Chiều quay").count()==1
+                          and motor_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+
+                    # Native-control focus may scroll canvas offscreen. Projection
+                    # helper deliberately scrolls canvas back before computing the
+                    # first-party semantic target; +16 touch previews 192 then cancels.
+                    mobile_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_mobile_input=motor_context.new_cdp_session(motor_page)
+                    mobile_touch={
+                        "x":mobile_thumb["x"],"y":mobile_thumb["y"],"id":203,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    mobile_move={**mobile_touch,"x":mobile_thumb["x"]+16}
+                    motor_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[mobile_touch],
+                    })
+                    motor_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[mobile_move],
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='192'
+                    """,timeout=3000)
+                    motor_mobile_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm===''
+                    """,timeout=3000)
+                    motor_mobile_after=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-mobile-375-real-touch-hits-pwm-previews-192-and-cancels",
+                          mobile_thumb["insideFrustum"]
+                          and mobile_thumb["insideCanvas"]
+                          and mobile_thumb["onScreen"]
+                          and mobile_thumb["canvasUncovered"]
+                          and mobile_thumb["projectedWidth"]>0
+                          and mobile_thumb["projectedHeight"]>0
+                          and motor_mobile_preview["pwm"]==160
+                          and motor_mobile_preview["previewPwm"]=="192"
+                          and lesson10_motor_state_agrees(
+                              motor_mobile_after,160,"forward"))
+                    motor_page.set_viewport_size({"width":1280,"height":820})
+                    motor_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # Actual reload exercises beforeunload + scene dispose while a
+                    # real PWM proposal is held. The old pointerup cannot replay.
+                    dispose_thumb=lesson10_scene_motor_points(motor_page)["thumb"]
+                    motor_page.mouse.move(dispose_thumb["x"],dispose_thumb["y"])
+                    motor_page.mouse.down()
+                    motor_page.mouse.move(dispose_thumb["x"]+20,dispose_thumb["y"],steps=4)
+                    motor_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMotorPreviewPwm==='200'
+                    """,timeout=3000)
+                    motor_dispose_preview=lesson10_motor_acceptance_state(motor_page)
+                    motor_page.reload(wait_until="domcontentloaded",timeout=20000)
+                    ready(motor_page)
+                    motor_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-motor')?.value==='160'
+                          &&document.querySelector('#control-direction')?.value==='forward'
+                          &&canvas?.dataset.lessonMotorMode==='pwm+direction'
+                          &&canvas.dataset.lessonMotorGesture==='none';
+                    }""",timeout=5000)
+                    motor_page.mouse.up()
+                    motor_after_dispose=lesson10_motor_acceptance_state(motor_page)
+                    check("post-v16-lesson10-motor-real-reload-disposes-held-panel-input-without-stale-replay",
+                          motor_dispose_preview["previewPwm"]=="200"
+                          and lesson10_motor_state_agrees(
+                              motor_after_dispose,160,"forward")
+                          and motor_page.locator(
+                              "#progressText").inner_text()==motor_progress
+                          and motor_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              motor_progress_storage)
+
+                    # Lesson10 remains signal-only and all three authored checkpoints
+                    # are manual/non-auto-assessed; panel input never activates graph,
+                    # mastery, AVR, progress or any physical motor truth.
+                    motor_page.locator("#infoTabPractice").click()
+                    motor_trail=motor_page.locator(
+                        "#learningCoach [data-practice-checkpoint-trail]")
+                    motor_manual_rows=motor_trail.locator(
+                        '[data-practice-trail-step-status="manual-not-automatically-assessed"]')
+                    motor_page.locator("#stageTabWiring").click()
+                    motor_undo=motor_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    motor_redo=motor_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson10-motor-signal-only-manual-no-graph-mastery-progress-avr-or-physical-claim",
+                          motor_trail.get_attribute("data-practice-trail-lesson")=="10"
+                          and motor_trail.get_attribute(
+                              "data-practice-trail-scope")=="signal-only"
+                          and motor_trail.locator(
+                              "[data-practice-trail-step]").count()==3
+                          and motor_manual_rows.count()==3
+                          and motor_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and motor_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and motor_page.locator(".wire-activate").count()==1
+                          and motor_page.locator(".wire-activate").is_disabled()
+                          and motor_undo.count()==1 and motor_undo.is_disabled()
+                          and motor_redo.count()==1 and motor_redo.is_disabled()
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-mode")=="off"
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-physical-verified")=="false"
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-electrical-authority")=="false"
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-measured-speed")=="false"
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-measured-direction")=="false"
+                          and motor_canvas.get_attribute(
+                              "data-lesson-motor-driver-power-modeled")=="false"
+                          and motor_page.locator(
+                              "#progressText").inner_text()==motor_progress
+                          and motor_page.locator(
+                              "#completeButton").is_visible()==motor_complete_visible
+                          and motor_page.locator("#avrMetrics").is_hidden()
+                          and motor_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              motor_progress_storage)
+                finally:
+                    motor_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence

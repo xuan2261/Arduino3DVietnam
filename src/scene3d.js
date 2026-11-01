@@ -51,6 +51,10 @@ const LESSON_STEPPER_SOURCE_ID = "lesson-13-step-count";
 const LESSON_STEPPER_DRAG_STEPS_PER_PX = 1; // Conceptual count command, not observed motion.
 const LESSON_STEPPER_HANDLE_SPAN = 1.20; // Scene display units, NOT mechanical travel.
 const LESSON_STEPPER_HANDLE_MIN_X = -2.65;
+const LESSON_MOTOR_SOURCE_ID = "lesson-10-motor-driver-panel";
+const LESSON_MOTOR_DRAG_PWM_PER_PX = 2; // Conceptual PWM command, not measured RPM.
+const LESSON_MOTOR_HANDLE_SPAN = 1.20; // Display-only travel, never physical displacement.
+const LESSON_MOTOR_HANDLE_MIN_X = -2.65;
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1028,7 +1032,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null,temperatureHeatSource:null,rgbFaders:[],stepperStepCountTarget:null };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null,temperatureHeatSource:null,rgbFaders:[],stepperStepCountTarget:null,motorPwmThumb:null,motorDirectionTargets:[] };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1180,6 +1184,30 @@ function createModule(scene, kind, shared) {
       cylinder(module,.24,.24,.78,metallicMat,[1.24,.75,0],22,0);
       const rotor=box(module,[.23,.11,2],0x186b67,[1.36,.78,0]);state.rotor=rotor;
       canvasLabel(module,kind==="motor"?"ĐỘNG CƠ DC":"STEPPER",0,1.63,0,2.25,43,"#397670",true);
+      if(kind==="motor"){
+        // Separate conceptual H-bridge control inputs. The shaft and rotor are
+        // passive simulator outputs and can NEVER be picked as user inputs.
+        box(module,[1.70,.09,.20],0x41545d,[-2.05,.54,1.42]);
+        const thumb=box(module,[.78,.72,.70],0xe7ad5f,
+          [LESSON_MOTOR_HANDLE_MIN_X+(160/255)*LESSON_MOTOR_HANDLE_SPAN,.89,1.42]);
+        thumb.userData={kind:"motor-pwm-thumb",lessonId:10,
+          sourceId:LESSON_MOTOR_SOURCE_ID,physicalVerified:false,
+          electricalAuthority:false,measuredSpeed:false,measuredDirection:false,
+          driverPowerModeled:false};
+        state.motorPwmThumb=thumb;
+        canvasLabel(module,"PWM",-2.04,1.34,1.42,1.15,28,"#edf4eb");
+        for(const [index,direction] of ["forward","reverse"].entries()){
+          const target=box(module,[.79,.42,.64],index?0x63798b:0x4ba78f,
+            [index?-1.41:-2.57,1.64,1.40]);
+          target.userData={kind:"motor-direction-target",lessonId:10,
+            sourceId:LESSON_MOTOR_SOURCE_ID,direction,physicalVerified:false,
+            electricalAuthority:false,measuredSpeed:false,
+            measuredDirection:false,driverPowerModeled:false};
+          state.motorDirectionTargets.push(target);
+          canvasLabel(module,index?"NGƯỢC":"THUẬN",
+            index?-1.41:-2.57,2.06,1.40,.98,24,"#e9f5f0");
+        }
+      }
       if(kind==="stepper"){
         // An independent first-party step-count INPUT, never the motor rotor.
         // Geometry and drag do not report driver pulses or physical position.
@@ -1282,6 +1310,7 @@ export function mountScene(host, onSelect = () => {}) {
     enabled:false,lessonId:null,red:null,green:null,blue:null,onChannelChange:null,
   };
   let lessonStepperActuation={enabled:false,lessonId:null,steps:null,onStepsChange:null};
+  let lessonMotorActuation={enabled:false,lessonId:null,motor:null,direction:null,onInputChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1505,6 +1534,9 @@ export function mountScene(host, onSelect = () => {}) {
     if(lessonStepperActuation.enabled){
       parts.push("Tay kéo số bước 3D bài 13 là đầu vào khái niệm, tách riêng khỏi trục/rotor động cơ. Kéo sang phải tăng hoặc sang trái giảm một bước mô phỏng mỗi pixel, miền 0–200; chỉ xem trước khi kéo và thả mới cập nhật thanh trượt HTML. Có thể dùng phím mũi tên/Home/End trên thanh trượt. Rotor chỉ hiển thị đầu ra simulator khi Run, không xác minh góc cơ khí, STEP/DIR, dòng driver, chuyển động thực hoặc thực thi AVR.");
     }
+    if(lessonMotorActuation.enabled){
+      parts.push("Bài 10 có tay gạt PWM 3D riêng và hai nút 3D chọn chiều thuận hoặc ngược; không kéo trục hay rotor. Kéo tay gạt sang phải tăng hai đơn vị PWM mỗi pixel trong miền 0–255, thả mới cập nhật thanh trượt HTML. Chạm rồi thả nút chiều quay chỉ cập nhật select HTML hiện hành. Dùng phím mũi tên/Home/End và select HTML bằng bàn phím tương đương. Đây là lệnh tín hiệu khái niệm, không kích mạch Lesson10 vốn signal-only, không đo RPM, dòng, điện áp, driver power, mô-men, chuyển động cơ khí hoặc AVR thật.");
+    }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
     }
@@ -1695,6 +1727,17 @@ export function mountScene(host, onSelect = () => {}) {
   canvas.dataset.lessonStepperPhysicalVerified="false";
   canvas.dataset.lessonStepperElectricalAuthority="false";
   canvas.dataset.lessonStepperMeasuredMotion="false";
+  canvas.dataset.lessonMotorMode="off";
+  canvas.dataset.lessonMotorPwm="";
+  canvas.dataset.lessonMotorPreviewPwm="";
+  canvas.dataset.lessonMotorDirection="";
+  canvas.dataset.lessonMotorGesture="none";
+  canvas.dataset.lessonMotorTargetCount="0";
+  canvas.dataset.lessonMotorPhysicalVerified="false";
+  canvas.dataset.lessonMotorElectricalAuthority="false";
+  canvas.dataset.lessonMotorMeasuredSpeed="false";
+  canvas.dataset.lessonMotorMeasuredDirection="false";
+  canvas.dataset.lessonMotorDriverPowerModeled="false";
   refreshSceneVisualDiagnostics();
   function clearLabWireLayer(clearHighlight=true,preserveRevision=false){
     if(labWireLayer){
@@ -2951,6 +2994,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonTemperatureActuation(false);
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
+    resetLessonMotorActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -4596,6 +4640,189 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonMotorVisual(){
+    const gesture=drag?.kind?.startsWith("lesson-motor-")?drag:null;
+    const preview=gesture?.kind==="lesson-motor-pwm-actuator"&&moved
+      ?gesture.previewMotor:null;
+    const motor=preview??lessonMotorActuation.motor??160;
+    const direction=lessonMotorActuation.direction??"forward";
+    if(currentLessonId===10&&activeModule?.motorPwmThumb){
+      // Only a dedicated teaching-input thumb moves; rotor output remains
+      // exclusively under update(snapshot) and never previews motor speed.
+      activeModule.motorPwmThumb.position.x=
+        LESSON_MOTOR_HANDLE_MIN_X+(motor/255)*LESSON_MOTOR_HANDLE_SPAN;
+      for(const target of activeModule.motorDirectionTargets){
+        const selected=target.userData?.direction===direction;
+        target.material.emissive.setHex(selected?0x124c40:0x000000);
+        target.material.emissiveIntensity=selected?.18:0;
+      }
+    }
+    canvas.dataset.lessonMotorMode=lessonMotorActuation.enabled?"pwm+direction":"off";
+    canvas.dataset.lessonMotorPwm=lessonMotorActuation.enabled
+      ?String(lessonMotorActuation.motor):"";
+    canvas.dataset.lessonMotorPreviewPwm=preview===null?"":String(preview);
+    canvas.dataset.lessonMotorDirection=lessonMotorActuation.enabled?direction:"";
+    canvas.dataset.lessonMotorGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonMotorTargetCount=
+      activeModule?.motorPwmThumb&&activeModule.motorDirectionTargets?.length===2?"3":"0";
+    canvas.dataset.lessonMotorPhysicalVerified="false";
+    canvas.dataset.lessonMotorElectricalAuthority="false";
+    canvas.dataset.lessonMotorMeasuredSpeed="false";
+    canvas.dataset.lessonMotorMeasuredDirection="false";
+    canvas.dataset.lessonMotorDriverPowerModeled="false";
+  }
+  function currentLessonMotorActuator(){
+    if(!lessonMotorActuation.enabled||disposed||contextLost||
+       currentLessonId!==10||lessonMotorActuation.lessonId!==10||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonMotorActuation.motor)||
+       lessonMotorActuation.motor<0||lessonMotorActuation.motor>255||
+       !["forward","reverse"].includes(lessonMotorActuation.direction)||
+       typeof lessonMotorActuation.onInputChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const thumb=activeModule?.motorPwmThumb;
+    const directions=activeModule?.motorDirectionTargets;
+    const valid=mesh=>mesh?.isMesh===true&&mesh.parent===activeModule.module&&
+      mesh.userData?.lessonId===10&&
+      mesh.userData.sourceId===LESSON_MOTOR_SOURCE_ID&&
+      mesh.userData.physicalVerified===false&&
+      mesh.userData.electricalAuthority===false&&
+      mesh.userData.measuredSpeed===false&&
+      mesh.userData.measuredDirection===false&&
+      mesh.userData.driverPowerModeled===false;
+    if(!valid(thumb)||thumb.userData.kind!=="motor-pwm-thumb"||
+       !Array.isArray(directions)||directions.length!==2||
+       directions.some((target,index)=>!valid(target)||
+         target.userData.kind!=="motor-direction-target"||
+         target.userData.direction!==["forward","reverse"][index]))return null;
+    return {thumb,directions,lessonId:10,sourceId:LESSON_MOTOR_SOURCE_ID,
+      motor:lessonMotorActuation.motor,direction:lessonMotorActuation.direction,
+      onInputChange:lessonMotorActuation.onInputChange};
+  }
+  function lessonMotorStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonMotorActuation.enabled,
+      active:currentLessonMotorActuator()!==null,
+      lessonId:lessonMotorActuation.lessonId,
+      motor:lessonMotorActuation.enabled?lessonMotorActuation.motor:null,
+      direction:lessonMotorActuation.enabled?lessonMotorActuation.direction:null,
+      previewMotor:drag?.kind==="lesson-motor-pwm-actuator"&&moved
+        ?drag.previewMotor:null,
+      targetCount:activeModule?.motorPwmThumb&&
+        activeModule.motorDirectionTargets?.length===2?3:0,
+      mode:lessonMotorActuation.enabled?"pwm+direction":"off",
+      physicalVerified:false,electricalAuthority:false,measuredSpeed:false,
+      measuredDirection:false,driverPowerModeled:false});
+  }
+  function cancelLessonMotorGesture(redraw=false){
+    if(!["lesson-motor-pwm-actuator","lesson-motor-direction-actuator"].includes(drag?.kind))return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonMotorVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonMotorActuation(redraw=false){
+    cancelLessonMotorGesture(false);
+    lessonMotorActuation={enabled:false,lessonId:null,motor:null,
+      direction:null,onInputChange:null};
+    syncLessonMotorVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonMotorStatus(true);
+  }
+  function setLessonMotorActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,motor:null,direction:null,previewMotor:null,targetCount:0,
+      mode:"off",physicalVerified:false,electricalAuthority:false,
+      measuredSpeed:false,measuredDirection:false,driverPowerModeled:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson Motor options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonMotorActuation(true);
+    const required=["enabled","lessonId","motor","direction","onInputChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const descriptor=Object.getOwnPropertyDescriptor(options,key);
+         return !descriptor||!("value" in descriptor);
+       }))throw new RangeError("Motor enabled cần đúng năm trường input");
+    if(options.lessonId!==10||currentLessonId!==10){
+      throw new RangeError("Panel điều khiển động cơ chỉ dùng trong bài 10");
+    }
+    if(!Number.isInteger(options.motor)||options.motor<0||options.motor>255||
+       !["forward","reverse"].includes(options.direction)){
+      throw new RangeError("Motor PWM 0–255 và direction forward/reverse");
+    }
+    if(typeof options.onInputChange!=="function"){
+      throw new TypeError("onInputChange phải là function");
+    }
+    if(contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.motorPwmThumb?.userData?.sourceId!==LESSON_MOTOR_SOURCE_ID||
+       activeModule?.motorDirectionTargets?.length!==2){
+      throw new RangeError("Panel Motor không khả dụng trong scene/edit/layout hiện tại");
+    }
+    const same=lessonMotorActuation.enabled&&lessonMotorActuation.lessonId===10;
+    if(!same)resetLessonMotorActuation(false);
+    else if(["lesson-motor-pwm-actuator","lesson-motor-direction-actuator"].includes(drag?.kind)&&
+      (options.motor!==lessonMotorActuation.motor||
+       options.direction!==lessonMotorActuation.direction||
+       options.onInputChange!==lessonMotorActuation.onInputChange)){
+      cancelLessonMotorGesture(false);
+    }
+    lessonMotorActuation={enabled:true,lessonId:10,motor:options.motor,
+      direction:options.direction,onInputChange:options.onInputChange};
+    syncLessonMotorVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonMotorStatus(true);
+  }
+  function lessonMotorHit(event){
+    const current=currentLessonMotorActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||
+       (pointerType==="mouse"&&event.button!==0)||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObjects([current.thumb,...current.directions],false)[0]?.object;
+    if(hit===current.thumb)return {...current,target:hit,key:"motor",pointerType};
+    if(current.directions.includes(hit))return {...current,target:hit,
+      key:"direction",value:hit.userData.direction,pointerType};
+    return null;
+  }
+  function updateLessonMotorDrag(event){
+    if(drag?.kind!=="lesson-motor-pwm-actuator"||!moved)return false;
+    const current=currentLessonMotorActuator();
+    if(!current||current.thumb!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.motor!==drag.startHostMotor||
+       current.direction!==drag.startHostDirection||
+       current.onInputChange!==drag.onInputChange){
+      cancelLessonMotorGesture(true);
+      return false;
+    }
+    const deltaX=event.clientX-drag.startClientX;
+    drag.previewMotor=Math.max(0,Math.min(255,
+      Math.round(drag.startHostMotor+deltaX*LESSON_MOTOR_DRAG_PWM_PER_PX)));
+    syncLessonMotorVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonMotorInput(key,value,pointerType,callback){
+    if(!["motor","direction"].includes(key)||
+       (key==="motor"?(!Number.isInteger(value)||value<0||value>255):
+         !["forward","reverse"].includes(value))||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(key,value,Object.freeze({
+        lessonId:10,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -4615,7 +4842,8 @@ export function mountScene(host, onSelect = () => {}) {
       lessonPianoActuation.enabled||lessonServoActuation.enabled||
       lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled||
       lessonLdrActuation.enabled||lessonTemperatureActuation.enabled||
-      lessonRgbActuation.enabled||lessonStepperActuation.enabled)?"none":"";
+      lessonRgbActuation.enabled||lessonStepperActuation.enabled||
+      lessonMotorActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -4843,6 +5071,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonTemperatureActuation(false);
     if(nextEditEnabled)resetLessonRgbActuation(false);
     if(nextEditEnabled)resetLessonStepperActuation(false);
+    if(nextEditEnabled)resetLessonMotorActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -5559,6 +5788,23 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const motorHit=lessonMotorHit(event);
+    if(motorHit){
+      drag=pointerDragBase(event,{
+        kind:motorHit.key==="motor"
+          ?"lesson-motor-pwm-actuator":"lesson-motor-direction-actuator",
+        lessonId:10,sourceId:motorHit.sourceId,sourceObject:motorHit.target,
+        key:motorHit.key,value:motorHit.value??null,
+        startHostMotor:motorHit.motor,
+        startHostDirection:motorHit.direction,
+        previewMotor:motorHit.motor,onInputChange:motorHit.onInputChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonMotorVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -5717,6 +5963,18 @@ export function mountScene(host, onSelect = () => {}) {
     }else if(drag.kind==="lesson-stepper-actuator"){
       event.preventDefault();
       if(moved)updateLessonStepperDrag(event);
+    }else if(drag.kind==="lesson-motor-pwm-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonMotorDrag(event);
+    }else if(drag.kind==="lesson-motor-direction-actuator"){
+      event.preventDefault();
+      if(moved){
+        // A direction press becomes a noncommittable drag past the threshold.
+        // Keep public gesture diagnostics current without changing the native
+        // select, simulator output, or electrical/learning authority.
+        syncLessonMotorVisual();
+        invalidate();
+      }
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -5785,6 +6043,17 @@ export function mountScene(host, onSelect = () => {}) {
   }
   function finishPointer(event, select) {
     if(!drag||event.pointerId!==drag.pointerId)return;
+    if(select&&["lesson-motor-pwm-actuator","lesson-motor-direction-actuator"].includes(drag.kind)){
+      const dx=event.clientX-drag.startClientX;
+      const dy=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(dx,dy)>drag.tapThreshold)moved=true;
+      if(drag.kind==="lesson-motor-pwm-actuator"&&moved&&
+         (event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonMotorDrag(event); // Final pointerup displacement is authoritative.
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
     if(select&&drag.kind==="lesson-stepper-actuator"){
       const deltaX=event.clientX-drag.startClientX;
       const deltaY=event.clientY-drag.startClientY;
@@ -6060,6 +6329,35 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    if(["lesson-motor-pwm-actuator","lesson-motor-direction-actuator"].includes(finished.kind)){
+      const current=currentLessonMotorActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===10&&
+        current.sourceId===finished.sourceId&&
+        current.motor===finished.startHostMotor&&
+        current.direction===finished.startHostDirection&&
+        current.onInputChange===finished.onInputChange&&
+        (finished.key==="motor"?current.thumb===finished.sourceObject:
+          current.directions.includes(finished.sourceObject)));
+      // Clear all transient UI before native host changes the current binding.
+      syncLessonMotorVisual();
+      if(select&&stillCurrent&&finished.key==="motor"&&moved&&
+         Number.isInteger(finished.previewMotor)&&
+         finished.previewMotor>=0&&finished.previewMotor<=255&&
+         finished.previewMotor!==finished.startHostMotor){
+        emitLessonMotorInput("motor",finished.previewMotor,
+          finished.pointerType,finished.onInputChange);
+      }else if(select&&stillCurrent&&finished.key==="direction"&&!moved&&
+         finished.value!==finished.startHostDirection){
+        const releaseHit=lessonMotorHit(event);
+        if(releaseHit?.target===finished.sourceObject&&
+           releaseHit.key==="direction"&&releaseHit.value===finished.value){
+          emitLessonMotorInput("direction",finished.value,
+            finished.pointerType,finished.onInputChange);
+        }
+      }
+      invalidate();
+      return;
+    }
     if(finished.kind==="lab-component"){
       const entry=labComponents.get(finished.componentId);
       if(!select){
@@ -6185,6 +6483,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonTemperatureGesture(false);
       cancelLessonRgbGesture(false);
       cancelLessonStepperGesture(false);
+      cancelLessonMotorGesture(false);
       return;
     }
     invalidate();
@@ -6259,6 +6558,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonTemperatureActuation(false);
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
+    resetLessonMotorActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -6323,6 +6623,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonTemperatureActuation(false);
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
+    resetLessonMotorActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -6340,6 +6641,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonTemperatureVisual();
     syncLessonRgbVisual();
     syncLessonStepperVisual();
+    syncLessonMotorVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -6426,6 +6728,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonTemperatureVisual();
     syncLessonRgbVisual();
     syncLessonStepperVisual();
+    syncLessonMotorVisual();
     invalidate();
   }
   function control(action){
@@ -6443,7 +6746,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,setLessonStepperActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,setLessonStepperActuation,setLessonMotorActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -6458,6 +6761,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonTemperatureActuation(false);
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
+    resetLessonMotorActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();
