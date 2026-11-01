@@ -97,6 +97,9 @@ const state = {
   // The RGB 3D faders only propose changes to three host-owned PWM sliders.
   // Mesh colors/positions never measure or establish electrical PWM duty.
   sceneRgbActuation: null,
+  // Lesson13 3D thumb is only a proposal for the native step-count setpoint.
+  // The output rotor and electrical STEP/DIR remain simulator-owned.
+  sceneStepperActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -900,6 +903,7 @@ function closeReadOnlyGuideMode(){
   syncSceneLessonLdrActuation();
   syncSceneLessonTemperatureActuation();
   syncSceneLessonRgbActuation();
+  syncSceneLessonStepperActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1636,6 +1640,7 @@ function renderStage() {
   syncSceneLessonLdrActuation();
   syncSceneLessonTemperatureActuation();
   syncSceneLessonRgbActuation();
+  syncSceneLessonStepperActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1691,6 +1696,8 @@ function renderControls(){
       ?"Kéo tay điều chỉnh mức nhiệt 3D sang phải để tăng hoặc sang trái để giảm nhiệt độ mô phỏng LM35 (1 °C mỗi 5 pixel). Trong lúc kéo chỉ xem trước, thả mới ghi vào thanh trượt HTML 0–60 °C. Dùng bàn phím trên thanh trượt để điều chỉnh tương đương. Đây không phải nhiệt độ, điện áp hay tín hiệu cảm biến được đo thực tế."
     :lesson.id===5
       ?"Kéo riêng từng tay gạt R/G/B trong mô hình 3D sang phải để tăng hoặc sang trái để giảm kênh PWM mô phỏng tương ứng (2 điểm mỗi pixel, 0–255). Trong lúc kéo chỉ xem trước vị trí; thả mới ghi vào thanh trượt HTML. Có thể dùng phím mũi tên/Home/End trên cả ba thanh trượt. LED RGB và màu là đầu ra simulator, không chứng minh duty cycle, điện áp, dòng hay màu quang học thật."
+    :lesson.id===13
+      ?"Kéo tay gạt số bước 3D riêng khỏi rotor để tăng hoặc giảm số bước mô phỏng (1 bước mỗi pixel, 0–200). Khi kéo chỉ xem trước, thả mới cập nhật thanh trượt HTML; dùng phím mũi tên/Home/End tương đương. Rotor chỉ phản ánh đầu ra simulator khi Run, không xác minh STEP/DIR, góc hay chuyển động cơ khí, nguồn/driver hoặc AVR thật."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1868,6 +1875,8 @@ function startPause(){
   if(rearmTemperature)revokeSceneLessonTemperatureActuation();
   const rearmRgb=state.lessonId===5;
   if(rearmRgb)revokeSceneLessonRgbActuation();
+  const rearmStepper=state.lessonId===13;
+  if(rearmStepper)revokeSceneLessonStepperActuation();
   try{
     if(state.running) {
       stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
@@ -1904,6 +1913,7 @@ function startPause(){
     if(rearmLdr)syncSceneLessonLdrActuation();
     if(rearmTemperature)syncSceneLessonTemperatureActuation();
     if(rearmRgb)syncSceneLessonRgbActuation();
+    if(rearmStepper)syncSceneLessonStepperActuation();
   }
 }
 function resetSimulation() {
@@ -1916,6 +1926,7 @@ function resetSimulation() {
   revokeSceneLessonLdrActuation();
   revokeSceneLessonTemperatureActuation();
   revokeSceneLessonRgbActuation();
+  revokeSceneLessonStepperActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
@@ -1928,6 +1939,7 @@ function resetSimulation() {
   syncSceneLessonLdrActuation();
   syncSceneLessonTemperatureActuation();
   syncSceneLessonRgbActuation();
+  syncSceneLessonStepperActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
@@ -1941,6 +1953,7 @@ function setLesson(id,replaceHash=true){
   revokeSceneLessonLdrActuation();
   revokeSceneLessonTemperatureActuation();
   revokeSceneLessonRgbActuation();
+  revokeSceneLessonStepperActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -2002,6 +2015,11 @@ function onControlsInput(event){
     // Any current native R/G/B channel event retires the whole held proposal.
     revokeSceneLessonRgbActuation();
   }
+  if(key==="steps"&&state.lessonId===13&&config.type==="slider"&&
+     event.source!=="scene"){
+    // Current native setpoint input always supersedes a held 3D proposal.
+    revokeSceneLessonStepperActuation();
+  }
   const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
@@ -2038,6 +2056,9 @@ function onControlsInput(event){
   if(["red","green","blue"].includes(key)&&state.lessonId===5&&
      config.type==="slider"){
     syncSceneLessonRgbActuation();
+  }
+  if(key==="steps"&&state.lessonId===13&&config.type==="slider"){
+    syncSceneLessonStepperActuation();
   }
 }
 function setButtonPress(pressed){
@@ -2703,6 +2724,76 @@ function syncSceneLessonRgbActuation(){
     }
   }catch{revokeSceneLessonRgbActuation();}
 }
+function revokeSceneLessonStepperActuation(){
+  const binding=state.sceneStepperActuation;
+  if(binding)binding.active=false;
+  state.sceneStepperActuation=null;
+  try{state.scene?.setLessonStepperActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonStepperActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonStepperActuation)return;
+  const config=currentLesson()?.controls?.find(item=>item.key==="steps");
+  const steps=state.controls.steps;
+  const slider=$("control-steps");
+  const supported=state.lessonId===13&&config?.type==="slider"&&
+    config.min===0&&config.max===200&&config.step===1&&
+    Number.isInteger(steps)&&steps>=0&&steps<=200&&
+    slider?.tagName==="INPUT"&&slider.type==="range"&&
+    slider.dataset.control==="steps"&&
+    slider.min==="0"&&slider.max==="200"&&slider.step==="1"&&
+    !slider.disabled&&slider.isConnected;
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonStepperActuation();
+    return;
+  }
+  let binding=state.sceneStepperActuation;
+  if(!binding||!binding.active||binding.lessonId!==13){
+    binding={active:true,lessonId:13,onStepsChange:null};
+    binding.onStepsChange=(proposed,meta)=>{
+      if(binding!==state.sceneStepperActuation||!binding.active||
+         state.lessonId!==13||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<0||proposed>200||
+         !meta||!Object.isFrozen(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const metadata=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        metadata[field]=descriptor.value;
+      }
+      if(metadata.lessonId!==13||metadata.source!=="pointer"||
+         !["mouse","touch","pen"].includes(metadata.pointerType)||
+         metadata.phase!=="change"||metadata.physicalVerified!==false)return false;
+      const native=$("control-steps");
+      if(native!==slider||native?.tagName!=="INPUT"||native.type!=="range"||
+         native.dataset.control!=="steps"||native.min!=="0"||
+         native.max!=="200"||native.step!=="1"||
+         native.disabled||!native.isConnected)return false;
+      if(proposed===state.controls.steps)return false;
+      // Host owns the authored step-count input. The rotor and STEP/DIR
+      // outputs remain read-only simulator renderings, not geometry evidence.
+      native.value=String(proposed);
+      onControlsInput({target:native,type:"change",source:"scene"});
+      return state.controls.steps===proposed;
+    };
+    state.sceneStepperActuation=binding;
+  }
+  try{
+    const receipt=scene.setLessonStepperActuation({
+      enabled:true,lessonId:13,steps,onStepsChange:binding.onStepsChange,
+    });
+    if(receipt?.active!==true||receipt?.targetCount!==1||
+       receipt?.physicalVerified!==false||receipt?.electricalAuthority!==false||
+       receipt?.measuredMotion!==false){
+      revokeSceneLessonStepperActuation();
+    }
+  }catch{revokeSceneLessonStepperActuation();}
+}
 function playNote(hz){
   if(!state.running||!hz)return;
   try{
@@ -3035,6 +3126,7 @@ function wireEvents(){
       revokeSceneLessonLdrActuation();
       revokeSceneLessonTemperatureActuation();
       revokeSceneLessonRgbActuation();
+      revokeSceneLessonStepperActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
@@ -3046,6 +3138,7 @@ function wireEvents(){
       syncSceneLessonLdrActuation();
       syncSceneLessonTemperatureActuation();
       syncSceneLessonRgbActuation();
+      syncSceneLessonStepperActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -3060,6 +3153,7 @@ function wireEvents(){
     revokeSceneLessonLdrActuation();
     revokeSceneLessonTemperatureActuation();
     revokeSceneLessonRgbActuation();
+    revokeSceneLessonStepperActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
@@ -3071,6 +3165,7 @@ function wireEvents(){
     syncSceneLessonLdrActuation();
     syncSceneLessonTemperatureActuation();
     syncSceneLessonRgbActuation();
+    syncSceneLessonStepperActuation();
   });
   window.addEventListener("beforeunload",()=>{
     revokeSceneLessonServoActuation();
@@ -3079,6 +3174,7 @@ function wireEvents(){
     revokeSceneLessonLdrActuation();
     revokeSceneLessonTemperatureActuation();
     revokeSceneLessonRgbActuation();
+    revokeSceneLessonStepperActuation();
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
     state.resistiveUI?.dispose();
@@ -3115,6 +3211,7 @@ async function init(){
       syncSceneLessonLdrActuation();
       syncSceneLessonTemperatureActuation();
       syncSceneLessonRgbActuation();
+      syncSceneLessonStepperActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -3131,6 +3228,7 @@ async function init(){
       syncSceneLessonLdrActuation();
       syncSceneLessonTemperatureActuation();
       syncSceneLessonRgbActuation();
+      syncSceneLessonStepperActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -3160,6 +3258,7 @@ async function init(){
       syncSceneLessonLdrActuation();
       syncSceneLessonTemperatureActuation();
       syncSceneLessonRgbActuation();
+      syncSceneLessonStepperActuation();
     },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
@@ -3268,6 +3367,7 @@ async function init(){
       revokeSceneLessonLdrActuation();
       revokeSceneLessonTemperatureActuation();
       revokeSceneLessonRgbActuation();
+      revokeSceneLessonStepperActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -3294,6 +3394,7 @@ async function init(){
       syncSceneLessonLdrActuation();
       syncSceneLessonTemperatureActuation();
       syncSceneLessonRgbActuation();
+      syncSceneLessonStepperActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -3314,6 +3415,7 @@ async function init(){
     syncSceneLessonLdrActuation();
     syncSceneLessonTemperatureActuation();
     syncSceneLessonRgbActuation();
+    syncSceneLessonStepperActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){

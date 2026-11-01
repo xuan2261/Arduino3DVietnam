@@ -295,6 +295,9 @@ h1 { font-size: clamp(25px, 2.2vw, 34px); letter-spacing: -.045em; line-height: 
 .control-field input#control-red[type=range]:focus-visible,
 .control-field input#control-green[type=range]:focus-visible,
 .control-field input#control-blue[type=range]:focus-visible { outline: 3px solid #0b8b7b; outline-offset: 2px; }
+/* Lesson13 Stepper setpoint stays independently operable by native keyboard. */
+.control-field input#control-steps[type=range] { min-height: 44px; height: 44px; }
+.control-field input#control-steps[type=range]:focus-visible { outline: 3px solid #0b8b7b; outline-offset: 2px; }
 .control-field select { background: white; color: var(--ink); border: 1px solid #d4e1db; border-radius: 7px; font-size: 11px; padding: 8px; max-width: 155px; }
 .control-field select:focus-visible { outline-offset: 1px; }
 .press-control { background: #fef0e8; border: 1px solid #efcbb7; color: #9c453c; border-radius: 8px; min-height: 42px; padding: 10px 18px; font-weight: 800; font-size: 12px; user-select: none; touch-action: manipulation; }

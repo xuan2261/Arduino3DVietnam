@@ -1172,6 +1172,123 @@ def main() -> None:
             and actual.get("sceneContext")=="ready"
         )
 
+    def lesson13_scene_stepper_pixel(page, steps: int | None = None):
+        """Project Lesson13's separate semantic step-count thumb for real input QA.
+
+        The helper duplicates only the first-party thumb/output-rotor transforms
+        and initial camera. Production Three.js raycasting still decides whether
+        a genuine browser pointer owns the thumb; the passive rotor is returned
+        only as a negative pointer coordinate.
+        """
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedSteps => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson13 3D canvas missing');
+            const current=canvas.dataset.lessonStepperPreviewSteps!==''?
+              Number(canvas.dataset.lessonStepperPreviewSteps):
+              Number(canvas.dataset.lessonStepperSteps);
+            const value=requestedSteps===null?current:Number(requestedSteps);
+            if(!Number.isInteger(value)||value<0||value>200){
+              throw new Error('Lesson13 canonical step count missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const screenPoint=world=>{
+              const projected=world.clone().project(camera);
+              return {
+                x:rect.left+(projected.x+1)*rect.width/2,
+                y:rect.top+(1-projected.y)*rect.height/2,
+                z:projected.z,ndcX:projected.x,ndcY:projected.y,
+              };
+            };
+            const localX=-2.65+(value/200)*1.20;
+            const centerWorld=new T.Vector3(5.15+localX,.55+.94,.10+1.42);
+            const center=screenPoint(centerWorld);
+            const corners=[];
+            for(const dx of [-.39,.39])for(const dy of [-.41,.41])
+              for(const dz of [-.35,.35]){
+                corners.push(screenPoint(new T.Vector3(
+                  centerWorld.x+dx,centerWorld.y+dy,centerWorld.z+dz)));
+              }
+            const xs=corners.map(point=>point.x),ys=corners.map(point=>point.y);
+            const rotor=screenPoint(new T.Vector3(5.15+1.36,.55+.78,.10));
+            return Object.freeze({
+              steps:value,x:center.x,y:center.y,
+              projectedWidth:Math.max(...xs)-Math.min(...xs),
+              projectedHeight:Math.max(...ys)-Math.min(...ys),
+              insideFrustum:center.z>=-1&&center.z<=1,
+              insideCanvas:Math.abs(center.ndcX)<1&&Math.abs(center.ndcY)<1,
+              onScreen:center.x>=0&&center.x<innerWidth&&center.y>=0&&center.y<innerHeight,
+              canvasUncovered:document.elementFromPoint(center.x,center.y)===canvas,
+              rotorX:rotor.x,rotorY:rotor.y,
+              rotorOnScreen:rotor.x>=0&&rotor.x<innerWidth&&rotor.y>=0&&rotor.y<innerHeight,
+              rotorCanvasUncovered:document.elementFromPoint(rotor.x,rotor.y)===canvas,
+            });
+        }""", steps)
+
+    def lesson13_stepper_acceptance_state(page):
+        """Read native Lesson13 step range and public Stepper scene diagnostics."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-steps');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson13 canonical stepper UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',output:output?.textContent||'',
+              label:label?.textContent||'',labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,
+              focused:document.activeElement===input,
+              mode:canvas.dataset.lessonStepperMode||'',
+              sceneSteps:canvas.dataset.lessonStepperSteps||'',
+              previewSteps:canvas.dataset.lessonStepperPreviewSteps||'',
+              gesture:canvas.dataset.lessonStepperGesture||'',
+              targetCount:Number(canvas.dataset.lessonStepperTargetCount||0),
+              physicalVerified:canvas.dataset.lessonStepperPhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonStepperElectricalAuthority||'',
+              measuredMotion:canvas.dataset.lessonStepperMeasuredMotion||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson13_stepper_state_agrees(actual: dict[str, object], expected_steps: int) -> bool:
+        return (
+            0 <= expected_steps <= 200
+            and actual.get("value")==expected_steps
+            and actual.get("min")=="0"
+            and actual.get("max")=="200"
+            and actual.get("step")=="1"
+            and actual.get("control")=="steps"
+            and actual.get("output")==f"{expected_steps} bước"
+            and actual.get("labelFor")=="control-steps"
+            and actual.get("labelCount")==1
+            and "Số bước" in str(actual.get("label"))
+            and actual.get("mode")=="pointer-slide"
+            and actual.get("sceneSteps")==str(expected_steps)
+            and actual.get("previewSteps")==""
+            and actual.get("gesture")=="none"
+            and actual.get("targetCount")==1
+            and actual.get("physicalVerified")=="false"
+            and actual.get("electricalAuthority")=="false"
+            and actual.get("measuredMotion")=="false"
+            and actual.get("sceneContext")=="ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1675,7 +1792,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 664
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 701
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -1729,6 +1846,12 @@ def main() -> None:
                       and "lesson-rgb-source-scene-rgb-api-never-mutates-host-controls-electrical-graph-progress-storage-avr-or-led-material" in
                           scene_lifecycle_names
                       and "lesson-rgb-raycast-default-view-projected-centers-raycast-to-their-own-rgb-handles-without-cross-channel-occlusion" in
+                          scene_lifecycle_names
+                      and "lesson-stepper-source-pointercancel-and-lostcapture-share-stepper-noncommit-finish-path" in
+                          scene_lifecycle_names
+                      and "lesson-stepper-source-scene-update-keeps-stepper-rotor-simulator-owned-while-resyncing-only-input-thumb-from-host-binding" in
+                          scene_lifecycle_names
+                      and "lesson-stepper-raycast-default-view-stepper-step-count-thumb-center-hits-exact-input-target" in
                           scene_lifecycle_names
                       and "committed-wire-repair-source-repair-intent-wireId-maps-to-canonical-id-in-both-identity-gates" in
                           scene_lifecycle_names
@@ -12848,6 +12971,716 @@ def main() -> None:
                               rgb_progress_storage)
                 finally:
                     rgb_context.close()
+
+                # Lesson13 Stepper: one separate semantic 3D thumb proposes the
+                # existing host-owned 0..200 step-count range. The motor rotor is
+                # output-only and must never become a pointer input surface.
+                stepper_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    stepper_page=stepper_context.new_page()
+                    capture_console(stepper_page)
+                    stepper_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(stepper_page)
+                    stepper_page.locator('.lesson-link[data-lesson="13"]').click()
+                    stepper_canvas=stepper_page.locator("#sceneMount canvas")
+                    stepper_slider=stepper_page.locator("#control-steps")
+                    stepper_progress=stepper_page.locator("#progressText").inner_text()
+                    stepper_progress_storage=stepper_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    stepper_complete_visible=stepper_page.locator(
+                        "#completeButton").is_visible()
+                    stepper_initial_output=stepper_page.locator("#simOutput").inner_text()
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-steps')?.value==='50'
+                          &&canvas?.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperSteps==='50'
+                          &&canvas.dataset.lessonStepperTargetCount==='1';
+                    }""",timeout=5000)
+                    stepper_initial=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_initial_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    check("post-v16-lesson13-stepper-native-range-and-separate-step-count-thumb-ready",
+                          lesson13_stepper_state_agrees(stepper_initial,50)
+                          and stepper_initial_pixel["insideFrustum"]
+                          and stepper_initial_pixel["insideCanvas"]
+                          and stepper_initial_pixel["onScreen"]
+                          and stepper_initial_pixel["canvasUncovered"]
+                          and stepper_initial_pixel["projectedWidth"]>0
+                          and stepper_initial_pixel["projectedHeight"]>0
+                          and "tách riêng khỏi trục/rotor" in
+                              stepper_initial["canvasLabel"].lower()
+                          and "không xác minh góc cơ khí" in
+                              stepper_initial["canvasLabel"].lower(),
+                          json.dumps({"state":stepper_initial,
+                                      "pixel":stepper_initial_pixel},ensure_ascii=False))
+
+                    # The passive motor rotor can receive ordinary scene/camera
+                    # pointer handling, but it must never grab the step-count input.
+                    stepper_page.mouse.move(
+                        stepper_initial_pixel["rotorX"],stepper_initial_pixel["rotorY"])
+                    stepper_page.mouse.down()
+                    stepper_rotor_down=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.mouse.up()
+                    stepper_rotor_after=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-passive-rotor-real-mouse-down-never-grabs-step-input",
+                          stepper_initial_pixel["rotorOnScreen"]
+                          and stepper_initial_pixel["rotorCanvasUncovered"]
+                          and stepper_rotor_down["gesture"]=="none"
+                          and stepper_rotor_down["previewSteps"]==""
+                          and stepper_rotor_down["value"]==50
+                          and lesson13_stepper_state_agrees(stepper_rotor_after,50))
+
+                    # Native HTML remains the complete keyboard path across 0..200.
+                    stepper_slider.focus()
+                    stepper_slider.press("Home")
+                    stepper_home=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_slider.press("End")
+                    stepper_end=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-native-keyboard-home-end-cover-zero-to-200",
+                          lesson13_stepper_state_agrees(stepper_home,0)
+                          and stepper_home["focused"] is True
+                          and lesson13_stepper_state_agrees(stepper_end,200)
+                          and stepper_end["focused"] is True
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress)
+                    stepper_page.locator("#resetButton").click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#control-steps')?.value==='50'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperSteps==='50'
+                    """,timeout=3000)
+
+                    # A genuine no-move click stays below the drag threshold.
+                    tap_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(tap_pixel["x"],tap_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_tap_pressed=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.mouse.up()
+                    stepper_tap_after=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-mouse-click-is-noop",
+                          stepper_tap_pressed["gesture"]=="grabbed"
+                          and stepper_tap_pressed["previewSteps"]==""
+                          and stepper_tap_pressed["value"]==50
+                          and lesson13_stepper_state_agrees(stepper_tap_after,50))
+
+                    # Prime-smoked path: 50 + 30px right => preview80; native host
+                    # and stopped simulator output stay unchanged until pointerup.
+                    mouse_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(mouse_pixel["x"],mouse_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_mouse_grab=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-mouse-down-grabs-without-preview-or-host-write",
+                          stepper_mouse_grab["gesture"]=="grabbed"
+                          and stepper_mouse_grab["previewSteps"]==""
+                          and stepper_mouse_grab["value"]==50
+                          and stepper_mouse_grab["sceneSteps"]=="50")
+                    stepper_page.mouse.move(
+                        mouse_pixel["x"]+30,mouse_pixel["y"],steps=6)
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonStepperGesture==='dragging'
+                          &&canvas.dataset.lessonStepperPreviewSteps==='80';
+                    }""",timeout=3000)
+                    stepper_mouse_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-mouse-drag-right-previews-80-only",
+                          stepper_mouse_preview["value"]==50
+                          and stepper_mouse_preview["sceneSteps"]=="50"
+                          and stepper_mouse_preview["previewSteps"]=="80"
+                          and stepper_page.locator(
+                              "#simOutput").inner_text()==stepper_initial_output
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress)
+                    stepper_page.mouse.up()
+                    stepper_page.wait_for_function("""() => {
+                        const input=document.querySelector('#control-steps');
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return input?.value==='80'
+                          &&canvas?.dataset.lessonStepperSteps==='80'
+                          &&canvas.dataset.lessonStepperGesture==='none'
+                          &&canvas.dataset.lessonStepperPreviewSteps==='';
+                    }""",timeout=3000)
+                    stepper_mouse_commit=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-mouse-release-commits-80-through-native-range",
+                          lesson13_stepper_state_agrees(stepper_mouse_commit,80)
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress)
+
+                    # Simulator alone owns output-rotor angle: stopped snapshot is
+                    # zero-angle, running snapshot for 80 steps is 144 degrees.
+                    stepper_simulator=stepper_page.evaluate("""async steps => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const stopped=simulate(13,{steps},0,false,{});
+                        const running=simulate(13,{steps},0,true,{});
+                        return Object.freeze({
+                          stoppedAngle:stopped.angle,runningAngle:running.angle,
+                          stoppedValue:stopped.value,runningValue:running.value,
+                          stoppedPins:Object.fromEntries(stopped.pins),
+                          runningPins:Object.fromEntries(running.pins),
+                        });
+                    }""",80)
+                    stepper_run_button=stepper_page.locator("#runButton")
+                    stepper_run_button.click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-steps')?.value==='80'
+                    """,timeout=3000)
+                    stepper_run_button.click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-steps')?.value==='80'
+                    """,timeout=3000)
+                    check("post-v16-lesson13-stepper-simulator-rotor-angle-is-running-only-with-step-pins-host-owned",
+                          stepper_simulator["stoppedAngle"]==0
+                          and stepper_simulator["runningAngle"]==144
+                          and stepper_simulator["stoppedValue"]=="80 bước · 144.0°"
+                          and stepper_simulator["runningValue"]=="80 bước · 144.0°"
+                          and stepper_simulator["stoppedPins"]==
+                              {"D2":"80 xung","D3":"HIGH"}
+                          and stepper_simulator["runningPins"]==
+                              {"D2":"80 xung","D3":"HIGH"}
+                          and lesson13_stepper_state_agrees(
+                              lesson13_stepper_acceptance_state(stepper_page),80))
+                    stepper_page.locator("#resetButton").click()
+                    stepper_page.wait_for_function(
+                        "() => document.querySelector('#control-steps')?.value==='50'",
+                        timeout=3000)
+
+                    # A real value-changing native action supersedes a held scene
+                    # proposal before eventual mouseup can replay it.
+                    stale_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(stale_pixel["x"],stale_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(stale_pixel["x"]+30,stale_pixel["y"],steps=5)
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='80'
+                    """,timeout=3000)
+                    stepper_stale_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_slider.focus()
+                    stepper_slider.press("Home")
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-steps')?.value==='0'
+                          &&canvas?.dataset.lessonStepperSteps==='0'
+                          &&canvas.dataset.lessonStepperGesture==='none'
+                          &&canvas.dataset.lessonStepperPreviewSteps==='';
+                    }""",timeout=3000)
+                    stepper_page.mouse.up()
+                    stepper_stale_after=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-native-value-change-revokes-stale-mouse-preview",
+                          stepper_stale_preview["value"]==50
+                          and stepper_stale_preview["previewSteps"]=="80"
+                          and lesson13_stepper_state_agrees(stepper_stale_after,0))
+                    stepper_page.locator("#resetButton").click()
+                    stepper_page.wait_for_function(
+                        "() => document.querySelector('#control-steps')?.value==='50'",
+                        timeout=3000)
+
+                    stepper_input=stepper_context.new_cdp_session(stepper_page)
+
+                    # Genuine Chrome touch preview followed by touchCancel.
+                    touch_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    touch_start={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":181,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_cancel_move={**touch_start,"x":touch_pixel["x"]+16}
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start],
+                    })
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_cancel_move],
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='66'
+                    """,timeout=3000)
+                    stepper_touch_cancel_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonStepperGesture==='none'
+                          &&canvas.dataset.lessonStepperPreviewSteps==='';
+                    }""",timeout=3000)
+                    stepper_touch_cancel=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-touchcancel-discards-preview-without-commit",
+                          stepper_touch_cancel_preview["value"]==50
+                          and stepper_touch_cancel_preview["previewSteps"]=="66"
+                          and lesson13_stepper_state_agrees(stepper_touch_cancel,50))
+
+                    # Genuine touch drag left clamps 50→0 under pointer capture.
+                    touch_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    if touch_pixel["x"]-60<8:
+                        raise AssertionError(
+                            "Lesson13 Stepper thumb lacks 60px leftward viewport room")
+                    touch_low={
+                        "x":touch_pixel["x"],"y":touch_pixel["y"],"id":182,
+                        "radiusX":1,"radiusY":1,"force":1,
+                    }
+                    touch_low_move={**touch_low,"x":touch_pixel["x"]-60}
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low],
+                    })
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move],
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='0'
+                    """,timeout=3000)
+                    stepper_touch_low_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[],
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#control-steps')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperGesture==='none'
+                    """,timeout=3000)
+                    stepper_touch_low=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-touch-drag-left-clamps-and-commits-zero",
+                          stepper_touch_low_preview["value"]==50
+                          and stepper_touch_low_preview["previewSteps"]=="0"
+                          and lesson13_stepper_state_agrees(stepper_touch_low,0))
+                    stepper_page.locator("#resetButton").click()
+                    stepper_page.wait_for_function(
+                        "() => document.querySelector('#control-steps')?.value==='50'",
+                        timeout=3000)
+
+                    # Genuine pen release-only displacement exercises final-up
+                    # folding: 50 + 160 CSS px clamps to 200.
+                    pen_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    if pen_pixel["x"]+160>1272:
+                        raise AssertionError(
+                            "Lesson13 Stepper thumb lacks 160px rightward viewport room")
+                    stepper_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseMoved","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"none","buttons":0,"pointerType":"pen",
+                    })
+                    stepper_input.send("Input.dispatchMouseEvent",{
+                        "type":"mousePressed","x":pen_pixel["x"],"y":pen_pixel["y"],
+                        "button":"left","buttons":1,"clickCount":1,"pointerType":"pen",
+                    })
+                    stepper_pen_grab=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"]+160,"y":pen_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen",
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#control-steps')?.value==='200'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperGesture==='none'
+                    """,timeout=3000)
+                    stepper_pen_commit=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-pen-release-only-displacement-clamps-and-commits-200",
+                          stepper_pen_grab["gesture"]=="grabbed"
+                          and stepper_pen_grab["previewSteps"]==""
+                          and stepper_pen_grab["value"]==50
+                          and lesson13_stepper_state_agrees(stepper_pen_commit,200))
+                    stepper_page.locator("#resetButton").click()
+                    stepper_page.wait_for_function(
+                        "() => document.querySelector('#control-steps')?.value==='50'",
+                        timeout=3000)
+
+                    # Native lostpointercapture is a non-commit cancel path.
+                    stepper_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EStepperPointerId=null;
+                        window.__arduinoE2EStepperGotCaptureId=null;
+                        window.__arduinoE2EStepperLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EStepperPointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EStepperGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EStepperLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(lost_pixel["x"]+30,lost_pixel["y"],steps=4)
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EStepperPointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2EStepperGotCaptureId===id
+                          &&canvas.dataset.lessonStepperPreviewSteps==='80';
+                    }""",timeout=3000)
+                    stepper_lost_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EStepperPointerId;
+                        if(!Number.isInteger(id)||!canvas?.hasPointerCapture?.(id)){
+                          throw new Error('Lesson13 browser pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    stepper_page.mouse.move(lost_pixel["x"]+30.5,lost_pixel["y"]+.5)
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonStepperGesture==='none'
+                          &&canvas.dataset.lessonStepperPreviewSteps===''
+                          &&window.__arduinoE2EStepperLostCaptureId===
+                             window.__arduinoE2EStepperPointerId;
+                    }""",timeout=3000)
+                    stepper_page.mouse.up()
+                    stepper_lost_after=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-native-lostcapture-discards-preview-without-commit",
+                          stepper_lost_preview["previewSteps"]=="80"
+                          and lesson13_stepper_state_agrees(stepper_lost_after,50))
+
+                    # Run/Pause retires held thumb ownership before output-rotor
+                    # state changes, so the old pointerup cannot rewrite steps.
+                    run_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(run_pixel["x"],run_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(run_pixel["x"]+30,run_pixel["y"],steps=4)
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='80'
+                    """,timeout=3000)
+                    stepper_run_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_run_button=stepper_page.locator("#runButton")
+                    stepper_run_button.focus()
+                    stepper_page.keyboard.press("Enter")
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-steps')?.value==='50'
+                          &&canvas?.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperGesture==='none';
+                    }""",timeout=3000)
+                    stepper_run_state=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.keyboard.press("Enter")
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                          &&document.querySelector('#control-steps')?.value==='50'
+                    """,timeout=3000)
+                    stepper_page.mouse.up()
+                    stepper_late_run_up=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          stepper_run_preview["previewSteps"]=="80"
+                          and lesson13_stepper_state_agrees(stepper_run_state,50)
+                          and lesson13_stepper_state_agrees(stepper_late_run_up,50)
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress)
+
+                    # Real tab switching may report document.hidden, only blur, or
+                    # neither in headless Chromium; observe native capability and
+                    # require fail-closed cancellation whenever it is delivered.
+                    stepper_page.evaluate("""() => {
+                        window.__arduinoE2EStepperBlurCount=0;
+                        window.__arduinoE2EStepperFocusCount=0;
+                        window.addEventListener('blur',()=>{
+                          window.__arduinoE2EStepperBlurCount+=1;
+                        });
+                        window.addEventListener('focus',()=>{
+                          window.__arduinoE2EStepperFocusCount+=1;
+                        });
+                    }""")
+                    stepper_visibility_peer=stepper_context.new_page()
+                    stepper_visibility_peer.goto("about:blank")
+                    stepper_page.bring_to_front()
+                    stepper_page.wait_for_function("() => document.hidden===false",timeout=3000)
+                    visibility_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(visibility_pixel["x"],visibility_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(
+                        visibility_pixel["x"]+30,visibility_pixel["y"],steps=4)
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='80'
+                    """,timeout=3000)
+                    stepper_visibility_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_visibility_peer.bring_to_front()
+                    stepper_background_capability=stepper_page.evaluate("""() => ({
+                        hidden:document.hidden===true,
+                        blurCount:window.__arduinoE2EStepperBlurCount||0,
+                    })""")
+                    if stepper_background_capability["hidden"]:
+                        stepper_page.wait_for_function("""() =>
+                            document.hidden===true
+                              &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='off'
+                        """,polling=100,timeout=5000)
+                    elif stepper_background_capability["blurCount"]>0:
+                        stepper_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='off'
+                        """,polling=100,timeout=5000)
+                    stepper_background_state=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.bring_to_front()
+                    if (not stepper_background_capability["hidden"] and
+                            stepper_background_capability["blurCount"]==0 and
+                            stepper_background_state["gesture"]!="none"):
+                        stepper_page.locator("#resetButton").focus()
+                        stepper_page.keyboard.press("Enter")
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.hidden===false
+                          &&document.querySelector('#control-steps')?.value==='50'
+                          &&canvas?.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperGesture==='none'
+                          &&canvas.dataset.lessonStepperPreviewSteps==='';
+                    }""",timeout=5000)
+                    stepper_page.mouse.up()
+                    stepper_visibility_after=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_focus_count=stepper_page.evaluate(
+                        "window.__arduinoE2EStepperFocusCount||0")
+                    stepper_visibility_peer.close()
+                    check("post-v16-lesson13-stepper-real-tab-switch-respects-visibility-blur-capability-and-cancels-safely",
+                          stepper_visibility_preview["previewSteps"]=="80"
+                          and lesson13_stepper_state_agrees(
+                              stepper_visibility_after,50)
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress,
+                          json.dumps({
+                              **stepper_background_capability,
+                              "focusCount":stepper_focus_count,
+                              "backgroundMode":stepper_background_state["mode"],
+                              "backgroundGesture":stepper_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL context loss revokes the held proposal. Restore
+                    # may only re-arm the exact current native step count.
+                    loss_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(loss_pixel["x"]+30,loss_pixel["y"],steps=4)
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='80'
+                    """,timeout=3000)
+                    stepper_pre_loss=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EStepperGL=gl;
+                        window.__arduinoE2EStepperLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EStepperGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonStepperMode==='off'
+                          &&canvas.dataset.lessonStepperGesture==='none';
+                    }""",timeout=10000)
+                    stepper_lost_context=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-webgl-loss-revokes-preview-without-host-write",
+                          stepper_pre_loss["previewSteps"]=="80"
+                          and stepper_lost_context["mode"]=="off"
+                          and stepper_lost_context["gesture"]=="none"
+                          and stepper_lost_context["previewSteps"]==""
+                          and stepper_lost_context["value"]==50
+                          and stepper_lost_context["measuredMotion"]=="false"
+                          and stepper_lost_context["canvasBusy"]=="true")
+                    stepper_page.mouse.up()
+                    stepper_page.wait_for_timeout(500)
+                    stepper_page.evaluate(
+                        "window.__arduinoE2EStepperLoseExtension.restoreContext()")
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EStepperGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperSteps==='50'
+                          &&canvas.dataset.lessonStepperGesture==='none';
+                    }""",timeout=10000)
+                    stepper_restored=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-webgl-restore-rearms-current-native-steps-only",
+                          lesson13_stepper_state_agrees(stepper_restored,50)
+                          and stepper_restored["canvasBusy"] is None)
+
+                    # Stage and Lab layout lifecycles revoke scene ownership but
+                    # keep the native step setpoint unchanged on re-arm.
+                    stepper_page.locator("#stageTabWiring").click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='off'
+                    """,timeout=3000)
+                    stepper_stage_off=stepper_canvas.get_attribute(
+                        "data-lesson-stepper-mode")
+                    stepper_page.locator("#stageTab3d").click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperSteps==='50'
+                    """,timeout=3000)
+                    check("post-v16-lesson13-stepper-stage-roundtrip-revokes-and-rearms-current-native-steps",
+                          stepper_stage_off=="off"
+                          and lesson13_stepper_state_agrees(
+                              lesson13_stepper_acceptance_state(stepper_page),50))
+                    stepper_page.locator("#labEditToggle").click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='off'
+                    """,timeout=5000)
+                    stepper_edit_off=stepper_canvas.get_attribute(
+                        "data-lesson-stepper-mode")
+                    stepper_page.locator("#labEditToggle").click()
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperSteps==='50'
+                    """,timeout=5000)
+                    check("post-v16-lesson13-stepper-lab-edit-layout-roundtrip-revokes-and-rearms-current-steps",
+                          stepper_edit_off=="off"
+                          and lesson13_stepper_state_agrees(
+                              lesson13_stepper_acceptance_state(stepper_page),50))
+
+                    # Exact lesson ownership removes both native range and semantic
+                    # thumb; returning to Lesson13 restores authored default 50.
+                    stepper_page.locator('.lesson-link[data-lesson="12"]').click()
+                    check("post-v16-lesson13-stepper-lesson-switch-revokes-old-thumb-authority",
+                          stepper_canvas.get_attribute(
+                              "data-lesson-stepper-mode")=="off"
+                          and stepper_canvas.get_attribute(
+                              "data-lesson-stepper-target-count")=="0"
+                          and stepper_page.locator("#control-steps").count()==0
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress)
+                    stepper_page.locator('.lesson-link[data-lesson="13"]').click()
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-steps')?.value==='50'
+                          &&canvas?.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperSteps==='50'
+                          &&canvas.dataset.lessonStepperTargetCount==='1';
+                    }""",timeout=5000)
+                    check("post-v16-lesson13-stepper-return-restores-authored-50-default",
+                          lesson13_stepper_state_agrees(
+                              lesson13_stepper_acceptance_state(stepper_page),50))
+
+                    # At 375px the navigation drawer is intentionally closed, so
+                    # exercise the first-party hash route instead of clicking an
+                    # off-viewport lesson-link. Native range remains >=44px.
+                    stepper_page.set_viewport_size({"width":375,"height":812})
+                    stepper_page.goto(base+"#bai-13",wait_until="domcontentloaded",timeout=20000)
+                    ready(stepper_page)
+                    stepper_slider=stepper_page.locator("#control-steps")
+                    stepper_slider.scroll_into_view_if_needed()
+                    stepper_mobile_rect=stepper_slider.bounding_box()
+                    stepper_slider.focus()
+                    stepper_mobile=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          stepper_mobile_rect is not None
+                          and stepper_mobile_rect["width"]>=44
+                          and stepper_mobile_rect["height"]>=44
+                          and stepper_mobile["focused"] is True
+                          and stepper_mobile["labelCount"]==1
+                          and stepper_mobile["labelFor"]=="control-steps"
+                          and "Số bước" in stepper_mobile["label"]
+                          and stepper_page.get_by_role(
+                              "slider",name="Số bước").count()==1
+                          and stepper_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+
+                    # Prime-smoked mobile route: re-project at 375px, genuine CDP
+                    # touch +16px previews 66 while native remains 50, then cancel.
+                    stepper_mobile_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_mobile_input=stepper_context.new_cdp_session(stepper_page)
+                    mobile_touch={
+                        "x":stepper_mobile_pixel["x"],"y":stepper_mobile_pixel["y"],
+                        "id":183,"radiusX":1,"radiusY":1,"force":1,
+                    }
+                    mobile_move={**mobile_touch,"x":stepper_mobile_pixel["x"]+16}
+                    stepper_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[mobile_touch],
+                    })
+                    stepper_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[mobile_move],
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='66'
+                    """,timeout=3000)
+                    stepper_mobile_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[],
+                    })
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps===''
+                    """,timeout=3000)
+                    stepper_mobile_after=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-mobile-375-real-touch-hits-thumb-previews-66-and-cancels",
+                          stepper_mobile_pixel["insideFrustum"]
+                          and stepper_mobile_pixel["insideCanvas"]
+                          and stepper_mobile_pixel["onScreen"]
+                          and stepper_mobile_pixel["canvasUncovered"]
+                          and stepper_mobile_pixel["projectedWidth"]>0
+                          and stepper_mobile_pixel["projectedHeight"]>0
+                          and stepper_mobile_preview["value"]==50
+                          and stepper_mobile_preview["previewSteps"]=="66"
+                          and lesson13_stepper_state_agrees(
+                              stepper_mobile_after,50))
+                    stepper_page.set_viewport_size({"width":1280,"height":820})
+                    stepper_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # Actual reload exercises beforeunload + scene disposal while a
+                    # real pointer proposal is held. Reload starts authored 50 and
+                    # the old pointerup cannot replay after navigation.
+                    dispose_pixel=lesson13_scene_stepper_pixel(stepper_page)
+                    stepper_page.mouse.move(dispose_pixel["x"],dispose_pixel["y"])
+                    stepper_page.mouse.down()
+                    stepper_page.mouse.move(dispose_pixel["x"]+30,dispose_pixel["y"],steps=4)
+                    stepper_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonStepperPreviewSteps==='80'
+                    """,timeout=3000)
+                    stepper_dispose_preview=lesson13_stepper_acceptance_state(stepper_page)
+                    stepper_page.reload(wait_until="domcontentloaded",timeout=20000)
+                    ready(stepper_page)
+                    stepper_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-steps')?.value==='50'
+                          &&canvas?.dataset.lessonStepperMode==='pointer-slide'
+                          &&canvas.dataset.lessonStepperSteps==='50'
+                          &&canvas.dataset.lessonStepperGesture==='none';
+                    }""",timeout=5000)
+                    stepper_page.mouse.up()
+                    stepper_after_dispose=lesson13_stepper_acceptance_state(stepper_page)
+                    check("post-v16-lesson13-stepper-real-reload-disposes-held-thumb-without-stale-replay",
+                          stepper_dispose_preview["previewSteps"]=="80"
+                          and lesson13_stepper_state_agrees(
+                              stepper_after_dispose,50)
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress
+                          and stepper_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              stepper_progress_storage)
+
+                    # Step-count thumb remains simulation-only: no learner edge,
+                    # circuit history, progress/mastery, AVR evidence, or physical
+                    # motor-motion claim may result from any 3D interaction.
+                    stepper_page.locator("#stageTabWiring").click()
+                    stepper_undo=stepper_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    stepper_redo=stepper_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson13-stepper-no-electrical-graph-history-mastery-progress-avr-or-physical-motion-write",
+                          stepper_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and stepper_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and stepper_page.locator(
+                              ".wire-activate").get_attribute(
+                                  "aria-pressed")=="false"
+                          and stepper_undo.count()==1 and stepper_undo.is_disabled()
+                          and stepper_redo.count()==1 and stepper_redo.is_disabled()
+                          and stepper_canvas.get_attribute(
+                              "data-lesson-stepper-mode")=="off"
+                          and stepper_canvas.get_attribute(
+                              "data-lesson-stepper-physical-verified")=="false"
+                          and stepper_canvas.get_attribute(
+                              "data-lesson-stepper-electrical-authority")=="false"
+                          and stepper_canvas.get_attribute(
+                              "data-lesson-stepper-measured-motion")=="false"
+                          and stepper_page.locator(
+                              "#progressText").inner_text()==stepper_progress
+                          and stepper_page.locator(
+                              "#completeButton").is_visible()==stepper_complete_visible
+                          and stepper_page.locator("#avrMetrics").is_hidden()
+                          and stepper_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              stepper_progress_storage)
+                finally:
+                    stepper_context.close()
 
                 # Post-f714 guided ACTION -> DO -> CHECK: one current authored
                 # checkpoint CTA composes the already-owned attempt/evidence
