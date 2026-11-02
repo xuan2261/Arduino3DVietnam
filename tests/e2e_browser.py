@@ -1420,6 +1420,110 @@ def main() -> None:
             and actual.get("sceneContext")=="ready"
         )
 
+    def lesson14_scene_moisture_pixel(page, moisture: int | None = None):
+        """Project the authored Lesson14 conceptual soil-moisture thumb center."""
+        page.locator("#sceneMount canvas").scroll_into_view_if_needed()
+        return page.evaluate("""async requestedMoisture => {
+            const T=await import('./assets/vendor/three.module.min.js');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!canvas)throw new Error('Lesson14 3D canvas missing');
+            const current=canvas.dataset.lessonMoisturePreview!==''?
+              Number(canvas.dataset.lessonMoisturePreview):Number(canvas.dataset.lessonMoistureValue);
+            const value=requestedMoisture===null?current:Number(requestedMoisture);
+            if(!Number.isInteger(value)||value<0||value>100){
+              throw new Error('Lesson14 canonical moisture missing or out of range');
+            }
+            const rect=canvas.getBoundingClientRect();
+            const aspect=Math.max(1,canvas.clientWidth)/Math.max(1,canvas.clientHeight);
+            const fov=38,theta=.45,phi=.88,zoom=1;
+            const fitted=Math.max(16.7,18.5/
+              (2*Math.tan(T.MathUtils.degToRad(fov/2))*Math.max(.45,aspect)));
+            const radius=Math.min(48,Math.max(8,fitted*zoom));
+            const camera=new T.PerspectiveCamera(fov,aspect,.1,100);
+            camera.position.set(radius*Math.sin(phi)*Math.sin(theta),
+              radius*Math.cos(phi)+5,radius*Math.sin(phi)*Math.cos(theta));
+            camera.lookAt(1.15,.35,0);
+            camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+            const localX=-2.56+(value/100)*1.20;
+            const world=new T.Vector3(5.15+localX,.55+.92,.10+1.40);
+            const projected=world.clone().project(camera);
+            const x=rect.left+(projected.x+1)*rect.width/2;
+            const y=rect.top+(1-projected.y)*rect.height/2;
+            const corners=[];
+            for(const dx of [-.39,.39])for(const dy of [-.37,.37])
+              for(const dz of [-.34,.34]){
+                const p=new T.Vector3(world.x+dx,world.y+dy,world.z+dz).project(camera);
+                corners.push({
+                  x:rect.left+(p.x+1)*rect.width/2,
+                  y:rect.top+(1-p.y)*rect.height/2,
+                });
+              }
+            const xs=corners.map(point=>point.x),ys=corners.map(point=>point.y);
+            return Object.freeze({
+              moisture:value,x,y,
+              projectedWidth:Math.max(...xs)-Math.min(...xs),
+              projectedHeight:Math.max(...ys)-Math.min(...ys),
+              insideFrustum:projected.z>=-1&&projected.z<=1,
+              insideCanvas:Math.abs(projected.x)<1&&Math.abs(projected.y)<1,
+              onScreen:x>=0&&x<innerWidth&&y>=0&&y<innerHeight,
+              canvasUncovered:document.elementFromPoint(x,y)===canvas,
+            });
+        }""", moisture)
+
+    def lesson14_moisture_acceptance_state(page):
+        """Read native Lesson14 range plus public soil-moisture scene diagnostics."""
+        return page.evaluate("""() => {
+            const input=document.querySelector('#control-moisture');
+            const canvas=document.querySelector('#sceneMount canvas');
+            if(!(input instanceof HTMLInputElement)||input.type!=='range'||!canvas){
+              throw new Error('Lesson14 canonical moisture UI/scene missing');
+            }
+            const output=input.closest('.control-field')?.querySelector('output');
+            const label=input.labels?.[0]??null;
+            return Object.freeze({
+              value:Number(input.value),min:input.min,max:input.max,step:input.step,
+              control:input.dataset.control||'',output:output?.textContent||'',
+              label:label?.textContent||'',labelFor:label?.htmlFor||'',
+              labelCount:input.labels?.length??0,focused:document.activeElement===input,
+              mode:canvas.dataset.lessonMoistureMode||'',
+              sceneMoisture:canvas.dataset.lessonMoistureValue||'',
+              previewMoisture:canvas.dataset.lessonMoisturePreview||'',
+              gesture:canvas.dataset.lessonMoistureGesture||'',
+              targetCount:Number(canvas.dataset.lessonMoistureTargetCount||0),
+              physicalVerified:canvas.dataset.lessonMoisturePhysicalVerified||'',
+              electricalAuthority:canvas.dataset.lessonMoistureElectricalAuthority||'',
+              measuredMoisture:canvas.dataset.lessonMoistureMeasuredMoisture||'',
+              pumpPowerModeled:canvas.dataset.lessonMoisturePumpPowerModeled||'',
+              sceneContext:canvas.dataset.sceneContext||'',
+              canvasBusy:canvas.getAttribute('aria-busy'),
+              canvasLabel:canvas.getAttribute('aria-label')||'',
+            });
+        }""")
+
+    def lesson14_moisture_state_agrees(actual: dict[str, object], expected: int) -> bool:
+        return (
+            0 <= expected <= 100
+            and actual.get("value")==expected
+            and actual.get("min")=="0"
+            and actual.get("max")=="100"
+            and actual.get("step")=="1"
+            and actual.get("control")=="moisture"
+            and actual.get("output")==f"{expected} %"
+            and actual.get("labelFor")=="control-moisture"
+            and actual.get("labelCount")==1
+            and "Độ ẩm đất" in str(actual.get("label"))
+            and actual.get("mode")=="pointer-slide"
+            and actual.get("sceneMoisture")==str(expected)
+            and actual.get("previewMoisture")==""
+            and actual.get("gesture")=="none"
+            and actual.get("targetCount")==1
+            and actual.get("physicalVerified")=="false"
+            and actual.get("electricalAuthority")=="false"
+            and actual.get("measuredMoisture")=="false"
+            and actual.get("pumpPowerModeled")=="false"
+            and actual.get("sceneContext")=="ready"
+        )
+
     def lab_scene_breadboard_hole_points(page, lesson_id: int, hole_ids: list[str]):
         """Project source-defined CONCEPTUAL A1..J63 visual markers for real pointer QA.
 
@@ -1928,7 +2032,7 @@ def main() -> None:
                 }
                 check("scene-3d-lifecycle-contracts",
                       scene_lifecycle["failed"] == 0
-                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 738
+                      and scene_lifecycle["passed"] == scene_lifecycle["total"] == 775
                       and "lesson-fsr-source-lesson15-creates-one-exact-tagged-nonauthoritative-fsr-pad" in
                           scene_lifecycle_names
                       and "lesson-fsr-source-native-force-input-revokes-held-fsr-gesture-before-host-change-and-resyncs-scene-afterward" in
@@ -13823,6 +13927,620 @@ def main() -> None:
                               stepper_progress_storage)
                 finally:
                     stepper_context.close()
+
+                # Lesson14 Smart Plant: one first-party conceptual soil-moisture
+                # thumb is an optional pointer surface for the existing native
+                # 0..100 % range. It previews only; release delegates one change
+                # to the host range. Pump output remains simulator-owned and the
+                # Lesson14 circuit remains signal-only/non-activatable.
+                moisture_context=browser.new_context(
+                    viewport={"width":1280,"height":820},
+                    service_workers="allow",has_touch=True)
+                try:
+                    moisture_page=moisture_context.new_page()
+                    capture_console(moisture_page)
+                    moisture_page.goto(base,wait_until="domcontentloaded",timeout=20000)
+                    ready(moisture_page)
+                    moisture_page.locator('.lesson-link[data-lesson="14"]').click()
+                    moisture_canvas=moisture_page.locator("#sceneMount canvas")
+                    moisture_slider=moisture_page.locator("#control-moisture")
+                    moisture_progress=moisture_page.locator("#progressText").inner_text()
+                    moisture_progress_storage=moisture_page.evaluate(
+                        "localStorage.getItem('arduino-3d-viet-progress-v1')")
+                    moisture_complete_visible=moisture_page.locator(
+                        "#completeButton").is_visible()
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-moisture')?.value==='48'
+                          &&canvas?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureValue==='48'
+                          &&canvas.dataset.lessonMoistureTargetCount==='1';
+                    }""",timeout=5000)
+                    moisture_initial=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_initial_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    check("post-v16-lesson14-moisture-native-range-and-tagged-thumb-ready",
+                          lesson14_moisture_state_agrees(moisture_initial,48)
+                          and moisture_initial_pixel["insideFrustum"]
+                          and moisture_initial_pixel["insideCanvas"]
+                          and moisture_initial_pixel["onScreen"]
+                          and moisture_initial_pixel["canvasUncovered"]
+                          and moisture_initial_pixel["projectedWidth"]>0
+                          and moisture_initial_pixel["projectedHeight"]>0
+                          and "signal-only" in moisture_initial["canvasLabel"].lower()
+                          and "không đo độ ẩm" in moisture_initial["canvasLabel"].lower(),
+                          json.dumps({"state":moisture_initial,
+                                      "pixel":moisture_initial_pixel},ensure_ascii=False))
+
+                    # Native range is the complete keyboard authority.
+                    moisture_slider.focus()
+                    moisture_slider.press("Home")
+                    moisture_home=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_slider.press("End")
+                    moisture_end=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-native-keyboard-home-end-cover-zero-to-100",
+                          lesson14_moisture_state_agrees(moisture_home,0)
+                          and moisture_home["focused"] is True
+                          and lesson14_moisture_state_agrees(moisture_end,100)
+                          and moisture_end["focused"] is True
+                          and moisture_page.get_by_role(
+                              "slider",name="Độ ẩm đất").count()==1)
+                    moisture_page.locator("#resetButton").click()
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#control-moisture')?.value==='48'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureValue==='48'
+                    """,timeout=3000)
+
+                    # Genuine no-move mouse click cannot fabricate a new setpoint.
+                    moisture_tap_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(moisture_tap_pixel["x"],moisture_tap_pixel["y"])
+                    moisture_page.mouse.down()
+                    moisture_tap_down=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_page.mouse.up()
+                    moisture_tap_after=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-real-mouse-click-is-noop",
+                          moisture_tap_down["gesture"]=="grabbed"
+                          and moisture_tap_down["previewMoisture"]==""
+                          and moisture_tap_down["value"]==48
+                          and lesson14_moisture_state_agrees(moisture_tap_after,48))
+
+                    # Source contract: one percentage point per CSS pixel.
+                    mouse_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(mouse_pixel["x"],mouse_pixel["y"])
+                    moisture_page.mouse.down()
+                    moisture_mouse_grab=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-real-mouse-down-grabs-without-host-write",
+                          moisture_mouse_grab["gesture"]=="grabbed"
+                          and moisture_mouse_grab["previewMoisture"]==""
+                          and moisture_mouse_grab["value"]==48
+                          and moisture_mouse_grab["sceneMoisture"]=="48")
+                    moisture_page.mouse.move(mouse_pixel["x"]+20,mouse_pixel["y"],steps=6)
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonMoistureGesture==='dragging'
+                          &&canvas.dataset.lessonMoisturePreview==='68'
+                          &&document.querySelector('#control-moisture')?.value==='48';
+                    }""",timeout=3000)
+                    moisture_mouse_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-real-mouse-drag-right-previews-68-without-host-commit",
+                          moisture_mouse_preview["value"]==48
+                          and moisture_mouse_preview["sceneMoisture"]=="48"
+                          and moisture_mouse_preview["previewMoisture"]=="68"
+                          and moisture_page.locator(
+                              "#progressText").inner_text()==moisture_progress)
+                    moisture_page.mouse.up()
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-moisture')?.value==='68'
+                          &&canvas?.dataset.lessonMoistureValue==='68'
+                          &&canvas.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=3000)
+                    moisture_mouse_commit=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-real-mouse-release-commits-68-through-native-range",
+                          lesson14_moisture_state_agrees(moisture_mouse_commit,68)
+                          and moisture_page.locator(
+                              "#progressText").inner_text()==moisture_progress)
+
+                    # The JS lesson simulator alone owns the signal-only pump/D8
+                    # rule: stopped is OFF, running below 35 is ON, and 35 is OFF.
+                    moisture_simulator=moisture_page.evaluate("""async () => {
+                        const {simulate}=await import('./src/simulator.js');
+                        const pin=(snap,name)=>snap.pins.find(([n])=>n===name)?.[1]??null;
+                        const stopped=simulate(14,{moisture:34},0,false,{});
+                        const runningDry=simulate(14,{moisture:34},0,true,{});
+                        const runningThreshold=simulate(14,{moisture:35},0,true,{});
+                        return Object.freeze({
+                          stoppedPump:stopped.pump,runningDryPump:runningDry.pump,
+                          thresholdPump:runningThreshold.pump,
+                          stoppedD8:pin(stopped,'D8'),runningDryD8:pin(runningDry,'D8'),
+                          thresholdD8:pin(runningThreshold,'D8'),
+                        });
+                    }""")
+                    check("post-v16-lesson14-moisture-simulator-pump-is-running-and-below-35-only",
+                          moisture_simulator=={
+                              "stoppedPump":False,"runningDryPump":True,
+                              "thresholdPump":False,"stoppedD8":"LOW",
+                              "runningDryD8":"HIGH","thresholdD8":"LOW",
+                          })
+
+                    # A native value change supersedes a held pointer proposal.
+                    moisture_page.locator("#resetButton").click()
+                    moisture_page.wait_for_function(
+                        "() => document.querySelector('#control-moisture')?.value==='48'",timeout=3000)
+                    stale_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(stale_pixel["x"],stale_pixel["y"])
+                    moisture_page.mouse.down()
+                    moisture_page.mouse.move(stale_pixel["x"]+12,stale_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='60'
+                    """,timeout=3000)
+                    moisture_stale_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_slider.focus();moisture_slider.press("End")
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-moisture')?.value==='100'
+                          &&canvas?.dataset.lessonMoistureValue==='100'
+                          &&canvas.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=3000)
+                    moisture_page.mouse.up()
+                    check("post-v16-lesson14-moisture-native-value-change-revokes-stale-mouse-preview",
+                          moisture_stale_preview["value"]==48
+                          and moisture_stale_preview["previewMoisture"]=="60"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),100))
+                    moisture_page.locator("#resetButton").click()
+                    moisture_page.wait_for_function(
+                        "() => document.querySelector('#control-moisture')?.value==='48'",timeout=3000)
+
+                    # Run/Pause is a lifecycle boundary and cannot replay a stale up.
+                    run_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(run_pixel["x"],run_pixel["y"])
+                    moisture_page.mouse.down()
+                    moisture_page.mouse.move(run_pixel["x"]+12,run_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='60'
+                    """,timeout=3000)
+                    moisture_run_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_run_button=moisture_page.locator("#runButton")
+                    moisture_run_button.focus();moisture_page.keyboard.press("Enter")
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#runStatus')?.textContent?.includes('Đang chạy')
+                          &&document.querySelector('#control-moisture')?.value==='48'
+                          &&canvas?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=3000)
+                    moisture_run_state=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_page.keyboard.press("Enter")
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#runStatus')?.textContent?.includes('Đang dừng')
+                    """,timeout=3000)
+                    moisture_page.mouse.up()
+                    check("post-v16-lesson14-moisture-keyboard-run-pause-cancels-held-mouse-without-stale-replay",
+                          moisture_run_preview["previewMoisture"]=="60"
+                          and lesson14_moisture_state_agrees(moisture_run_state,48)
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    moisture_input=moisture_context.new_cdp_session(moisture_page)
+
+                    # Genuine Chrome touch cancel is a non-commit pointercancel path.
+                    touch_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    touch_start={"x":touch_pixel["x"],"y":touch_pixel["y"],"id":214,
+                                 "radiusX":1,"radiusY":1,"force":1}
+                    touch_move={**touch_start,"x":touch_pixel["x"]+16}
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_start]})
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_move]})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='64'
+                    """,timeout=3000)
+                    moisture_touch_cancel_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[]})
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return canvas?.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=3000)
+                    check("post-v16-lesson14-moisture-real-touchcancel-discards-preview-without-commit",
+                          moisture_touch_cancel_preview["value"]==48
+                          and moisture_touch_cancel_preview["previewMoisture"]=="64"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    # Genuine touch clamps the lower bound and commits only on end.
+                    touch_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    if touch_pixel["x"]-80<8:
+                        raise AssertionError("Lesson14 moisture thumb lacks 80px leftward viewport room")
+                    touch_low={"x":touch_pixel["x"],"y":touch_pixel["y"],"id":215,
+                               "radiusX":1,"radiusY":1,"force":1}
+                    touch_low_move={**touch_low,"x":touch_pixel["x"]-80}
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[touch_low]})
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[touch_low_move]})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='0'
+                    """,timeout=3000)
+                    moisture_touch_low_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchEnd","touchPoints":[]})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#control-moisture')?.value==='0'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureGesture==='none'
+                    """,timeout=3000)
+                    check("post-v16-lesson14-moisture-real-touch-drag-left-clamps-and-commits-zero",
+                          moisture_touch_low_preview["value"]==48
+                          and moisture_touch_low_preview["previewMoisture"]=="0"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),0))
+                    moisture_page.locator("#resetButton").click()
+                    moisture_page.wait_for_function(
+                        "() => document.querySelector('#control-moisture')?.value==='48'",timeout=3000)
+
+                    # Genuine pen path covers the upper bound.
+                    pen_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    if pen_pixel["x"]+80>1272:
+                        raise AssertionError("Lesson14 moisture thumb lacks 80px rightward viewport room")
+                    for event_type,buttons,x in [
+                        ("mouseMoved",0,pen_pixel["x"]),
+                        ("mousePressed",1,pen_pixel["x"]),
+                        ("mouseMoved",1,pen_pixel["x"]+80),
+                    ]:
+                        moisture_input.send("Input.dispatchMouseEvent",{
+                            "type":event_type,"x":x,"y":pen_pixel["y"],
+                            "button":"left" if event_type!="mouseMoved" or buttons else "none",
+                            "buttons":buttons,"clickCount":1,"pointerType":"pen"})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='100'
+                    """,timeout=3000)
+                    moisture_pen_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_input.send("Input.dispatchMouseEvent",{
+                        "type":"mouseReleased","x":pen_pixel["x"]+80,"y":pen_pixel["y"],
+                        "button":"left","buttons":0,"clickCount":1,"pointerType":"pen"})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#control-moisture')?.value==='100'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureGesture==='none'
+                    """,timeout=3000)
+                    check("post-v16-lesson14-moisture-real-pen-drag-right-clamps-and-commits-100",
+                          moisture_pen_preview["value"]==48
+                          and moisture_pen_preview["previewMoisture"]=="100"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),100))
+                    moisture_page.locator("#resetButton").click()
+                    moisture_page.wait_for_function(
+                        "() => document.querySelector('#control-moisture')?.value==='48'",timeout=3000)
+
+                    # Native lostpointercapture is another explicit non-commit path.
+                    moisture_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        window.__arduinoE2EMoisturePointerId=null;
+                        window.__arduinoE2EMoistureGotCaptureId=null;
+                        window.__arduinoE2EMoistureLostCaptureId=null;
+                        canvas.addEventListener('pointerdown',event=>{
+                          window.__arduinoE2EMoisturePointerId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('gotpointercapture',event=>{
+                          window.__arduinoE2EMoistureGotCaptureId=event.pointerId;
+                        },{once:true});
+                        canvas.addEventListener('lostpointercapture',event=>{
+                          window.__arduinoE2EMoistureLostCaptureId=event.pointerId;
+                        },{once:true});
+                    }""")
+                    lost_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(lost_pixel["x"],lost_pixel["y"])
+                    moisture_page.mouse.down()
+                    moisture_page.mouse.move(lost_pixel["x"]+14,lost_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EMoisturePointerId;
+                        return Number.isInteger(id)&&canvas?.hasPointerCapture?.(id)===true
+                          &&window.__arduinoE2EMoistureGotCaptureId===id
+                          &&canvas.dataset.lessonMoisturePreview==='62';
+                    }""",timeout=3000)
+                    moisture_lost_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const id=window.__arduinoE2EMoisturePointerId;
+                        if(!Number.isInteger(id)||!canvas.hasPointerCapture(id)){
+                          throw new Error('Lesson14 moisture pointer capture missing');
+                        }
+                        canvas.releasePointerCapture(id);
+                    }""")
+                    # Chromium processes a pending native capture transition on
+                    # the NEXT genuine pointer event, not synchronously inside
+                    # releasePointerCapture. Do not fabricate lostcapture.
+                    moisture_page.mouse.move(lost_pixel["x"]+14.5,lost_pixel["y"]+.5)
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EMoistureLostCaptureId===
+                            window.__arduinoE2EMoisturePointerId
+                          &&canvas?.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=3000)
+                    moisture_page.mouse.up()
+                    check("post-v16-lesson14-moisture-native-lostcapture-discards-preview-without-commit",
+                          moisture_lost_preview["previewMoisture"]=="62"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    # Real tab switching may surface visibilitychange, blur, or both.
+                    moisture_page.evaluate("""() => {
+                        window.__arduinoE2EMoistureBlurCount=0;
+                        window.addEventListener('blur',()=>window.__arduinoE2EMoistureBlurCount+=1);
+                    }""")
+                    moisture_visibility_peer=moisture_context.new_page()
+                    moisture_visibility_peer.goto("about:blank")
+                    moisture_page.bring_to_front()
+                    vis_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(vis_pixel["x"],vis_pixel["y"])
+                    moisture_page.mouse.down();moisture_page.mouse.move(vis_pixel["x"]+12,vis_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='60'
+                    """,timeout=3000)
+                    moisture_visibility_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_visibility_peer.bring_to_front()
+                    moisture_background=moisture_page.evaluate("""() => ({
+                        hidden:document.hidden===true,blurCount:window.__arduinoE2EMoistureBlurCount||0
+                    })""")
+                    if moisture_background["hidden"] or moisture_background["blurCount"]>0:
+                        moisture_page.wait_for_function("""() =>
+                            document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureMode==='off'
+                        """,timeout=5000)
+                    moisture_background_state=lesson14_moisture_acceptance_state(moisture_page)
+                    if (not moisture_background["hidden"] and
+                            moisture_background["blurCount"]==0 and
+                            moisture_background_state["gesture"]!="none"):
+                        # Some headless Chromium builds expose neither hidden nor
+                        # window blur for a peer-page switch. Fall back to a real
+                        # native host lifecycle action instead of fabricating one.
+                        moisture_page.locator("#resetButton").focus()
+                        moisture_page.keyboard.press("Enter")
+                    moisture_page.bring_to_front()
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.hidden===false
+                          &&document.querySelector('#control-moisture')?.value==='48'
+                          &&canvas?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureGesture==='none'
+                          &&canvas.dataset.lessonMoisturePreview==='';
+                    }""",timeout=5000)
+                    moisture_page.mouse.up();moisture_visibility_peer.close()
+                    check("post-v16-lesson14-moisture-real-tab-switch-blur-hidden-cancels-safely",
+                          moisture_visibility_preview["previewMoisture"]=="60"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48),
+                          json.dumps({
+                              **moisture_background,
+                              "backgroundMode":moisture_background_state["mode"],
+                              "backgroundGesture":moisture_background_state["gesture"],
+                          },ensure_ascii=False))
+
+                    # Real WebGL loss revokes a held proposal; restore re-arms only
+                    # the current native value and never the stale preview.
+                    loss_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(loss_pixel["x"],loss_pixel["y"])
+                    moisture_page.mouse.down();moisture_page.mouse.move(loss_pixel["x"]+12,loss_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='60'
+                    """,timeout=3000)
+                    moisture_pre_loss=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_page.evaluate("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        const gl=canvas?.getContext('webgl2');
+                        const ext=gl?.getExtension('WEBGL_lose_context');
+                        if(!ext)throw new Error('Real WEBGL_lose_context extension unavailable');
+                        window.__arduinoE2EMoistureGL=gl;
+                        window.__arduinoE2EMoistureLoseExtension=ext;
+                        ext.loseContext();
+                    }""")
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EMoistureGL?.isContextLost()===true
+                          &&canvas?.dataset.sceneContext==='lost'
+                          &&canvas.dataset.lessonMoistureMode==='off'
+                          &&canvas.dataset.lessonMoistureGesture==='none';
+                    }""",timeout=10000)
+                    moisture_lost_context=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-real-webgl-loss-revokes-preview-without-host-write",
+                          moisture_pre_loss["previewMoisture"]=="60"
+                          and moisture_lost_context["mode"]=="off"
+                          and moisture_lost_context["gesture"]=="none"
+                          and moisture_lost_context["previewMoisture"]==""
+                          and moisture_lost_context["value"]==48
+                          and moisture_lost_context["measuredMoisture"]=="false"
+                          and moisture_lost_context["pumpPowerModeled"]=="false"
+                          and moisture_lost_context["canvasBusy"]=="true")
+                    moisture_page.mouse.up()
+                    moisture_page.evaluate(
+                        "window.__arduinoE2EMoistureLoseExtension.restoreContext()")
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return window.__arduinoE2EMoistureGL?.isContextLost()===false
+                          &&canvas?.dataset.sceneContext==='ready'
+                          &&canvas.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureValue==='48'
+                          &&canvas.dataset.lessonMoistureGesture==='none';
+                    }""",timeout=10000)
+                    check("post-v16-lesson14-moisture-real-webgl-restore-rearms-current-native-value-only",
+                          lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    # Stage and edit/layout ownership revoke then re-arm the same value.
+                    moisture_page.locator("#stageTabWiring").click()
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureMode==='off'
+                    """,timeout=3000)
+                    moisture_stage_off=moisture_canvas.get_attribute("data-lesson-moisture-mode")
+                    moisture_page.locator("#stageTab3d").click()
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureValue==='48'
+                    """,timeout=3000)
+                    check("post-v16-lesson14-moisture-stage-roundtrip-revokes-and-rearms-current-native-value",
+                          moisture_stage_off=="off"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+                    moisture_page.locator("#labEditToggle").click()
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='true'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureMode==='off'
+                    """,timeout=5000)
+                    moisture_edit_off=moisture_canvas.get_attribute("data-lesson-moisture-mode")
+                    moisture_page.locator("#labEditToggle").click()
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#labEditToggle')?.getAttribute('aria-pressed')==='false'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureMode==='pointer-slide'
+                    """,timeout=5000)
+                    check("post-v16-lesson14-moisture-lab-edit-layout-roundtrip-revokes-and-rearms-current-value",
+                          moisture_edit_off=="off"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    # Exact lesson ownership removes the target and native range.
+                    moisture_page.locator('.lesson-link[data-lesson="13"]').click()
+                    check("post-v16-lesson14-moisture-lesson-switch-revokes-old-target-authority",
+                          moisture_canvas.get_attribute("data-lesson-moisture-mode")=="off"
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-target-count")=="0"
+                          and moisture_page.locator("#control-moisture").count()==0
+                          and moisture_page.locator(
+                              "#progressText").inner_text()==moisture_progress)
+                    moisture_page.locator('.lesson-link[data-lesson="14"]').click()
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-moisture')?.value==='48'
+                          &&canvas?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureValue==='48'
+                          &&canvas.dataset.lessonMoistureTargetCount==='1';
+                    }""",timeout=5000)
+                    check("post-v16-lesson14-moisture-return-restores-authored-48-default",
+                          lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+
+                    # 375px native range remains large, labelled, keyboard focusable
+                    # and document-wide overflow-free. 3D thumb remains optional.
+                    moisture_page.set_viewport_size({"width":375,"height":812})
+                    moisture_page.goto(base+"#bai-14",wait_until="domcontentloaded",timeout=20000)
+                    ready(moisture_page)
+                    moisture_slider=moisture_page.locator("#control-moisture")
+                    moisture_slider.scroll_into_view_if_needed()
+                    moisture_mobile_rect=moisture_slider.bounding_box()
+                    moisture_slider.focus()
+                    moisture_mobile=lesson14_moisture_acceptance_state(moisture_page)
+                    check("post-v16-lesson14-moisture-mobile-375-native-range-44px-focus-aria-no-overflow",
+                          moisture_mobile_rect is not None
+                          and moisture_mobile_rect["width"]>=44
+                          and moisture_mobile_rect["height"]>=44
+                          and moisture_mobile["focused"] is True
+                          and moisture_mobile["labelCount"]==1
+                          and moisture_mobile["labelFor"]=="control-moisture"
+                          and "Độ ẩm đất" in moisture_mobile["label"]
+                          and moisture_page.get_by_role(
+                              "slider",name="Độ ẩm đất").count()==1
+                          and moisture_page.evaluate(
+                              "innerWidth===375&&document.documentElement.scrollWidth<=innerWidth") is True)
+                    moisture_mobile_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_mobile_input=moisture_context.new_cdp_session(moisture_page)
+                    mobile_touch={"x":moisture_mobile_pixel["x"],"y":moisture_mobile_pixel["y"],
+                                  "id":216,"radiusX":1,"radiusY":1,"force":1}
+                    # Touch activation requires displacement STRICTLY greater
+                    # than the 12px tap guard. 16px is a genuine drag, not a
+                    # synthetic threshold-crossing event or a weakened check.
+                    mobile_move={**mobile_touch,"x":moisture_mobile_pixel["x"]+16}
+                    moisture_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchStart","touchPoints":[mobile_touch]})
+                    moisture_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchMove","touchPoints":[mobile_move]})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='64'
+                    """,timeout=3000)
+                    moisture_mobile_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_mobile_input.send("Input.dispatchTouchEvent",{
+                        "type":"touchCancel","touchPoints":[]})
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoistureGesture==='none'
+                          &&document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview===''
+                    """,timeout=3000)
+                    check("post-v16-lesson14-moisture-mobile-375-real-touch-hits-thumb-previews-and-cancels",
+                          moisture_mobile_pixel["insideFrustum"]
+                          and moisture_mobile_pixel["insideCanvas"]
+                          and moisture_mobile_pixel["onScreen"]
+                          and moisture_mobile_pixel["canvasUncovered"]
+                          and moisture_mobile_preview["value"]==48
+                          and moisture_mobile_preview["previewMoisture"]=="64"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48))
+                    moisture_page.set_viewport_size({"width":1280,"height":820})
+                    moisture_page.wait_for_function("() => innerWidth===1280",timeout=3000)
+
+                    # Reload disposes a held proposal; new document re-arms authored48.
+                    dispose_pixel=lesson14_scene_moisture_pixel(moisture_page)
+                    moisture_page.mouse.move(dispose_pixel["x"],dispose_pixel["y"])
+                    moisture_page.mouse.down();moisture_page.mouse.move(dispose_pixel["x"]+12,dispose_pixel["y"],steps=4)
+                    moisture_page.wait_for_function("""() =>
+                        document.querySelector('#sceneMount canvas')?.dataset.lessonMoisturePreview==='60'
+                    """,timeout=3000)
+                    moisture_dispose_preview=lesson14_moisture_acceptance_state(moisture_page)
+                    moisture_page.reload(wait_until="domcontentloaded",timeout=20000)
+                    ready(moisture_page)
+                    moisture_page.wait_for_function("""() => {
+                        const canvas=document.querySelector('#sceneMount canvas');
+                        return document.querySelector('#control-moisture')?.value==='48'
+                          &&canvas?.dataset.lessonMoistureMode==='pointer-slide'
+                          &&canvas.dataset.lessonMoistureValue==='48'
+                          &&canvas.dataset.lessonMoistureGesture==='none';
+                    }""",timeout=5000)
+                    moisture_page.mouse.up()
+                    check("post-v16-lesson14-moisture-real-reload-disposes-held-thumb-without-stale-replay",
+                          moisture_dispose_preview["previewMoisture"]=="60"
+                          and lesson14_moisture_state_agrees(
+                              lesson14_moisture_acceptance_state(moisture_page),48)
+                          and moisture_page.locator(
+                              "#progressText").inner_text()==moisture_progress
+                          and moisture_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              moisture_progress_storage)
+
+                    # Final authority check: no graph/history/completion/AVR or
+                    # physical moisture/pump-power claims may be created.
+                    moisture_page.locator("#stageTabWiring").click()
+                    moisture_undo=moisture_page.locator(
+                        '.wire-actions [aria-label="Hoàn tác trạng thái đấu dây trước đó trong ứng dụng"]')
+                    moisture_redo=moisture_page.locator(
+                        '.wire-actions [aria-label="Làm lại trạng thái đấu dây tiếp theo trong ứng dụng"]')
+                    check("post-v16-lesson14-moisture-no-graph-history-progress-avr-or-physical-pump-authority-write",
+                          moisture_page.locator(
+                              "#viewport .wiring-view.is-interactive").count()==1
+                          and moisture_page.locator(
+                              ".wiring-view .wire-connected").count()==0
+                          and moisture_page.locator(".wire-activate").is_disabled()
+                          and moisture_undo.count()==1 and moisture_undo.is_disabled()
+                          and moisture_redo.count()==1 and moisture_redo.is_disabled()
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-mode")=="off"
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-physical-verified")=="false"
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-electrical-authority")=="false"
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-measured-moisture")=="false"
+                          and moisture_canvas.get_attribute(
+                              "data-lesson-moisture-pump-power-modeled")=="false"
+                          and moisture_page.locator(
+                              "#progressText").inner_text()==moisture_progress
+                          and moisture_page.locator(
+                              "#completeButton").is_visible()==moisture_complete_visible
+                          and moisture_page.locator("#avrMetrics").is_hidden()
+                          and moisture_page.evaluate(
+                              "localStorage.getItem('arduino-3d-viet-progress-v1')")==
+                              moisture_progress_storage)
+                finally:
+                    moisture_context.close()
 
                 # Lesson10 DC Motor: three first-party driver-panel input targets
                 # are optional 3D surfaces for the native PWM range and direction

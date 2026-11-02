@@ -55,6 +55,10 @@ const LESSON_MOTOR_SOURCE_ID = "lesson-10-motor-driver-panel";
 const LESSON_MOTOR_DRAG_PWM_PER_PX = 2; // Conceptual PWM command, not measured RPM.
 const LESSON_MOTOR_HANDLE_SPAN = 1.20; // Display-only travel, never physical displacement.
 const LESSON_MOTOR_HANDLE_MIN_X = -2.65;
+const LESSON_MOISTURE_SOURCE_ID = "lesson-14-soil-moisture";
+const LESSON_MOISTURE_DRAG_PERCENT_PER_PX = 1; // Authored percent input, NOT sensor calibration.
+const LESSON_MOISTURE_HANDLE_SPAN = 1.20; // Conceptual UI travel, not a depth or water measurement.
+const LESSON_MOISTURE_HANDLE_MIN_X = -2.56;
 const LAB_AUTHORED_GUIDE_ROUTE_POINTS = 6;
 const LAB_WIRE_ID_MAX = 80;
 const BREADBOARD_STUDY_ROWS = Object.freeze("ABCDEFGHIJ".split(""));
@@ -1032,7 +1036,7 @@ function createModule(scene, kind, shared) {
   module.position.set(5.15,.55,.10);
   scene.add(module);
   const state = { module, led: null, rotor: null, pointer: null, arm: null,
-    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null,temperatureHeatSource:null,rgbFaders:[],stepperStepCountTarget:null,motorPwmThumb:null,motorDirectionTargets:[] };
+    pianoKeys: [],servoHorn:null,servoTips:[],fsrPad:null,ultrasonicObstacle:null,ldrLightSource:null,temperatureHeatSource:null,rgbFaders:[],stepperStepCountTarget:null,motorPwmThumb:null,motorDirectionTargets:[],moistureTarget:null };
   const led = (radius=.38, color=0xe75e57) => {
     const ledMaterial = material(color,{transparent:true,opacity:.85,emissive:color,emissiveIntensity:.10,roughness:.30});
     const globe = cylinder(module,radius,radius,.47,ledMaterial,[0,.48,0],32);
@@ -1240,7 +1244,7 @@ function createModule(scene, kind, shared) {
       state.arm=arm;state.servoHorn=horn;state.servoTips=tips;
       break;
     }
-    case "plant":
+    case "plant": {
       cylinder(module,.92,.64,.92,0xb9825d,[0,.36,0],24);
       cylinder(module,.7,.7,.04,0x567757,[0,.85,0],24);
       for(const k of [-1,0,1]){
@@ -1248,7 +1252,20 @@ function createModule(scene, kind, shared) {
         leaf.rotation.z=k*.45;
       }
       led(.20);state.led.position.set(1.2,.40,.05);
+      // Separate teaching INPUT next to the pot. The plant and pump indicator
+      // remain simulator OUTPUTS; the position of this thumb is not a soil probe.
+      box(module,[1.62,.08,.18],0x435a58,[-1.95,.60,1.40]);
+      const thumb=box(module,[.78,.74,.68],0x79bba8,
+        [LESSON_MOISTURE_HANDLE_MIN_X+(48/100)*LESSON_MOISTURE_HANDLE_SPAN,.92,1.40]);
+      thumb.userData={
+        kind:"soil-moisture-target",lessonId:14,
+        sourceId:LESSON_MOISTURE_SOURCE_ID,physicalVerified:false,
+        electricalAuthority:false,measuredMoisture:false,pumpPowerModeled:false,
+      };
+      state.moistureTarget=thumb;
+      canvasLabel(module,"ẨM ĐẤT", -1.95,1.46,1.40,1.42,29,"#edf4eb");
       break;
+    }
     case "project":
       led(.34);state.led.position.set(.9,.65,.1);
       cylinder(module,.51,.51,.13,0x89ad8c,[-.85,.4,.25]);
@@ -1311,6 +1328,7 @@ export function mountScene(host, onSelect = () => {}) {
   };
   let lessonStepperActuation={enabled:false,lessonId:null,steps:null,onStepsChange:null};
   let lessonMotorActuation={enabled:false,lessonId:null,motor:null,direction:null,onInputChange:null};
+  let lessonMoistureActuation={enabled:false,lessonId:null,moisture:null,onMoistureChange:null};
   let authoredPairGuide=null,authoredPairGuideRestorePair=null,authoredPairGuideLayer=null;
   let authoredPairGuideBackdropLine=null,authoredPairGuideDashLine=null;
   let breadboardHoleStudy={
@@ -1536,6 +1554,9 @@ export function mountScene(host, onSelect = () => {}) {
     }
     if(lessonMotorActuation.enabled){
       parts.push("Bài 10 có tay gạt PWM 3D riêng và hai nút 3D chọn chiều thuận hoặc ngược; không kéo trục hay rotor. Kéo tay gạt sang phải tăng hai đơn vị PWM mỗi pixel trong miền 0–255, thả mới cập nhật thanh trượt HTML. Chạm rồi thả nút chiều quay chỉ cập nhật select HTML hiện hành. Dùng phím mũi tên/Home/End và select HTML bằng bàn phím tương đương. Đây là lệnh tín hiệu khái niệm, không kích mạch Lesson10 vốn signal-only, không đo RPM, dòng, điện áp, driver power, mô-men, chuyển động cơ khí hoặc AVR thật.");
+    }
+    if(lessonMoistureActuation.enabled){
+      parts.push("Bài 14 có tay kéo độ ẩm đất 3D khái niệm tách khỏi chậu cây và đèn tín hiệu bơm. Kéo sang phải tăng, sang trái giảm một điểm phần trăm đầu vào mô phỏng mỗi pixel (0–100); chỉ xem trước tay kéo, thả mới cập nhật thanh trượt HTML. Bàn phím dùng thanh trượt HTML tương đương. Bài vẫn signal-only; hình 3D không đo độ ẩm, không chứng minh nguồn relay/driver, bơm, nước, lưu lượng, dòng điện hay AVR thực.");
     }
     if(inspectedLabTerminalId){
       parts.push(`Terminal đang xem: ${inspectedLabTerminalId}. Đây là trạng thái đọc-only từ Inspector, không tạo kết nối hoặc xác nhận vị trí vật lý.`);
@@ -2995,6 +3016,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
     resetLessonMotorActuation(false);
+    resetLessonMoistureActuation(false);
     const previousSelection=selectedLabComponentId;
     const previousFocus=focusedLabComponentId;
     const previousZoom=zoom;
@@ -4823,6 +4845,160 @@ export function mountScene(host, onSelect = () => {}) {
       }))===true;
     }catch{return false;}
   }
+  function syncLessonMoistureVisual(){
+    const gesture=drag?.kind==="lesson-moisture-actuator"?drag:null;
+    const preview=gesture&&moved?gesture.previewMoisture:null;
+    const moisture=preview??lessonMoistureActuation.moisture??48;
+    if(currentLessonId===14&&activeModule?.moistureTarget){
+      // This only moves a semantic input thumb; the pump LED is output-only.
+      activeModule.moistureTarget.position.x=
+        LESSON_MOISTURE_HANDLE_MIN_X+
+        (moisture/100)*LESSON_MOISTURE_HANDLE_SPAN;
+    }
+    canvas.dataset.lessonMoistureMode=lessonMoistureActuation.enabled?"pointer-slide":"off";
+    canvas.dataset.lessonMoistureValue=lessonMoistureActuation.enabled
+      ?String(lessonMoistureActuation.moisture):"";
+    canvas.dataset.lessonMoisturePreview=preview===null?"":String(preview);
+    canvas.dataset.lessonMoistureGesture=gesture?(moved?"dragging":"grabbed"):"none";
+    canvas.dataset.lessonMoistureTargetCount=activeModule?.moistureTarget?"1":"0";
+    canvas.dataset.lessonMoisturePhysicalVerified="false";
+    canvas.dataset.lessonMoistureElectricalAuthority="false";
+    canvas.dataset.lessonMoistureMeasuredMoisture="false";
+    canvas.dataset.lessonMoisturePumpPowerModeled="false";
+  }
+  function currentLessonMoistureActuator(){
+    if(!lessonMoistureActuation.enabled||disposed||contextLost||document.hidden||
+       currentLessonId!==14||lessonMoistureActuation.lessonId!==14||
+       labEdit.enabled||activeLabLayout||
+       !Number.isInteger(lessonMoistureActuation.moisture)||
+       lessonMoistureActuation.moisture<0||lessonMoistureActuation.moisture>100||
+       typeof lessonMoistureActuation.onMoistureChange!=="function"||
+       activeModule?.module?.visible===false)return null;
+    const thumb=activeModule?.moistureTarget;
+    if(thumb?.isMesh!==true||thumb.parent!==activeModule.module||
+       thumb.userData?.kind!=="soil-moisture-target"||
+       thumb.userData.lessonId!==14||
+       thumb.userData.sourceId!==LESSON_MOISTURE_SOURCE_ID||
+       thumb.userData.physicalVerified!==false||
+       thumb.userData.electricalAuthority!==false||
+       thumb.userData.measuredMoisture!==false||
+       thumb.userData.pumpPowerModeled!==false)return null;
+    return {thumb,lessonId:14,sourceId:LESSON_MOISTURE_SOURCE_ID,
+      moisture:lessonMoistureActuation.moisture,
+      onMoistureChange:lessonMoistureActuation.onMoistureChange};
+  }
+  function lessonMoistureStatus(ok=true){
+    return Object.freeze({ok,enabled:lessonMoistureActuation.enabled,
+      active:currentLessonMoistureActuator()!==null,
+      lessonId:lessonMoistureActuation.lessonId,
+      moisture:lessonMoistureActuation.enabled?lessonMoistureActuation.moisture:null,
+      previewMoisture:drag?.kind==="lesson-moisture-actuator"&&moved
+        ?drag.previewMoisture:null,
+      targetCount:activeModule?.moistureTarget?1:0,
+      mode:lessonMoistureActuation.enabled?"pointer-slide":"off",
+      physicalVerified:false,electricalAuthority:false,
+      measuredMoisture:false,pumpPowerModeled:false});
+  }
+  function cancelLessonMoistureGesture(redraw=false){
+    if(drag?.kind!=="lesson-moisture-actuator")return false;
+    const pointerId=drag.pointerId;
+    drag=null;moved=false;
+    try{canvas.releasePointerCapture?.(pointerId);}catch{}
+    syncLessonMoistureVisual();
+    if(redraw)invalidate();
+    return true;
+  }
+  function resetLessonMoistureActuation(redraw=false){
+    cancelLessonMoistureGesture(false);
+    lessonMoistureActuation={enabled:false,lessonId:null,moisture:null,onMoistureChange:null};
+    syncLessonMoistureVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    if(redraw)invalidate();
+    return lessonMoistureStatus(true);
+  }
+  function setLessonMoistureActuation(options={enabled:false}){
+    if(disposed)return Object.freeze({ok:false,enabled:false,active:false,
+      lessonId:null,moisture:null,previewMoisture:null,targetCount:0,mode:"off",
+      physicalVerified:false,electricalAuthority:false,measuredMoisture:false,
+      pumpPowerModeled:false});
+    if(!options||typeof options!=="object"||Array.isArray(options)||
+       Object.getPrototypeOf(options)!==Object.prototype){
+      throw new TypeError("Lesson Moisture options phải là plain object");
+    }
+    if(options.enabled!==true)return resetLessonMoistureActuation(true);
+    const required=["enabled","lessonId","moisture","onMoistureChange"];
+    if(Reflect.ownKeys(options).length!==required.length||
+       Reflect.ownKeys(options).some(key=>typeof key!=="string"||!required.includes(key))||
+       required.some(key=>{
+         const descriptor=Object.getOwnPropertyDescriptor(options,key);
+         return !descriptor||!("value" in descriptor);
+       }))throw new RangeError("Moisture enabled cần đúng bốn trường input");
+    if(options.lessonId!==14||currentLessonId!==14){
+      throw new RangeError("Tay kéo độ ẩm 3D chỉ dùng cho bài 14");
+    }
+    if(!Number.isInteger(options.moisture)||options.moisture<0||options.moisture>100){
+      throw new RangeError("Độ ẩm đất mô phỏng phải là số nguyên 0–100");
+    }
+    if(typeof options.onMoistureChange!=="function"){
+      throw new TypeError("onMoistureChange phải là function");
+    }
+    if(document.hidden||contextLost||labEdit.enabled||activeLabLayout||
+       activeModule?.module?.visible===false||
+       activeModule?.moistureTarget?.userData?.sourceId!==LESSON_MOISTURE_SOURCE_ID){
+      throw new RangeError("Tay kéo độ ẩm không khả dụng trong scene/edit/layout");
+    }
+    const same=lessonMoistureActuation.enabled&&lessonMoistureActuation.lessonId===14;
+    if(!same)resetLessonMoistureActuation(false);
+    else if(drag?.kind==="lesson-moisture-actuator"&&
+      (options.moisture!==lessonMoistureActuation.moisture||
+       options.onMoistureChange!==lessonMoistureActuation.onMoistureChange)){
+      cancelLessonMoistureGesture(false);
+    }
+    lessonMoistureActuation={enabled:true,lessonId:14,
+      moisture:options.moisture,onMoistureChange:options.onMoistureChange};
+    syncLessonMoistureVisual();
+    syncSceneOwnedTouchAction();
+    refreshCanvasAccessibility();
+    invalidate();
+    return lessonMoistureStatus(true);
+  }
+  function lessonMoistureHit(event){
+    const current=currentLessonMoistureActuator();
+    const pointerType=lessonButtonPointerType(event?.pointerType);
+    if(!current||!pointerType||
+       (pointerType==="mouse"&&event.button!==0)||!pointerRay(event))return null;
+    scene.updateMatrixWorld(true);
+    const hit=raycaster.intersectObject(current.thumb,false)[0]??null;
+    return hit?.object===current.thumb?{...current,pointerType}:null;
+  }
+  function updateLessonMoistureDrag(event){
+    if(drag?.kind!=="lesson-moisture-actuator"||!moved)return false;
+    const current=currentLessonMoistureActuator();
+    if(!current||current.thumb!==drag.sourceObject||
+       current.sourceId!==drag.sourceId||
+       current.moisture!==drag.startHostMoisture||
+       current.onMoistureChange!==drag.onMoistureChange){
+      cancelLessonMoistureGesture(true);
+      return false;
+    }
+    const deltaX=event.clientX-drag.startClientX;
+    drag.previewMoisture=Math.max(0,Math.min(100,
+      Math.round(drag.startHostMoisture+deltaX*LESSON_MOISTURE_DRAG_PERCENT_PER_PX)));
+    syncLessonMoistureVisual();
+    invalidate();
+    return true;
+  }
+  function emitLessonMoisture(moisture,pointerType,callback){
+    if(!Number.isInteger(moisture)||moisture<0||moisture>100||
+       !lessonButtonPointerType(pointerType)||typeof callback!=="function")return false;
+    try{
+      return callback(moisture,Object.freeze({
+        lessonId:14,source:"pointer",pointerType,phase:"change",
+        physicalVerified:false,
+      }))===true;
+    }catch{return false;}
+  }
   function syncLessonPotentiometerDatasets(){
     canvas.dataset.lessonPotMode=lessonPotentiometerActuation.enabled?"enabled":"off";
     canvas.dataset.lessonPotValue=Number.isInteger(lessonPotentiometerActuation.value)
@@ -4843,7 +5019,7 @@ export function mountScene(host, onSelect = () => {}) {
       lessonFsrActuation.enabled||lessonUltrasonicActuation.enabled||
       lessonLdrActuation.enabled||lessonTemperatureActuation.enabled||
       lessonRgbActuation.enabled||lessonStepperActuation.enabled||
-      lessonMotorActuation.enabled)?"none":"";
+      lessonMotorActuation.enabled||lessonMoistureActuation.enabled)?"none":"";
   }
   function lessonPotentiometerActuationStatus(ok=true){
     return Object.freeze({
@@ -5072,6 +5248,7 @@ export function mountScene(host, onSelect = () => {}) {
     if(nextEditEnabled)resetLessonRgbActuation(false);
     if(nextEditEnabled)resetLessonStepperActuation(false);
     if(nextEditEnabled)resetLessonMotorActuation(false);
+    if(nextEditEnabled)resetLessonMoistureActuation(false);
     if(editTransition){
       inspectedLabTerminalId=null;inspectedLabTerminalMode="none";
       hoveredLabTerminalId=null;
@@ -5805,6 +5982,21 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    const moistureHit=lessonMoistureHit(event);
+    if(moistureHit){
+      drag=pointerDragBase(event,{
+        kind:"lesson-moisture-actuator",lessonId:14,
+        sourceId:moistureHit.sourceId,sourceObject:moistureHit.thumb,
+        startHostMoisture:moistureHit.moisture,
+        previewMoisture:moistureHit.moisture,
+        onMoistureChange:moistureHit.onMoistureChange,
+      });
+      try{canvas.setPointerCapture?.(event.pointerId);}catch{}
+      event.preventDefault();
+      syncLessonMoistureVisual();
+      invalidate();
+      return;
+    }
     if(labEdit.enabled&&activeLabLayout){
       const hit=labHit(event);
       if(hit?.object?.userData?.kind==="lab-terminal"){
@@ -5975,6 +6167,9 @@ export function mountScene(host, onSelect = () => {}) {
         syncLessonMotorVisual();
         invalidate();
       }
+    }else if(drag.kind==="lesson-moisture-actuator"){
+      event.preventDefault();
+      if(moved)updateLessonMoistureDrag(event);
     }else if(drag.kind==="lab-component"){
       if(moved){
         event.preventDefault();
@@ -6061,6 +6256,16 @@ export function mountScene(host, onSelect = () => {}) {
       if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
         const original=drag;
         updateLessonStepperDrag(event);
+        if(drag!==original||event.pointerId!==drag.pointerId)return;
+      }
+    }
+    if(select&&drag.kind==="lesson-moisture-actuator"){
+      const deltaX=event.clientX-drag.startClientX;
+      const deltaY=event.clientY-drag.startClientY;
+      if(!moved&&Math.hypot(deltaX,deltaY)>drag.tapThreshold)moved=true;
+      if(moved&&(event.clientX!==drag.x||event.clientY!==drag.y)){
+        const original=drag;
+        updateLessonMoistureDrag(event); // Include genuine final pointerup delta.
         if(drag!==original||event.pointerId!==drag.pointerId)return;
       }
     }
@@ -6329,6 +6534,24 @@ export function mountScene(host, onSelect = () => {}) {
       invalidate();
       return;
     }
+    if(finished.kind==="lesson-moisture-actuator"){
+      const current=currentLessonMoistureActuator();
+      const stillCurrent=Boolean(current&&finished.lessonId===14&&
+        current.thumb===finished.sourceObject&&
+        current.sourceId===finished.sourceId&&
+        current.moisture===finished.startHostMoisture&&
+        current.onMoistureChange===finished.onMoistureChange);
+      syncLessonMoistureVisual(); // Clear preview, never drive the pump LED.
+      if(select&&moved&&stillCurrent&&
+         Number.isInteger(finished.previewMoisture)&&
+         finished.previewMoisture>=0&&finished.previewMoisture<=100&&
+         finished.previewMoisture!==finished.startHostMoisture){
+        emitLessonMoisture(finished.previewMoisture,finished.pointerType,
+          finished.onMoistureChange);
+      }
+      invalidate();
+      return;
+    }
     if(["lesson-motor-pwm-actuator","lesson-motor-direction-actuator"].includes(finished.kind)){
       const current=currentLessonMotorActuator();
       const stillCurrent=Boolean(current&&finished.lessonId===10&&
@@ -6484,6 +6707,7 @@ export function mountScene(host, onSelect = () => {}) {
       cancelLessonRgbGesture(false);
       cancelLessonStepperGesture(false);
       cancelLessonMotorGesture(false);
+      cancelLessonMoistureGesture(false);
       return;
     }
     invalidate();
@@ -6559,6 +6783,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
     resetLessonMotorActuation(false);
+    resetLessonMoistureActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}}
     drag=null;
     resetCommittedWireRepairIntent(false);
@@ -6624,6 +6849,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
     resetLessonMotorActuation(false);
+    resetLessonMoistureActuation(false);
     lastServoSnapshotAngle=90;
     clearLabLayout(false);
     currentLessonId=Number(lesson?.id);
@@ -6642,6 +6868,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonRgbVisual();
     syncLessonStepperVisual();
     syncLessonMotorVisual();
+    syncLessonMoistureVisual();
     if(!contextLost)applySceneLod(Math.max(1,host.clientWidth),Math.max(1,host.clientHeight),true);
     invalidate();
   }
@@ -6729,6 +6956,7 @@ export function mountScene(host, onSelect = () => {}) {
     syncLessonRgbVisual();
     syncLessonStepperVisual();
     syncLessonMotorVisual();
+    syncLessonMoistureVisual();
     invalidate();
   }
   function control(action){
@@ -6746,7 +6974,7 @@ export function mountScene(host, onSelect = () => {}) {
     invalidate();
   }
   resize();
-  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,setLessonStepperActuation,setLessonMotorActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
+  return {setLesson,setWiring,setLabLayout,setLabEdit,setLessonButtonActuation,setLessonPotentiometerActuation,setLessonPianoActuation,setLessonServoActuation,setLessonFsrActuation,setLessonUltrasonicActuation,setLessonLdrActuation,setLessonTemperatureActuation,setLessonRgbActuation,setLessonStepperActuation,setLessonMotorActuation,setLessonMoistureActuation,focusLabComponent,setInspectedTerminal,setPendingWireTerminal,setHighlightedLabWire,setCommittedWireRepairIntent,setAuthoredPairGuide,setBreadboardHoleStudy,setBreadboardHoleLinkIntent,getLabViewState,update,control,resize,dispose() {
     if(disposed)return;
     const wasContextLost=contextLost;
     disposed=true;
@@ -6762,6 +6990,7 @@ export function mountScene(host, onSelect = () => {}) {
     resetLessonRgbActuation(false);
     resetLessonStepperActuation(false);
     resetLessonMotorActuation(false);
+    resetLessonMoistureActuation(false);
     if(drag){try{canvas.releasePointerCapture?.(drag.pointerId);}catch{}drag=null;}
     resetCommittedWireRepairIntent(false);
     observer.disconnect();

@@ -104,6 +104,10 @@ const state = {
   // inputs. The motor's electrical activation remains signal-only and its rotor
   // remains an output of the existing JavaScript lesson simulator.
   sceneMotorActuation: null,
+  // The Lesson14 plant has a separate conceptual 3D moisture INPUT thumb.
+  // Only the authored HTML slider is authoritative; no soil measurement,
+  // physical pump, relay power, or electrical activation is inferred.
+  sceneMoistureActuation: null,
   // An exact current learner-wire repair PROPOSAL, never a graph edge. Only a
   // separate native Confirm may pass the proposed endpoints to LabEditor.
   committedWireRepair: null,
@@ -909,6 +913,7 @@ function closeReadOnlyGuideMode(){
   syncSceneLessonRgbActuation();
   syncSceneLessonStepperActuation();
   syncSceneLessonMotorActuation();
+  syncSceneLessonMoistureActuation();
 }
 function clearAuthoredGuide(){
   if(!state.authoredGuide)return false;
@@ -1647,6 +1652,7 @@ function renderStage() {
   syncSceneLessonRgbActuation();
   syncSceneLessonStepperActuation();
   syncSceneLessonMotorActuation();
+  syncSceneLessonMoistureActuation();
 }
 function renderControls(){
   const lesson=currentLesson(),controls=$("experimentControls");
@@ -1706,6 +1712,8 @@ function renderControls(){
       ?"Kéo tay gạt số bước 3D riêng khỏi rotor để tăng hoặc giảm số bước mô phỏng (1 bước mỗi pixel, 0–200). Khi kéo chỉ xem trước, thả mới cập nhật thanh trượt HTML; dùng phím mũi tên/Home/End tương đương. Rotor chỉ phản ánh đầu ra simulator khi Run, không xác minh STEP/DIR, góc hay chuyển động cơ khí, nguồn/driver hoặc AVR thật."
     :lesson.id===10
       ?"Panel 3D bài 10 có tay gạt PWM (0–255, hai điểm mỗi pixel, kéo xem trước/thả mới ghi) và hai nút chọn Thuận/Ngược (chạm rồi thả để chọn). Thanh trượt PWM và hộp chọn chiều quay HTML vẫn là điều khiển bàn phím chính thức. Rotor là đầu ra mô phỏng, không phải tay gạt; Lesson10 chỉ kiểm chứng tín hiệu logic, không chứng minh driver đã cấp công suất, RPM, mô-men, dòng, áp hoặc mạch điện hoạt động."
+    :lesson.id===14
+      ?"Kéo tay gạt độ ẩm đất 3D tách khỏi chậu cây để xem trước giá trị mô phỏng 0–100% (sang phải tăng 1 điểm phần trăm mỗi pixel); chỉ khi thả mới cập nhật thanh trượt HTML. Dùng phím mũi tên/Home/End trên thanh trượt để thao tác bằng bàn phím. Khi chạy mô phỏng, chỉ mức dưới 35% mới phát tín hiệu bật bơm khái niệm. Bài 14 vẫn chỉ có tín hiệu điều khiển, không đo độ ẩm thật hoặc xác minh relay, nguồn, bơm, dòng nước, điện áp hay AVR."
     :"Thay đổi tham số trước hoặc trong khi mô phỏng.";
 }
 function highlightArduino(code) {
@@ -1887,6 +1895,8 @@ function startPause(){
   if(rearmStepper)revokeSceneLessonStepperActuation();
   const rearmMotor=state.lessonId===10;
   if(rearmMotor)revokeSceneLessonMotorActuation();
+  const rearmMoisture=state.lessonId===14;
+  if(rearmMoisture)revokeSceneLessonMoistureActuation();
   try{
     if(state.running) {
       stopClock();log("Đã tạm dừng mô phỏng.");updateSnapshot(true);
@@ -1925,6 +1935,7 @@ function startPause(){
     if(rearmRgb)syncSceneLessonRgbActuation();
     if(rearmStepper)syncSceneLessonStepperActuation();
     if(rearmMotor)syncSceneLessonMotorActuation();
+    if(rearmMoisture)syncSceneLessonMoistureActuation();
   }
 }
 function resetSimulation() {
@@ -1939,6 +1950,7 @@ function resetSimulation() {
   revokeSceneLessonRgbActuation();
   revokeSceneLessonStepperActuation();
   revokeSceneLessonMotorActuation();
+  revokeSceneLessonMoistureActuation();
   stopClock();state.controls=defaultControls(currentLesson());state.memory={};
   state.elapsedMs=0;state.lastLogTime=0;state.previousSignature="";
   renderControls();updateSnapshot(true);log("Đã đưa mô phỏng về trạng thái ban đầu.");
@@ -1953,6 +1965,7 @@ function resetSimulation() {
   syncSceneLessonRgbActuation();
   syncSceneLessonStepperActuation();
   syncSceneLessonMotorActuation();
+  syncSceneLessonMoistureActuation();
 }
 function setLesson(id,replaceHash=true){
   const lesson=lessonById(id);
@@ -1968,6 +1981,7 @@ function setLesson(id,replaceHash=true){
   revokeSceneLessonRgbActuation();
   revokeSceneLessonStepperActuation();
   revokeSceneLessonMotorActuation();
+  revokeSceneLessonMoistureActuation();
   cancelActivePracticeStepAttempt();
   state.bb3dHolePickRequested=false;
   state.breadboardUI?.cancelHoleLink?.();
@@ -2039,6 +2053,11 @@ function onControlsInput(event){
     // Either native motor input invalidates a held 3D PWM OR direction gesture.
     revokeSceneLessonMotorActuation();
   }
+  if(key==="moisture"&&state.lessonId===14&&config.type==="slider"&&
+     event.source!=="scene"){
+    // The native soil-moisture setpoint always supersedes a held 3D preview.
+    revokeSceneLessonMoistureActuation();
+  }
   const previous=state.controls[key];
   if(config.type==="slider"){
     const value=Math.max(config.min,Math.min(config.max,Number(target.value)));
@@ -2081,6 +2100,9 @@ function onControlsInput(event){
   }
   if(["motor","direction"].includes(key)&&state.lessonId===10){
     syncSceneLessonMotorActuation();
+  }
+  if(key==="moisture"&&state.lessonId===14&&config.type==="slider"){
+    syncSceneLessonMoistureActuation();
   }
 }
 function setButtonPress(pressed){
@@ -2919,6 +2941,85 @@ function syncSceneLessonMotorActuation(){
     }
   }catch{revokeSceneLessonMotorActuation();}
 }
+function revokeSceneLessonMoistureActuation(){
+  const binding=state.sceneMoistureActuation;
+  if(binding)binding.active=false;
+  state.sceneMoistureActuation=null;
+  try{state.scene?.setLessonMoistureActuation?.({enabled:false});}catch{}
+}
+function syncSceneLessonMoistureActuation(){
+  const scene=state.scene;
+  if(!scene?.setLessonMoistureActuation)return;
+  const lesson=currentLesson();
+  const config=lesson?.controls?.find(item=>item.key==="moisture");
+  const moisture=state.controls.moisture;
+  const slider=$("control-moisture");
+  const supported=state.lessonId===14&&
+    lesson?.controls?.length===1&&config?.type==="slider"&&
+    config.min===0&&config.max===100&&config.step===1&&
+    Number.isInteger(moisture)&&moisture>=0&&moisture<=100&&
+    slider?.tagName==="INPUT"&&slider.type==="range"&&
+    slider.dataset.control==="moisture"&&
+    slider.min==="0"&&slider.max==="100"&&slider.step==="1"&&
+    slider.value===String(moisture)&&!slider.disabled&&slider.isConnected;
+  if(!supported||document.hidden||state.stageTab!=="3d"||
+     state.labEditorUI?.isEditingIn3D?.()){
+    revokeSceneLessonMoistureActuation();
+    return;
+  }
+  let binding=state.sceneMoistureActuation;
+  if(!binding||!binding.active||binding.lessonId!==14){
+    binding={active:true,lessonId:14,slider,hostMoisture:moisture,onMoistureChange:null};
+    binding.onMoistureChange=(proposed,meta)=>{
+      if(binding!==state.sceneMoistureActuation||!binding.active||
+         state.lessonId!==14||state.stageTab!=="3d"||document.hidden||
+         state.labEditorUI?.isEditingIn3D?.()||
+         !Number.isInteger(proposed)||proposed<0||proposed>100||
+         !meta||!Object.isFrozen(meta)||
+         Object.getPrototypeOf(meta)!==Object.prototype||
+         Reflect.ownKeys(meta).length!==5)return false;
+      const fields=["lessonId","source","pointerType","phase","physicalVerified"];
+      const metadata=Object.create(null);
+      for(const field of fields){
+        const descriptor=Object.getOwnPropertyDescriptor(meta,field);
+        if(!descriptor||!("value" in descriptor))return false;
+        metadata[field]=descriptor.value;
+      }
+      if(metadata.lessonId!==14||metadata.source!=="pointer"||
+         !["mouse","touch","pen"].includes(metadata.pointerType)||
+         metadata.phase!=="change"||metadata.physicalVerified!==false)return false;
+      const native=$("control-moisture");
+      if(native!==binding.slider||native?.tagName!=="INPUT"||
+         native.type!=="range"||native.dataset.control!=="moisture"||
+         native.min!=="0"||native.max!=="100"||native.step!=="1"||
+         native.disabled||!native.isConnected||
+         state.controls.moisture!==binding.hostMoisture||
+         native.value!==String(binding.hostMoisture)||
+         proposed===state.controls.moisture)return false;
+      // A semantic pointer proposal is admitted only through native control
+      // handling. The Lesson14 signal-only pump is simulator output, not an
+      // electrical graph edge or verified moisture/water measurement.
+      native.value=String(proposed);
+      onControlsInput({target:native,type:"change",source:"scene"});
+      return state.controls.moisture===proposed;
+    };
+    state.sceneMoistureActuation=binding;
+  }
+  binding.slider=slider;
+  binding.hostMoisture=moisture;
+  try{
+    const receipt=scene.setLessonMoistureActuation({
+      enabled:true,lessonId:14,moisture,onMoistureChange:binding.onMoistureChange,
+    });
+    if(receipt?.active!==true||receipt?.targetCount!==1||
+       receipt?.physicalVerified!==false||
+       receipt?.electricalAuthority!==false||
+       receipt?.measuredMoisture!==false||
+       receipt?.pumpPowerModeled!==false){
+      revokeSceneLessonMoistureActuation();
+    }
+  }catch{revokeSceneLessonMoistureActuation();}
+}
 function playNote(hz){
   if(!state.running||!hz)return;
   try{
@@ -3253,6 +3354,7 @@ function wireEvents(){
       revokeSceneLessonRgbActuation();
       revokeSceneLessonStepperActuation();
       revokeSceneLessonMotorActuation();
+      revokeSceneLessonMoistureActuation();
       if(state.running)startPause();
     }else{
       syncSceneLessonButtonActuation();
@@ -3266,6 +3368,7 @@ function wireEvents(){
       syncSceneLessonRgbActuation();
       syncSceneLessonStepperActuation();
       syncSceneLessonMotorActuation();
+      syncSceneLessonMoistureActuation();
     }
   });
   // The browser may omit a pointercancel when the window loses focus. Fail
@@ -3282,6 +3385,7 @@ function wireEvents(){
     revokeSceneLessonRgbActuation();
     revokeSceneLessonStepperActuation();
     revokeSceneLessonMotorActuation();
+    revokeSceneLessonMoistureActuation();
   });
   window.addEventListener("focus",()=>{
     syncSceneLessonButtonActuation();
@@ -3295,6 +3399,7 @@ function wireEvents(){
     syncSceneLessonRgbActuation();
     syncSceneLessonStepperActuation();
     syncSceneLessonMotorActuation();
+    syncSceneLessonMoistureActuation();
   });
   window.addEventListener("beforeunload",()=>{
     revokeSceneLessonServoActuation();
@@ -3305,6 +3410,7 @@ function wireEvents(){
     revokeSceneLessonRgbActuation();
     revokeSceneLessonStepperActuation();
     revokeSceneLessonMotorActuation();
+    revokeSceneLessonMoistureActuation();
     state.labExplorerUI?.dispose();
     state.breadboardUI?.dispose();
     state.resistiveUI?.dispose();
@@ -3343,6 +3449,7 @@ async function init(){
       syncSceneLessonRgbActuation();
       syncSceneLessonStepperActuation();
       syncSceneLessonMotorActuation();
+      syncSceneLessonMoistureActuation();
     },
     onSelectionChange:refreshLabExplorer,
     onLayoutChange(){
@@ -3361,6 +3468,7 @@ async function init(){
       syncSceneLessonRgbActuation();
       syncSceneLessonStepperActuation();
       syncSceneLessonMotorActuation();
+      syncSceneLessonMoistureActuation();
     },
     onSceneReconciled(layout,meta,lessonId){
       // A rejected conceptual move can restore the Three.js layout without
@@ -3392,6 +3500,7 @@ async function init(){
       syncSceneLessonRgbActuation();
       syncSceneLessonStepperActuation();
       syncSceneLessonMotorActuation();
+      syncSceneLessonMoistureActuation();
     },
     onWireInspection(wireId,meta,lessonId){
       // Pure visual inspection, exact source and current learner edge only;
@@ -3502,6 +3611,7 @@ async function init(){
       revokeSceneLessonRgbActuation();
       revokeSceneLessonStepperActuation();
       revokeSceneLessonMotorActuation();
+      revokeSceneLessonMoistureActuation();
     }
   },true);
   $("sceneMount").addEventListener("webglcontextrestored",event=>{
@@ -3530,6 +3640,7 @@ async function init(){
       syncSceneLessonRgbActuation();
       syncSceneLessonStepperActuation();
       syncSceneLessonMotorActuation();
+      syncSceneLessonMoistureActuation();
     });
   },true);
   // The app and all controls remain usable when WebGL or the 3D module cannot load.
@@ -3552,6 +3663,7 @@ async function init(){
     syncSceneLessonRgbActuation();
     syncSceneLessonStepperActuation();
     syncSceneLessonMotorActuation();
+    syncSceneLessonMoistureActuation();
     updateSnapshot(true);
     document.documentElement.dataset.ready="3d";
   }catch(error){
